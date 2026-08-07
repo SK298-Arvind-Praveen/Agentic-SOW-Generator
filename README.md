@@ -1,0 +1,277 @@
+# SOWv2 — AI-Powered Statement of Work Generator
+
+An intelligent document generation platform that uses multi-agent AI (AWS Bedrock + LangGraph) to automatically produce Statements of Work (SOW) and Proof-of-Concept (POC) documents from company research, templates, and uploaded reference materials.
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Prerequisites](#prerequisites)
+- [Setup & Installation](#setup--installation)
+- [Configuration](#configuration)
+- [Running the App](#running-the-app)
+- [Features](#features)
+- [API Overview](#api-overview)
+- [Security Notes](#security-notes)
+
+---
+
+## Overview
+
+SOWv2 automates the creation of professional SOW and POC documents by:
+
+1. Researching a target company via web scraping and RAG
+2. Running a multi-agent LangGraph pipeline (company research, objectives, rules engine, POC writing)
+3. Generating polished `.docx` / `.pdf` output using branded templates
+4. Storing documents in AWS S3 and optionally syncing to Google Drive
+5. Tracking accounts and document history in AWS DynamoDB
+
+---
+
+## Architecture
+
+```
+┌─────────────────────┐        ┌──────────────────────────────────────────┐
+│   React Frontend    │ ──────▶│            Flask Backend                 │
+│  (TypeScript + MUI) │  HTTP  │                                          │
+└─────────────────────┘        │  ┌─────────────┐   ┌──────────────────┐ │
+                                │  │  LangGraph  │   │   RAG Pipeline   │ │
+                                │  │  Agents     │   │  (Bedrock + S3)  │ │
+                                │  └──────┬──────┘   └──────────────────┘ │
+                                │         │                                │
+                                │  ┌──────▼──────┐   ┌──────────────────┐ │
+                                │  │ AWS Bedrock │   │    DynamoDB      │ │
+                                │  │  (Claude)   │   │  (accounts/docs) │ │
+                                │  └─────────────┘   └──────────────────┘ │
+                                │                                          │
+                                │  ┌─────────────┐   ┌──────────────────┐ │
+                                │  │  python-docx│   │   Google Drive   │ │
+                                │  │  reportlab  │   │   / AWS S3       │ │
+                                │  └─────────────┘   └──────────────────┘ │
+                                └──────────────────────────────────────────┘
+```
+
+---
+
+## Tech Stack
+
+### Frontend
+| Tool | Version |
+|------|---------|
+| React | 19 |
+| TypeScript | 4.9 |
+| Material UI (MUI) | v7 |
+| React Router | v7 |
+| react-toastify | latest |
+| Build tool | Create React App (Webpack) |
+
+### Backend
+| Tool | Version |
+|------|---------|
+| Python | 3.14 |
+| Flask | 3.x |
+| LangGraph | 0.2.x |
+| LangChain | 0.3.x |
+| boto3 (AWS SDK) | 1.35.x |
+| pydantic | v2 |
+| python-docx | latest |
+| reportlab | latest |
+| pypdf | latest |
+| beautifulsoup4 | latest |
+
+### Cloud & Infrastructure
+| Service | Purpose |
+|---------|---------|
+| AWS Bedrock | LLM inference (`claude-sonnet-4`) |
+| AWS DynamoDB | Account and document metadata storage |
+| AWS S3 | Document file storage |
+| Google Drive API | Optional document sync |
+
+---
+
+## Project Structure
+
+```
+SOWv2/
+├── backend/
+│   ├── app/
+│   │   ├── agents/          # LangGraph agent nodes (research, objectives, POC writer, rules)
+│   │   ├── api/             # REST API handlers (accounts, history)
+│   │   ├── core/            # Flask server, LangGraph graph, state, streaming
+│   │   ├── db/              # DynamoDB handler
+│   │   ├── document/        # Document reading and building (docx/pdf)
+│   │   ├── preview/         # Async document preview generation
+│   │   ├── rag/             # RAG ingestion and retrieval
+│   │   ├── storage/         # S3 and Google Drive upload
+│   │   └── utils/           # Health checks, helpers
+│   ├── assets/              # Logo and font files for document branding
+│   ├── config/
+│   │   ├── .env             # AWS credentials (DO NOT COMMIT)
+│   │   ├── credentials.json # Google OAuth client (DO NOT COMMIT)
+│   │   ├── token.pickle     # Google OAuth token (DO NOT COMMIT)
+│   │   └── requirements_clean.txt
+│   ├── scripts/             # DynamoDB table setup script
+│   ├── templates/           # POC rules and document templates (JSON/Markdown)
+│   └── venv/                # Python virtual environment (not committed)
+│
+├── frontend/
+│   ├── public/              # Static assets
+│   ├── src/
+│   │   ├── components/      # React page components (Dashboard, SOWForm, Accounts, etc.)
+│   │   ├── config/          # API base URL config
+│   │   ├── contexts/        # Auth context
+│   │   ├── services/        # API service layer
+│   │   └── styles/          # Global CSS theme
+│   ├── .env                 # REACT_APP_API_URL
+│   ├── package.json
+│   └── tsconfig.json
+│
+├── shared/
+│   ├── uploads/             # User-uploaded source documents (runtime, not committed)
+│   └── output/              # Generated SOW/POC output files (runtime, not committed)
+│
+├── .gitignore
+└── README.md
+```
+
+---
+
+## Prerequisites
+
+- **Node.js** >= 18 and **npm** >= 9
+- **Python** >= 3.11
+- **AWS account** with:
+  - Bedrock access enabled for `us.anthropic.claude-sonnet-4-20250514-v1:0`
+  - DynamoDB tables: `rag-schema`, `agentic-poc`
+  - S3 bucket configured
+- **Google Cloud project** with Drive API enabled (optional, for Drive sync)
+
+---
+
+## Setup & Installation
+
+### 1. Clone the repository
+
+```bash
+git clone <repo-url>
+cd SOWv2
+```
+
+### 2. Backend setup
+
+```bash
+cd backend
+
+# Create and activate virtual environment
+python -m venv venv
+# Windows
+venv\Scripts\activate
+# macOS/Linux
+source venv/bin/activate
+
+# Install dependencies
+pip install -r config/requirements_clean.txt
+```
+
+### 3. Frontend setup
+
+```bash
+cd frontend
+npm install
+```
+
+### 4. DynamoDB table setup (first time only)
+
+```bash
+cd backend
+python scripts/setup_dynamodb_table.py
+```
+
+---
+
+## Configuration
+
+### Backend — `backend/config/.env`
+
+Create this file (never commit it):
+
+```env
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
+# AWS_SESSION_TOKEN=your_session_token  # only if using temporary credentials
+```
+
+### Frontend — `frontend/.env`
+
+```env
+REACT_APP_API_URL=http://localhost:5000
+REACT_APP_ENV=development
+```
+
+### Google Drive (optional)
+
+Place your `credentials.json` (OAuth2 client) in `backend/config/`. On first run the app will prompt for OAuth consent and save `token.pickle`.
+
+---
+
+## Running the App
+
+### Backend
+
+```bash
+cd backend
+venv\Scripts\activate   # Windows
+python app/core/server.py
+# Server starts on http://localhost:5000
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm start
+# App opens on http://localhost:3000
+```
+
+---
+
+## Features
+
+- **Company Research Agent** — scrapes and summarizes target company information
+- **Objective Agent** — drafts project objectives tailored to the company
+- **Rules Engine Agent** — applies configurable POC rules from `templates/poc_rules.json`
+- **POC Writer Agent** — assembles the final document narrative
+- **RAG Pipeline** — ingests uploaded reference documents and retrieves relevant context
+- **Document Generation** — produces branded `.docx` and `.pdf` files using company assets
+- **Preview System** — async preview generation with status monitoring
+- **Account Management** — tracks clients and their document history via DynamoDB
+- **Google Drive Sync** — optionally uploads generated documents to a Drive folder
+- **S3 Storage** — stores all generated files in AWS S3
+
+---
+
+## API Overview
+
+The Flask backend exposes REST endpoints at `http://localhost:5000`:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/generate` | Trigger SOW/POC generation pipeline |
+| GET | `/accounts` | List all accounts |
+| GET | `/history` | Fetch document generation history |
+| GET | `/preview/:id` | Get document preview status |
+| GET | `/health` | Health check |
+
+---
+
+## Security Notes
+
+- **Never commit** `backend/config/.env`, `credentials.json`, or `token.pickle` — all three are listed in `.gitignore`
+- Rotate AWS credentials immediately if they have ever been committed to a public or shared repository
+- Use IAM roles with least-privilege for production deployments instead of static access keys
+- The `shared/uploads/` and `shared/output/` directories contain user data and generated documents — they are excluded from git

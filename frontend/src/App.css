@@ -1,0 +1,285 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-weight: 400;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 14px;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.App {
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* ============================================================
+   DESIGN TOKENS — ShellKode Light Theme
+   Scraped from shellkode.com CSS (cdn.prod.website-files.com)
+
+   Sidebar Navy:   #01285e  (ShellKode deep navy)
+   Primary Cyan:   #02adef  (ShellKode signature cyan)
+   Page BG:        #f9fafb  (light gray)
+   Card BG:        #ffffff  (white)
+   Text Dark:      #101828
+   ============================================================ */
+:root {
+  /* ── Page surfaces (light) ── */
+  --bg-base:        #f4f7fb;
+  --bg-surface:     #f9fafb;
+  --bg-elevated:    #ffffff;
+  --bg-overlay:     #f0f5fc;
+  --bg-card:        #ffffff;
+  --bg-card-hover:  #f4f8ff;
+
+  /* ── Sidebar (navy, from shellkode.com) ── */
+  --sidebar-bg:         #01285e;
+  --sidebar-bg-dark:    #00214e;
+  --sidebar-border:     rgba(255, 255, 255, 0.1);
+  --sidebar-hover:      rgba(255, 255, 255, 0.08);
+  --sidebar-active:     rgba(2, 173, 239, 0.2);
+  --sidebar-text:       rgba(255, 255, 255, 0.75);
+  --sidebar-text-active:#ffffff;
+  --sidebar-icon:       rgba(255, 255, 255, 0.6);
+
+  /* ── ShellKode brand navy ── */
+  --navy-900: #00164a;
+  --navy-800: #01285e;
+  --navy-700: #01285ecc;
+  --navy-600: #1a5770;
+  --navy-500: #365174;
+  --navy-400: #7792b4;
+  --navy-300: #b3c7e0;
+  --navy-100: #e8f0f8;
+
+  /* ── ShellKode signature cyan ── */
+  --cyan-600: #0082f3;
+  --cyan-500: #02adef;
+  --cyan-400: #2895f7;
+  --cyan-300: #90dade;
+  --cyan-200: #cfe0ff;
+  --cyan-100: #e8f4ff;
+  --cyan-50:  #f0f8ff;
+
+  /* ── Violet accent ── */
+  --violet-600: #211f54;
+  --violet-500: #4a3aff;
+  --violet-400: #5532fa;
+  --violet-300: #7f56d9;
+  --violet-100: #f0ecfd;
+
+  /* ── Gold ── */
+  --gold-500: #ffb819;
+  --gold-100: #fff8e1;
+
+  /* ── PRIMARY accent = cyan ── */
+  --accent:           #02adef;
+  --accent-dark:      #0082f3;
+  --accent-hover:     #00c4ff;
+  --accent-light:     #e8f4ff;
+  --accent-mid:       rgba(2, 173, 239, 0.15);
+  --accent-glow:      0 4px 20px rgba(2, 173, 239, 0.35);
+  --accent-glow-sm:   0 2px 10px rgba(2, 173, 239, 0.25);
+
+  /* ── Borders ── */
+  --border-subtle:  #eaecf0;
+  --border-default: #d0d5dd;
+  --border-medium:  #98a2b3;
+  --border-accent:  rgba(2, 173, 239, 0.4);
+  --border-navy:    rgba(1, 40, 94, 0.2);
+
+  /* ── Text (dark on light) ── */
+  --text-primary:   #101828;
+  --text-secondary: #344054;
+  --text-muted:     #667085;
+  --text-faint:     #98a2b3;
+  --text-white:     #ffffff;
+  --text-on-accent: #ffffff;
+  --text-on-navy:   #ffffff;
+
+  /* ── Status ── */
+  --success:      #027a48;
+  --success-bg:   #ecfdf3;
+  --success-text: #027a48;
+  --warning:      #b54708;
+  --warning-bg:   #fffaeb;
+  --error:        #b42318;
+  --error-bg:     #fef3f2;
+  --info:         #02adef;
+  --info-bg:      #e8f4ff;
+
+  /* ── Shadows (lighter for light theme) ── */
+  --shadow-xs:  0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-sm:  0 1px 3px rgba(16, 24, 40, 0.1), 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md:  0 4px 8px rgba(16, 24, 40, 0.08), 0 2px 4px rgba(16, 24, 40, 0.05);
+  --shadow-lg:  0 12px 24px rgba(16, 24, 40, 0.1), 0 4px 8px rgba(16, 24, 40, 0.06);
+  --shadow-xl:  0 20px 40px rgba(16, 24, 40, 0.12);
+  --shadow-2xl: 0 32px 64px rgba(16, 24, 40, 0.14);
+  --shadow-cyan: 0 4px 16px rgba(2, 173, 239, 0.25);
+
+  /* ── Gradients (real ShellKode site gradients) ── */
+  --gradient-brand:   linear-gradient(135deg, #01285e 0%, #02adef 100%);
+  --gradient-brand-r: linear-gradient(135deg, #02adef 0%, #01285e 100%);
+  --gradient-cyan:    linear-gradient(135deg, #02adef 0%, #00c4ff 100%);
+  --gradient-navy:    linear-gradient(180deg, #01285e 0%, #00214e 100%);
+  --gradient-card:    linear-gradient(145deg, #ffffff 0%, #f9fafb 100%);
+  --gradient-hero:    linear-gradient(135deg, #01285e 0%, #02adef 100%);
+  --gradient-light:   linear-gradient(135deg, #f4f8ff 0%, #e8f4ff 100%);
+  --gradient-glow:    radial-gradient(ellipse at center, rgba(2,173,239,0.12) 0%, transparent 70%);
+
+  /* ── Border Radius ── */
+  --radius-xs:   3px;
+  --radius-sm:   6px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-2xl:  20px;
+  --radius-full: 9999px;
+
+  /* ── Spacing ── */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+
+  /* ── Typography ── */
+  --font-size-xs:   0.75rem;
+  --font-size-sm:   0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg:   1.125rem;
+  --font-size-xl:   1.25rem;
+  --font-size-2xl:  1.5rem;
+  --font-size-3xl:  1.875rem;
+  --font-size-4xl:  2.25rem;
+
+  --leading-tight:   1.25;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.625;
+
+  --font-normal:    400;
+  --font-medium:    500;
+  --font-semibold:  600;
+  --font-bold:      700;
+  --font-extrabold: 800;
+
+  /* ── Transitions ── */
+  --transition-fast: 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ── Legacy aliases ── */
+  --primary-blue:       var(--accent);
+  --primary-blue-hover: var(--accent-hover);
+  --primary-blue-light: var(--accent-light);
+  --accent-blue:        var(--accent);
+  --secondary-bg:       var(--bg-surface);
+  --card-bg:            var(--bg-card);
+  --hover-bg:           var(--bg-card-hover);
+  --border-color:       var(--border-accent);
+  --border-light:       var(--border-subtle);
+  --border-dark:        var(--border-medium);
+  --success-color:      var(--success);
+  --warning-color:      var(--warning);
+  --error-color:        var(--error);
+  --info-color:         var(--info);
+
+  /* Old dark aliases → light equivalents */
+  --bg-elevated-old: var(--bg-elevated);
+  --bg-overlay-old:  var(--bg-overlay);
+  --purple-300:  var(--accent);
+  --purple-400:  var(--accent-dark);
+  --purple-500:  var(--navy-800);
+}
+
+/* ============================================================
+   GLOBAL TYPOGRAPHY
+   ============================================================ */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: var(--font-semibold);
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+h1 { font-size: var(--font-size-4xl); }
+h2 { font-size: var(--font-size-3xl); }
+h3 { font-size: var(--font-size-2xl); }
+h4 { font-size: var(--font-size-xl); }
+h5 { font-size: var(--font-size-lg); }
+h6 { font-size: var(--font-size-base); }
+
+p { line-height: var(--leading-normal); color: var(--text-secondary); }
+
+/* ============================================================
+   SCROLLBAR
+   ============================================================ */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-surface); }
+::-webkit-scrollbar-thumb {
+  background: var(--navy-300);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--navy-400); }
+
+/* ============================================================
+   SELECTION & FOCUS
+   ============================================================ */
+::selection { background: var(--cyan-200); color: var(--navy-800); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(-20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes glowPulse {
+  0%, 100% { box-shadow: var(--accent-glow-sm); }
+  50%       { box-shadow: var(--accent-glow); }
+}
+
+/* Utilities */
+.fade-in  { animation: fadeInUp 0.3s ease both; }
+.scale-in { animation: scaleIn 0.2s ease both; }
+.spin     { animation: spin 1s linear infinite; }
+.text-center { text-align: center; }
+.font-semibold { font-weight: var(--font-semibold); }
+.font-bold { font-weight: var(--font-bold); }

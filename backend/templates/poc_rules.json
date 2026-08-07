@@ -1,0 +1,221 @@
+{
+  "adaptive_generation": {
+    "description": "Guidelines for adaptive SOW generation based on user input analysis",
+    "industry_adaptation": {
+      "financial_services": {
+        "focus_areas": ["regulatory compliance", "risk management", "audit trails", "data security"],
+        "key_aws_services": ["AWS Config", "CloudTrail", "GuardDuty", "Macie", "KMS"],
+        "success_metrics": ["compliance rate", "risk reduction", "audit readiness", "processing accuracy"],
+        "common_challenges": ["regulatory requirements", "data privacy", "real-time processing", "audit compliance"]
+      },
+      "healthcare": {
+        "focus_areas": ["HIPAA compliance", "patient data security", "clinical accuracy", "interoperability"],
+        "key_aws_services": ["HealthLake", "Comprehend Medical", "KMS", "CloudTrail", "Config"],
+        "success_metrics": ["diagnostic accuracy", "patient outcomes", "compliance score", "processing speed"],
+        "common_challenges": ["HIPAA compliance", "data security", "clinical validation", "system integration"]
+      },
+      "retail_ecommerce": {
+        "focus_areas": ["customer experience", "personalization", "real-time analytics", "scalability"],
+        "key_aws_services": ["Personalize", "Forecast", "Rekognition", "Comprehend", "QuickSight"],
+        "success_metrics": ["conversion rate", "customer satisfaction", "recommendation accuracy", "revenue impact"],
+        "common_challenges": ["real-time personalization", "scalability", "data integration", "customer privacy"]
+      },
+      "manufacturing": {
+        "focus_areas": ["predictive maintenance", "quality control", "operational efficiency", "IoT integration"],
+        "key_aws_services": ["IoT Core", "IoT Analytics", "SageMaker", "Timestream", "Lambda"],
+        "success_metrics": ["equipment uptime", "quality improvement", "cost reduction", "prediction accuracy"],
+        "common_challenges": ["real-time monitoring", "data volume", "system integration", "predictive accuracy"]
+      }
+    },
+    "complexity_levels": {
+      "simple": {
+        "duration_weeks": [4, 6],
+        "team_size": [2, 3],
+        "aws_services_count": [3, 5],
+        "integration_points": [0, 2],
+        "characteristics": ["Single AI model", "Basic UI", "Limited integrations", "Standard AWS services"]
+      },
+      "moderate": {
+        "duration_weeks": [6, 10],
+        "team_size": [3, 5],
+        "aws_services_count": [5, 8],
+        "integration_points": [2, 4],
+        "characteristics": ["Multiple AI models", "Custom UI", "API integrations", "Advanced AWS services"]
+      },
+      "complex": {
+        "duration_weeks": [10, 16],
+        "team_size": [5, 8],
+        "aws_services_count": [8, 12],
+        "integration_points": [4, 8],
+        "characteristics": ["Enterprise AI pipeline", "Advanced UI", "Multiple integrations", "Custom solutions"]
+      },
+      "enterprise": {
+        "duration_weeks": [16, 24],
+        "team_size": [8, 12],
+        "aws_services_count": [12, 20],
+        "integration_points": [8, 15],
+        "characteristics": ["Multi-model AI system", "Enterprise UI", "Complex integrations", "Custom architecture"]
+      }
+    }
+  },
+  "content_requirements": {
+    "description": "Guidelines for defining content in POC",
+    "rules": [
+      "Business relevance must be clearly stated (e.g., textbook, policy document, training manual)",
+      "Technical format must be specified (PDF, HTML, PNG scans, etc.)",
+      "Volume of content in business terms (pages, books) and technical terms (GiB, zipped files)",
+      "Access control - define who loads content and who reads/consumes it",
+      "Volume of access - average over time (day, month), simultaneous logins",
+      "Adapt content requirements based on industry context and complexity level"
+    ]
+  },
+  "requirement_specificity": {
+    "description": "Requirements must be specific and measurable",
+    "good_example": "The solution should extract names, dates, locations and acronyms related to financial domain from documents",
+    "bad_example": "The solution should be capable of extracting relevant information from documents",
+    "rules": [
+      "Avoid vague statements",
+      "Use concrete examples",
+      "Define specific domains and constraints",
+      "Specify what is in-scope and out-of-scope",
+      "Tailor specificity to project complexity level",
+      "Include industry-specific requirements and constraints"
+    ]
+  },
+  "accuracy_metrics": {
+    "description": "Accuracy must be quantified and measurable",
+    "rules": [
+      "Quantify accuracy targets based on complexity: Simple (85%+), Moderate (90%+), Complex (95%+), Enterprise (99%+)",
+      "Define measurement method (human review, BLEU, ROUGE, etc.)",
+      "Call out constraints - language limits (e.g., English only), domain constraints",
+      "Set realistic expectations for POC vs Production",
+      "Include industry-specific accuracy requirements",
+      "Align metrics with identified business drivers"
+    ]
+  },
+  "scope_definition": {
+    "description": "Clear distinction between POC and Production scope",
+    "rules": [
+      "Document must exclusively describe POC scope OR clearly separate POC from Production deliverables",
+      "Explicitly list out-of-scope items based on complexity level",
+      "Define what will be delivered in POC phase",
+      "Clarify what requires future phases or change requests",
+      "Include industry-specific scope considerations",
+      "Align scope with assessed project complexity and user constraints"
+    ]
+  },
+  "generative_ai_services": {
+    "description": "Guidelines for choosing AI services",
+    "rules": [
+      "Clearly justify choice of specific LLM (e.g., Claude, Nova, Titan)",
+      "Prefer AWS Bedrock models when available",
+      "If using non-Bedrock LLM, provide additional justification",
+      "Justify vector database choice (OpenSearch, Aurora PostgreSQL with pgvector, etc.)",
+      "If not using AWS managed vector DB, explain why",
+      "Note: POC quality should not be compromised for Bedrock availability",
+      "Consider industry-specific AI service requirements",
+      "Scale AI service selection based on project complexity"
+    ]
+  },
+  "storage_optimization": {
+    "description": "Storage and cost optimization guidelines",
+    "rules": [
+      "Use S3 Intelligent Tiering for cost savings",
+      "Define DynamoDB data retention policies based on complexity (Simple: 7 days, Moderate: 30 days, Complex: 90 days, Enterprise: 1 year)",
+      "Implement lifecycle policies for temporary data",
+      "Use appropriate storage classes based on access patterns",
+      "Consider industry-specific data retention requirements",
+      "Scale storage solutions based on project complexity and data volume"
+    ]
+  },
+  "architecture_diagrams": {
+    "description": "Architecture diagram requirements",
+    "rules": [
+      "Must call out deployment region(s)",
+      "Must show if solution spans multiple AWS accounts (for complex/enterprise projects)",
+      "Include ancillary services: IAM, ECR, WAF, KMS, CloudWatch, CloudTrail",
+      "Show VPC and Availability Zones when using compute (EC2, ECS, EKS)",
+      "Clearly show data flow and component interactions",
+      "Include industry-specific security and compliance components",
+      "Scale architecture complexity based on project assessment"
+    ]
+  },
+  "testing_approach": {
+    "description": "Testing methodology must be defined",
+    "rules": [
+      "Specify if testing is manual or automated based on complexity level",
+      "Describe testing process in detail",
+      "Define test data requirements",
+      "Specify number of reviewers and their roles based on project complexity",
+      "Set realistic success criteria with percentages aligned to complexity level",
+      "Include industry-specific testing requirements (e.g., clinical validation for healthcare)",
+      "Scale testing rigor based on project complexity and business criticality"
+    ]
+  },
+  "api_hosting": {
+    "description": "Guidelines for API deployment",
+    "rules": [
+      "Prefer AWS Lambda or Step Functions for API hosting",
+      "Avoid EC2-based hosting unless justified",
+      "If EC2 required, use Spot instances and Graviton processors to reduce cost",
+      "Consider serverless-first architecture",
+      "Scale hosting approach based on complexity: Simple (Lambda), Moderate (Lambda + API Gateway), Complex (ECS/EKS), Enterprise (Multi-service architecture)",
+      "Include industry-specific hosting considerations (e.g., compliance requirements)"
+    ]
+  },
+  "model_specifications": {
+    "description": "AI model specifications",
+    "rules": [
+      "Specify exact model version being proposed",
+      "Verify regional availability of chosen model",
+      "Reference: https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html",
+      "Consider model capabilities vs. requirements",
+      "Scale model selection based on complexity and performance requirements",
+      "Include industry-specific model considerations (e.g., medical models for healthcare)"
+    ]
+  },
+  "personas_and_usage": {
+    "description": "User personas and usage patterns",
+    "rules": [
+      "List all personas (staff, users, admins, etc.)",
+      "Describe usage per persona (view, upload, approve)",
+      "Capture concurrency requirements based on complexity level",
+      "Define access control per persona",
+      "Include industry-specific personas and usage patterns",
+      "Scale user base and concurrency based on project complexity"
+    ]
+  },
+  "data_lifecycle": {
+    "description": "Data management and lifecycle",
+    "rules": [
+      "Define where/how outputs are stored",
+      "Specify retention duration based on complexity and industry requirements",
+      "Define backup and version control strategy",
+      "Establish single source of truth",
+      "Include industry-specific data lifecycle requirements",
+      "Scale data management complexity based on project assessment"
+    ]
+  },
+  "human_in_the_loop": {
+    "description": "Human review workflows",
+    "rules": [
+      "Define roles for creation, review, approval",
+      "Clarify if same or different personas handle each step",
+      "Define fallback if approval not completed",
+      "Specify SLAs for human review steps based on complexity level",
+      "Include industry-specific review requirements",
+      "Scale review complexity based on project criticality and compliance needs"
+    ]
+  },
+  "compliance_and_audit": {
+    "description": "Auditability and compliance requirements",
+    "rules": [
+      "Confirm audit trail requirements",
+      "Include monitoring and logging specifications",
+      "Document data privacy assumptions",
+      "Call out regulatory compliance needs based on industry",
+      "Scale compliance requirements based on industry and complexity",
+      "Include specific compliance frameworks (HIPAA, GDPR, SOX, etc.) as relevant"
+    ]
+  }
+}

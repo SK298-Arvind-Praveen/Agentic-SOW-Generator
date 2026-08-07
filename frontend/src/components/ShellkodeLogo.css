@@ -1,0 +1,87 @@
+.shellkode-logo {
+  display: inline-block;
+  position: relative;
+}
+
+.logo-image {
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 2px 8px rgba(14, 165, 233, 0.1));
+  transition: all 0.3s ease;
+}
+
+.shellkode-logo:hover .logo-image {
+  filter: drop-shadow(0 4px 12px rgba(14, 165, 233, 0.2));
+  transform: scale(1.02);
+}
+
+/* Size variations */
+.shellkode-logo.logo-small {
+  width: 120px;
+  height: auto;
+}
+
+.shellkode-logo.logo-medium {
+  width: 160px;
+  height: auto;
+}
+
+.shellkode-logo.logo-large {
+  width: 200px;
+  height: auto;
+}
+
+/* Logo-only version (just the icon part) */
+.shellkode-logo.logo-only {
+  width: auto;
+}
+
+.shellkode-logo.logo-only.logo-small {
+  width: 32px;
+  height: 32px;
+}
+
+.shellkode-logo.logo-only.logo-medium {
+  width: 48px;
+  height: 48px;
+}
+
+.shellkode-logo.logo-only.logo-large {
+  width: 64px;
+  height: 64px;
+}
+
+.shellkode-logo.logo-only .logo-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .shellkode-logo.logo-small {
+    width: 100px;
+  }
+
+  .shellkode-logo.logo-medium {
+    width: 140px;
+  }
+
+  .shellkode-logo.logo-large {
+    width: 180px;
+  }
+}
+
+@media (max-width: 480px) {
+  .shellkode-logo.logo-small {
+    width: 80px;
+  }
+
+  .shellkode-logo.logo-medium {
+    width: 120px;
+  }
+
+  .shellkode-logo.logo-large {
+    width: 160px;
+  }
+}
