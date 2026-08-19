@@ -49,8 +49,20 @@ class Config:
         self.MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
         
         # Model parameters
-        self.MAX_TOKENS = 65000  # Within model limit of 65536 tokens
-        self.TEMPERATURE = 0.3
+        # Large single responses were the main source of truncated/invalid JSON.
+        # The writer now works section-by-section, so these are safe upper bounds
+        # rather than a target for every call.
+        self.MAX_TOKENS = 8192
+        self.SECTION_MAX_TOKENS = 6000
+        self.TEMPERATURE = 0.2
+        # The preview UI currently stops polling after five minutes. Independent
+        # SOW sections share one immutable baseline and can safely be authored in
+        # parallel. Keep this configurable for Bedrock account quota tuning.
+        try:
+            configured_workers = int(os.environ.get("SOW_SECTION_WORKERS", "4"))
+        except ValueError:
+            configured_workers = 4
+        self.SOW_SECTION_WORKERS = max(1, min(configured_workers, 8))
         
         # Boto3 timeout configuration
         self.BOTO_CONFIG = BotocoreConfig(
@@ -63,17 +75,19 @@ class Config:
         # DOCUMENT STYLING - Updated to match brand specifications
         # =====================================================================
         
-        self.FONT_FAMILY = "DM Sans"
+        # Arial is intentionally used in the Word body for renderer portability.
+        # The branded cover continues to use the bundled DM Sans font files.
+        self.FONT_FAMILY = "Arial"
         self.FONT_SIZE_COVER_COMPANY = 39  # Cover page company name
         self.FONT_SIZE_COVER_TITLE = 16    # Cover page project title  
         self.FONT_SIZE_COVER_SUBTITLE = 15 # Author organization on cover
         self.FONT_SIZE_COVER_PREPARED = 12 # Prepared by text
         self.FONT_SIZE_TITLE = 26          # Legacy compatibility
-        self.FONT_SIZE_HEADING1 = 20       # Section headings (configurable)
-        self.FONT_SIZE_HEADING2 = 14       # Sub-headings (configurable)
+        self.FONT_SIZE_HEADING1 = 16       # narrative_proposal preset
+        self.FONT_SIZE_HEADING2 = 13       # narrative_proposal preset
         self.FONT_SIZE_BODY = 11           # Body text and tables
         self.FONT_SIZE_FOOTER = 9          # Footer text
-        self.LINE_SPACING = 1.5            # Increased line spacing for better readability
+        self.LINE_SPACING = 1.333          # narrative_proposal preset
         
         # Brand Colors - Updated to match specifications
         self.COLOR_PRIMARY_HEX = "#7B3FF2"      # Primary Purple
@@ -90,7 +104,7 @@ class Config:
         # PAGE SETTINGS - Updated to match specifications
         # =====================================================================
         
-        self.PAGE_SIZE = "A4"  # 8.27 x 11.69 inches
+        self.PAGE_SIZE = "LETTER"  # 8.5 x 11 inches; benchmark/business standard
         
         # Cover page margins (full-bleed)
         self.COVER_MARGIN_TOP = 0
@@ -127,6 +141,7 @@ class Config:
         self.POC_RULES_FILE = self.TEMPLATES_DIR / "poc_rules.json"
         self.POC_TEMPLATE_FILE = self.TEMPLATES_DIR / "poc_template.md"
         self.PRODUCTION_TEMPLATE_FILE = self.TEMPLATES_DIR / "production_template.md"
+        self.POC_TO_PROD_TEMPLATE_FILE = self.TEMPLATES_DIR / "poc_to_prod_template.md"
         self.COVER_PAGE_IMAGE = self.ASSETS_DIR / "coverpage.png"
         self.ARCHITECTURE_DIAGRAM = self.ASSETS_DIR / "architecture_diagram.png"
         
@@ -349,6 +364,7 @@ class Config:
         results = {
             "poc_template": self.POC_TEMPLATE_FILE.exists(),
             "production_template": self.PRODUCTION_TEMPLATE_FILE.exists(),
+            "poc_to_prod_template": self.POC_TO_PROD_TEMPLATE_FILE.exists(),
             "cover_page_image": self.COVER_PAGE_IMAGE.exists(),
             "architecture_diagram": self.ARCHITECTURE_DIAGRAM.exists(),
         }

@@ -1,499 +1,660 @@
+<!-- BEGIN_GLOBAL_TEMPLATE_CONTRACT -->
+# POC SOW GLOBAL AUTHORING AND BENCHMARK CONTRACT
+
+This contract is part of the runtime prompt for every generated section. It encodes the observable structure and writing standard of the 35-page reference SOW, `Axis Securities __ Agentic AI-powered CRM Platform __ SOW Draft 1.0.0.docx.pdf`. The runtime does not need access to that PDF. Do not merely claim to be "benchmark quality"; follow the concrete rules below.
+
+## A. Reference-derived document model
+
+The finished POC SOW must read like a detailed implementation baseline, not a generic proposal. Its substantive flow is:
+
+1. cover page;
+2. Document Control before the Table of Contents;
+3. Purpose and Scope;
+4. Scope at a Glance;
+5. Current State;
+6. detailed, module-by-module scope;
+7. AWS solution architecture;
+8. Open Clarifications;
+9. Out of Scope;
+10. Assumptions and Dependencies;
+11. Success Criteria;
+12. AWS Pricing;
+13. project team effort; and
+14. the preserved signature block required by the ShellKode template.
+
+Do not add standalone top-level sections for company profiles, executive summary, timeline, testing, risks, customer responsibilities, support, deliverable acceptance, change order, termination, contacts, marketing authorization, general terms and conditions, or other generic boilerplate. When a relevant fact belongs to one of those topics, place it inside the applicable permitted section without creating a new top-level heading.
+
+## B. Evidence and inference policy
+
+Classify every material statement mentally as one of the following and write accordingly:
+
+- **Confirmed:** directly stated by the user's product details, an uploaded source, or structured requirements. State it plainly and preserve exact quantities, names, wording, identifiers, and qualifications.
+- **Derived:** a necessary synthesis of confirmed facts, such as grouping requirements into modules or identifying an obvious dependency. State it plainly only when the reasoning is direct and low risk.
+- **Proposed:** an architect-authored design choice, implementation approach, validation method, sequence, staffing model, or AWS service not confirmed by the source. Label it "Proposed" or "proposed for baseline confirmation" at the point of use.
+- **Open:** a fact that changes scope, cost, architecture, acceptance, compliance, or sequencing and cannot safely be inferred. Carry it to Open Clarifications; never answer it on the customer's behalf.
+
+Sparse input is expected. Expand it into a professional SOW by decomposing stated capabilities, mapping actors/inputs/outputs/dependencies, and proposing sensible implementation detail. Do not compensate for sparse input by fabricating customer facts or contractual commitments.
+
+## C. Cross-section consistency rules
+
+- Use the same project name, customer name, module names, requirement IDs, actors, integrations, AWS services, environments, quantities, and status labels everywhere.
+- Establish one module/workstream taxonomy in Scope at a Glance and reuse it in Detailed Scope, Architecture, Open Clarifications, Out of Scope, Assumptions, Success Criteria, Pricing inputs, and Team Effort.
+- Preserve supplied requirement identifiers. When IDs are absent, create stable IDs using short module prefixes such as `EM-01`, `KB-01`, or `WF-01`; never renumber them differently in another section.
+- Do not contradict inclusion boundaries. A baseline capability included in Detailed Scope must not be excluded in Out of Scope; distinguish a limited included capability from an advanced deferred capability.
+- Do not invent a week-by-week schedule or committed duration. Sequence may be proposed as dependency logic, but dates and durations remain open unless supplied.
+- Do not invent prices, calculator links, funding status, resource commitments, data volumes, concurrency, SLAs, accuracy thresholds, availability, recovery objectives, or achieved outcomes.
+
+## D. Regulatory, compliance, AI, and human-review fidelity
+
+- Preserve regulator names, statutory references, residency statements, mandatory disclaimer text, forbidden-phrase rules, retention requirements, audit requirements, and source qualifications exactly when supplied.
+- Never convert "intended to support", "consistent with expectations", "designed for", "subject to confirmation", or a similar qualified statement into certification or a claim that the solution is compliant.
+- If the exact mandatory wording is not supplied, do not invent it. Record the wording/approval as an open clarification and describe only the control mechanism.
+- For AI-generated drafts, recommendations, summaries, classifications, scores, or decisions, state the human-in-the-loop boundary: the responsible user reviews the generated output and remains accountable for what is sent, approved, or acted upon.
+- Do not imply autonomous regulated decisions unless the source expressly requires and governs them.
+
+## E. Content density and form
+
+- Write implementation-grade detail: capability, actor, trigger/input, processing or rule, output, dependency, exception/boundary, and validation evidence.
+- Prefer concise prose for rationale and bullets for non-comparable items. Use tables only for genuinely comparable records.
+- Tables should normally contain two to four columns and must never exceed five. If detail will create narrow prose-heavy cells, split the table or put explanatory prose beneath it.
+- Each detailed module should normally contain: objective/boundary, workflow, functional requirements, roles and permissions, data, integrations, business rules and exceptions, AI/human review where relevant, security/compliance where relevant, dependencies, and validation notes. Omit a category only when genuinely inapplicable.
+- Use a sequential `Workflow` only where sequence materially aids understanding. A data store, reporting capability, integration layer, or governance capability does not automatically need its own numbered workflow.
+- A numbered workflow must contain four to eight meaningful end-to-end steps. Consolidate low-value micro-actions into phases or capability bullets; never create a document-spanning sequence of dozens of sparse items.
+- Avoid filler, marketing claims, repeated project summaries, vague bullets, and generic AWS catalogues.
+- Do not create diagrams in this phase. Provide sufficiently precise written architecture so diagrams can be added later without changing the scope baseline.
+
+## F.1 Heading hierarchy and numbering
+
+- The template's `##` headings are the only top-level categories and are rendered as Heading 1.
+- Use `###` for direct subcategories and `####` for a category beneath them. Use `#####` only for a genuinely necessary fourth level.
+- Every substantive subheading must participate in the parent hierarchy: `1.1`, `1.2`, `4.1`, `4.1.1`, and so on. The DOCX renderer normalizes these numbers deterministically, so do not use bold Normal paragraphs as substitute headings.
+- Do not skip a heading level. Do not create an unnumbered generic label such as `Workflow`, `Requirements`, or `Dependencies` outside the hierarchy.
+- Keep categorical headings concise. Put explanatory sentences in the following paragraph, not in the heading itself.
+
+## F. Reference-derived visual contract
+
+The DOCX renderer, not the LLM, enforces the visual design. Author Markdown that supports these deterministic rules:
+
+- US Letter portrait pages;
+- DM Sans typography;
+- purple `#5D3FD3` for top-level headings and table headers;
+- blue `#1A4BD2` for header/subsection accents;
+- dark gray `#434343` body text;
+- compact, left-aligned tables with purple header rows, light-gray alternating rows, thin gray borders, and repeating headers;
+- project/SOW label at left and ShellKode logo at right in the header;
+- thin gray footer rule, `Confidential Copyright © ShellKode 2026` at left, and live `Page X of Y` at right;
+- no manual spacer pages, no explicit page-break directives in generated Markdown, and no headings consisting solely of formatting punctuation.
+
+## G. Mandatory final self-check for every section
+
+Before responding, confirm internally that the section:
+
+1. follows its local template instructions;
+2. uses only confirmed, directly derived, clearly proposed, or explicitly open statements;
+3. preserves source wording and numbers;
+4. matches the shared module taxonomy and terminology;
+5. contains no new top-level section;
+6. contains no unsupported commitment or compliance claim; and
+7. returns only the Markdown body, without the section title or commentary about the task.
+<!-- END_GLOBAL_TEMPLATE_CONTRACT -->
+
 [META_STATIC]
 ## {PROJECT_TITLE}
 
-{COMPANY_NAME}
+Statement of Work - Proof of Concept
 
-Prepared by: {AUTHOR_NAME}
-{DOCUMENT_DATE} [Version {VERSION}]
-{AUTHOR_ORG}
-
+Prepared for {COMPANY_NAME}
+Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
+{DOCUMENT_DATE} | Version {VERSION}
 
 [META_STATIC_TABLE]
 ## Table_of_contents
 
-1. About {AUTHOR_ORG_SHORT}
-2. About {COMPANY_NAME}
-3. Project Overview
-4. Scope of Work
-5. Architecture Diagram
-6. Customer Dependencies
-7. Assumptions
-8. Out Of Scope
-9. Timelines and Deliverables
+Document Control
+1. Purpose and Scope of This Deliverable
+2. Deliverable Scope at a Glance
+3. Current State
+4. Detailed Scope of Work
+5. Solution Architecture — AWS
+6. Open Clarifications
+7. Out of Scope
+8. Assumptions and Dependencies
+9. Success Criteria
 10. AWS Pricing
-11. Customer Responsibilities
-12. Duration of Work
-13. Shellkode Implementation Cost
-14. Success Criteria
-15. Deliverable Acceptance
-16. Change Order
-17. Project Plan Termination
-18. Contacts and Reporting
-19. Marketing Authorization
-20. Terms & Conditions
-21. Acceptance and Signatories to Statement of Work
-
-
-[META_HYBRID_company_research]
-## About {AUTHOR_ORG_SHORT}
-
-{AUTHOR_ORG_DESCRIPTION}
-
-
-[META_HYBRID_company_research]
-## About {COMPANY_NAME}
-
-{COMPANY_DESCRIPTION}
-
+11. {AUTHOR_ORG_SHORT} Project Team Effort
+Acceptance and Signatories to Statement of Work
 
 [META_GENERATED]
-## Project Overview
+## Document Control
 
-Using the project objective and objective_analysis, write EXACTLY 3 sentences:
+PURPOSE
+Create the concise provenance and revision baseline that appears immediately after the cover in the reference SOW.
 
-Sentence 1 — State the specific business problem being solved and why it is urgent for {COMPANY_NAME}.
+REQUIRED STRUCTURE
 
-Sentence 2 — Describe what the POC system does, naming the core AI/ML capability and primary workflow.
+1. Start with exactly one five-column table:
 
-Sentence 3 — State ONE measurable outcome the POC will validate with a concrete metric.
+| Version | Date | Prepared By | Status | Classification |
+|---|---|---|---|---|
 
-RULES:
-- Total length: 40–60 words maximum
-- One paragraph, no bullet points
-- No marketing language
-- Keep concise and focused
+2. Populate it using supplied metadata:
+   - Version: the supplied document version; do not normalize it to a different format.
+   - Date: the supplied document date.
+   - Prepared By: the supplied author or author organization. Do not invent a team name.
+   - Status: use a supplied status; otherwise use `Draft for Client Review`.
+   - Classification: use a supplied classification; otherwise use `Confidential - {COMPANY_NAME}`.
 
+3. Add `### Revision Basis` and identify the exact evidence used for this SOW:
+   - the user's product-details text;
+   - names/titles of uploaded documents or extracted sources when available;
+   - confirmed workshop, clarification, evaluation, phasing, or approval records only when the evidence names them.
+   - Never invent a BRD, evaluation sheet, workshop, approval, version history, or previous agreement.
 
-[META_GENERATED]
-## Scope of Work
+4. If confirmed priorities, phases, deliverables, or module order exist, add `### Phasing Direction Received from {COMPANY_NAME_SHORT}` with a compact table of no more than four columns. Preserve the customer wording and distinguish priority from dependency. If no phasing direction is supplied, omit this subsection entirely.
 
-Generate focused Scope of Work based on objective_analysis fields.
-Keep each section concise with clear bullet points.
+QUALITY RULES
 
-BULLET COUNT PER SECTION (based on complexity_context.level):
-- simple → 2 bullets per section
-- moderate → 3 bullets per section
-- complex → 3 bullets per section (reduced from 4)
-- enterprise → 4 bullets per section (reduced from 4-5)
-
-STRUCTURE (use these titles in order):
-
-### Backend & API Implementation
-Brief description (1-2 sentences) + bullets per complexity count
-
-### User Interaction Layer
-← conditional: only if ui_required=true OR complexity=complex/enterprise
-Brief description (1-2 sentences) + bullets per complexity count
-
-### Infrastructure & Environment Setup
-Brief description (1-2 sentences) + bullets per complexity count
-
-### Data Processing & AI Integration
-Brief description (1-2 sentences) + bullets per complexity count
-
-### Testing, Validation & Deployment
-Brief description (1-2 sentences) + bullets per complexity count
-
-FORMATTING RULES:
-- Each section: 1-2 sentence intro + bullet points
-- Each bullet: 1-2 lines maximum, specific and actionable
-- Use bullet symbol "•"
-- Reference specific AWS services and measurable deliverables
-- **CRITICAL: Do NOT add numbers (1., 2., 3., etc.) before subsection titles. Use only the title text.**
-
+- Keep the section within 500 words and preferably one page.
+- Make the relationship between sources and scope explicit.
+- Do not summarize the entire solution here.
+- Do not add assumptions, open questions, signatures, or commercial terms here.
 
 [META_GENERATED]
-## Architecture Diagram
+## 1. Purpose and Scope of This Deliverable
 
-### Overview
+PURPOSE
+Translate the customer's stated need into the decision and implementation baseline governed by this SOW.
 
-Using objective_analysis.aws_services, deployment_environment, integration_details,
-security_requirements, and complexity_context, write a 3–4 sentence paragraph:
+REQUIRED STRUCTURE
 
-Sentence 1 — Describe the architecture pattern chosen (serverless-first if deployment_environment
-             is serverless, containerized if ecs/eks detected, etc.) and name the primary
-             AWS region for deployment.
+Opening narrative - write two to four substantive paragraphs covering:
 
-Sentence 2 — Describe the core data flow referencing the actual workflow_steps from the
-             objective analysis (e.g., "Documents are ingested via S3, processed by Lambda,
-             enriched by Bedrock, and results stored in DynamoDB").
+- the business problem or opportunity and why the POC is being undertaken;
+- the exact delivery boundary represented by this SOW;
+- the relationship between this POC and any broader programme, existing platform, prior phase, or future production rollout when supplied;
+- what this SOW enables: solution design, effort estimation, build, validation, or a go/no-go decision;
+- any confirmed supersession or precedence rule, without claiming that this SOW supersedes another document unless the source says so.
 
-Sentence 3 — State which architectural alternative was intentionally avoided and why
-             (e.g., "EC2-based hosting was avoided in favour of serverless Lambda to eliminate
-             instance management overhead for POC scale"; or "monolithic deployment was
-             rejected in favour of microservices to allow independent scaling of the AI layer").
+### 1.1 Objectives
 
-Sentence 4 — If compliance_requirements is non-empty, describe the security boundary
-             (VPC, KMS encryption, CloudTrail logging). If empty, describe the cost
-             optimisation approach instead (S3 Intelligent Tiering, Lambda pay-per-use, etc.).
+- Provide four to eight outcome-oriented bullets.
+- Each objective must name a capability or business outcome and its intended validation.
+- Preserve confirmed outcomes and metrics. If no metric is supplied, state an observable demonstration outcome rather than inventing a number.
+- Cover the primary workflow, data/integration outcome, AI outcome where relevant, and operational/governance outcome where relevant.
+- Avoid generic objectives such as "improve efficiency" unless followed by the specific mechanism and evidence.
 
-RULES:
-- Name specific AWS services from objective_analysis.aws_services only
-- Do not introduce services not in the analysis
-- Professional, justification-driven tone; no marketing language
-- If ui_required=true, mention CloudFront or API Gateway as the edge layer
+### 1.2 How to Read This Document
 
+- Give one concise paragraph mapping the reader to the sections that actually exist.
+- Explain that detailed scope is organized by module/workstream and that Open Clarifications controls unresolved baseline items.
+- Do not reference a section absent from the template and do not use stale numbering copied from another SOW.
 
-[META_GENERATED]
-## Customer Dependencies
+BOUNDARIES
 
-Generate concise dependencies based on objective_analysis.
-Keep content focused and avoid excessive detail.
-
-1. Technical Environment:
-   - AWS Console and programmatic access with appropriate permissions
-   - IAM role configured with least-privilege access for project resources
-   - Network connectivity to AWS services from customer environment
-
-2. Dataset Access:
-   - Data volume: {data_volume_description if available, else "Approximately {data_volume_gb} GB total for POC implementation"}
-   - Format requirements: Customer to provide data in machine-readable format
-   - Access permissions: Customer to grant necessary data access permissions before project initiation
-
-RULES:
-- Use specific numbers from data_characteristics when available
-- If compliance_requirements non-empty, add: "Customer to confirm data classification and applicable compliance framework"
-- Keep all points concise and actionable
-
-
-[META_GENERATED]
-## Assumptions
-
-Generate assumption statements as a simple bullet list only. Do not use tables, grouped headings, or subsection headings.
-
-OUTPUT FORMAT:
-- Start directly with bullet points.
-- Use the bullet symbol "•".
-- Do not include ### headings.
-- Do not group assumptions by category.
-- Each bullet must be one complete assumption statement.
-- Each bullet may be 1–2 sentences if needed for clarity.
-
-MANDATORY RULES:
-- Generate 8–12 bullets total.
-- Every bullet must be derived from objective_analysis.
-- Use real values from objective_analysis such as:
-  - data_characteristics.format
-  - data_volume_description or data_volume_gb
-  - workflow_steps
-  - aws_services
-  - deployment_environment
-  - integration_details
-  - compliance_requirements
-  - security_requirements
-  - concurrent_users
-  - primary_personas
-  - duration_weeks or timeline
-  - success_metrics
-- At least 3 bullets must clearly assign responsibility to the Customer.
-- At least 1 bullet must mention Shellkode responsibility.
-- At least 2 bullets must describe impact if the assumption is not met.
-- Include customer review/sign-off timeline using _feedback_sla_days.
-- Include AWS access/environment assumption using _access_provision_weeks and aws_services.
-- Include data quality and data format assumptions if data_characteristics is available.
-- Include integration access assumptions only if integration_details is non-empty.
-- Include compliance/security approval assumptions only if compliance_requirements or security_requirements is non-empty.
-- Do not duplicate Out of Scope items.
-- Do not use generic statements such as “all required information will be provided.”
-- Do not use placeholder text.
-- Do not include explanations before or after the bullet list.
-
-STYLE RULES:
-- Write in formal SOW language.
-- Keep the tone contractual but readable.
-- Avoid marketing language.
-- Use concrete timelines, data volumes, services, metrics, and responsibilities wherever available.
-- Prefer wording such as:
-  “The Customer will…”
-  “Shellkode will…”
-  “Any deviation from… may impact…”
-  “The provided AWS environment will…”
-
-[META_GENERATED]
-## Out of Scope
-
-Generate grouped out-of-scope items based on objective_analysis.
-
-OUTPUT FORMAT:
-Use grouped headings and bullets.
-
-GROUPS:
-### Functional Exclusions
-### Technical Exclusions
-### Data Exclusions
-### Integration Exclusions
-### Operational Exclusions
-### Commercial Exclusions
-
-CONDITIONAL RULES:
-- Include Functional Exclusions only if ui_required=true or workflow_steps contains user-facing workflow.
-- Include Technical Exclusions for all projects.
-- Include Data Exclusions if data_characteristics or data_volume_gb is available.
-- Include Integration Exclusions only if integration_details is empty OR additional integrations are likely.
-- Include Operational Exclusions for production, support, or deployment projects.
-- Include Commercial Exclusions for all projects.
-
-MANDATORY ITEMS:
-- Exclude work beyond agreed workflow_steps.
-- Exclude processing beyond stated data_characteristics and data_volume_gb.
-- Exclude performance testing beyond {concurrent_users} concurrent users.
-- Exclude additional AWS services not listed in objective_analysis.aws_services unless approved through Change Management.
-- Exclude additional third-party integrations beyond integration_details.
-- Exclude production support unless support_required=true or Day-2 Operations is included.
-- Exclude compliance certification unless explicitly listed in compliance_requirements.
-- Exclude staff training and detailed end-user documentation unless explicitly in scope.
-
-AI/ML CONDITIONAL:
-- If aws_services contains Bedrock or SageMaker:
-  include “Model fine-tuning, retraining, or custom model development is excluded unless explicitly stated in scope.”
-- Else:
-  include “Custom AI model development outside the agreed managed service approach is excluded.”
-
-UI CONDITIONAL:
-- If ui_required=true:
-  include “Native mobile application development is excluded.”
-- If ui_required=false:
-  include “Frontend, web portal, dashboard, or user interface development is excluded.”
-
-FORMAT RULES:
-- 8–12 bullets total.
-- Each bullet must be one sentence.
-- No vague wording.
-- Do not use legal-heavy language.
-
+- Do not create separate company-profile or executive-summary content.
+- Do not describe detailed requirements that belong in Section 4.
+- Do not state committed dates, costs, or acceptance thresholds unless supplied.
 
 [META_TABLE]
-## Timelines and Deliverables
+## 2. Deliverable Scope at a Glance
 
-Generate a two-column timeline table.
+PURPOSE
+Provide the benchmark-style orientation view of the complete in-scope solution and its dependency order.
 
-TABLE FORMAT:
-| Timeframe | Milestones |
-|----------|------------|
-| Week 1 | **{Use-case-specific milestone title}**<br>• {Point 1}<br>• {Point 2}<br>• {Point 3}<br>• {Point 4} |
+REQUIRED OUTPUT
 
-RULES:
-- Use only two columns: Timeframe and Milestones.
-- Each Milestones cell must start with one bold use-case-specific subtopic title.
-- Under each title, include exactly 3–4 bullet points.
-- Use <br> between the title and each bullet.
-- Do not use paragraph text before or after the table.
-- Do not use old columns: Duration, Phase, Deliverables.
-- Do not use generic titles like “Feature Implementation” unless no better use-case-specific title exists.
-- Bullet points must be concise and specific to workflow_steps, key_features, aws_services, integrations, data_characteristics, and success_metrics.
-- Each bullet must be concise, preferably under 20 words.
-- Avoid long bullets over 20 words.
-- Do not include raw markdown headings inside the table.
+Start directly with one table using exactly these four columns:
 
-TIMELINE RULES:
-- If duration_weeks is specified, use that exact number of weeks.
-- If timeline is specified, derive the exact week count from it.
-- If neither duration_weeks nor timeline is specified, use complexity-based duration.
-- Cover all weeks from Week 1 to the final week with no gaps or overlaps.
-- Use "Week X" for single-week milestones.
-- Use "Week X-Y" only when one milestone spans multiple weeks.
+| # | Module/Workstream | Core Outcome | Depends On |
+|---|---|---|---|
+
+MODULE DERIVATION RULES
+
+- Derive three to six coherent modules/workstreams from the actual use case, key features, workflow steps, personas, integrations, and data sources. Exceed six only when the source explicitly defines more independently reviewable modules.
+- Prefer business-capability names over technology-layer names. Example patterns include `Email and Ticket Management`, `Knowledge Management`, `Agent Assist`, or `Quality Automation`, but use them only when supported by the project.
+- Consolidate closely related features into one module; do not create one module per bullet.
+- Make the first module the enabling foundation when the evidence supports a foundation/dependency relationship.
+- `Core Outcome` must describe the observable result, not an activity list.
+- `Depends On` must use confirmed dependencies where available. Architect-derived build order must be labelled `Proposed sequence:`.
+- Use `None identified` only when a module is genuinely independent; do not hide unknown integration or data prerequisites.
+
+AFTER THE TABLE
+
+- Add one or two concise paragraphs explaining the build/dependency logic.
+- State which workstreams may proceed in parallel and which require an earlier foundation, but label inferred sequencing as proposed.
+- Do not introduce a week-by-week timeline.
+
+CONSISTENCY GATE
+
+The module names and order established here are authoritative for Sections 4 through 11. Do not create a different taxonomy later.
+
+[META_GENERATED]
+## 3. Current State
+
+PURPOSE
+Explain the evidence-backed current operating context and why the POC is needed.
+
+REQUIRED COVERAGE
+
+1. Opening context:
+   - identify the current process/platform only when named;
+   - identify the actors and channels involved;
+   - state whether the POC replaces, augments, integrates with, or validates an alternative to the current state.
+
+2. Current workflow:
+   - describe the current sequence from trigger/input to outcome;
+   - name systems, handoffs, manual steps, and data locations only when supplied;
+   - preserve known volumes, dates, age of platform, or usage patterns exactly.
+
+3. Pain points and constraints:
+   - use five to twelve concise bullets when enough evidence exists;
+   - connect each pain point to a workflow consequence such as delay, inconsistency, rework, weak visibility, risk, or cost;
+   - distinguish source-confirmed issues from plausible but unconfirmed concerns.
+
+4. Capability gaps:
+   - identify missing functionality addressed by the POC, including data, AI, search, quality, governance, integration, or user-experience gaps only when relevant;
+   - state when a capability is net-new rather than a migration.
+
+5. Evidence gaps:
+   - if current-state facts needed for sizing or design are unavailable, state them briefly and ensure the material item also appears in Open Clarifications.
+
+RULES
+
+- Use concise prose plus bullets; no table unless the source provides structured current-state data that benefits from comparison.
+- Do not invent a legacy system name, failure rate, handling time, current architecture, or quantified business impact.
+- Do not prescribe the target architecture here.
+- Do not add a new top-level heading.
+
+[META_GENERATED]
+## 4. Detailed Scope of Work
+
+PURPOSE
+Produce the implementation-grade heart of the SOW. This section should carry most of the document's functional detail and should be materially more detailed than every other generated section.
+
+MODULE TAXONOMY
+
+- Reuse exactly the module/workstream names and order that can be derived from the same requirements used in Section 2.
+- Create `### 4.1 <Module Name>`, `### 4.2 <Module Name>`, and so on.
+- Where a module contains distinct capability groups, use `#### 4.x.1 <Capability>` subsections.
+- Generate three to six modules according to actual scope and complexity. Do not force benchmark-specific CRM modules onto unrelated use cases, and do not promote supporting layers into separate modules when they can be covered within the module they support.
+- Preserve source section/requirement identifiers. Otherwise create stable IDs using a short module prefix.
+
+MANDATORY CONTENT FOR EACH MODULE
+
+### Module opening
+
+Write a substantive paragraph covering:
+
+- objective and business boundary;
+- actors/personas;
+- trigger/input and expected output;
+- relationship to the preceding/following modules;
+- explicit inclusion and partial-scope boundaries.
+
+### Workflow and functional behavior
+
+- Describe the normal flow in logical order from initiation to completion.
+- Cover user/system actions, states, handoffs, decision points, queues, notifications, and exception paths that are supported by the source.
+- Add a `#### 4.x.1 Workflow` subsection only when the module has a meaningful sequential process.
+- Use four to eight numbered steps. Each step must represent a complete stage or decision, not a single UI click, field, validation, notification, or logging action.
+- If a flow would require more than eight steps, group it into three to six named phases and describe the lower-level actions as concise bullets or requirements. Do not continue one workflow index across modules.
+- For integration, reporting, data-store, governance, and other non-sequential modules, prefer `#### Capability Behavior`, `#### Processing Rules`, or requirement tables instead of manufacturing a workflow.
+- Do not invent screens, states, approval levels, classifications, or business rules absent from the evidence; mark proposed workflow mechanics clearly.
+
+### Functional requirements
+
+Use one or more compact tables with no more than three columns:
+
+| ID | Requirement | Detail |
+|---|---|---|
+
+For each requirement:
+
+- use an imperative, testable requirement statement;
+- include the actor, trigger/input, processing/rule, output/state, and exception or boundary when applicable;
+- preserve supplied values, thresholds, classification hierarchies, routing logic, escalation levels, TAT/SLA rules, and content constraints exactly;
+- separate unrelated requirements instead of packing a paragraph into one cell;
+- create enough requirements to cover every source-backed feature. Do not cap the count merely to keep the section short.
+
+### Roles and permissions
+
+- Identify relevant personas and permitted actions only when supplied or directly implied by the workflow.
+- Put an unconfirmed role/permission model in Open Clarifications rather than inventing access rights.
+- State administrative ownership for configurable rules, templates, taxonomies, or evaluation criteria when supported.
+
+### Data and migration
+
+- Cover source data, format, volume, classification, quality, history, attachments, metadata, retention, migration/reconciliation, and system of record when relevant.
+- Preserve confirmed numbers exactly and do not convert approximate values into exact commitments.
+- If migration is in scope but reconciliation criteria are unknown, state the dependency/open item.
+
+### Integrations
+
+- Name each source-confirmed external system and the supported interaction.
+- Cover direction, payload/business event, authentication, status/error handling, and ownership when known.
+- For an integration inferred as necessary but not supplied, label it proposed and carry interface/authentication details to Open Clarifications.
+- Do not invent an API, vendor, protocol, or latency.
+
+### AI/ML behavior and human review - conditional
+
+When AI/ML is in scope, cover only applicable capabilities such as drafting, summarization, retrieval, classification, extraction, recommendation, sentiment, scoring, or guardrails. For each:
+
+- identify grounding/context inputs;
+- state the produced output;
+- state confidence/fallback behavior only when supplied or clearly label it proposed;
+- state that the responsible human reviews generated output and remains responsible for sending, approving, or acting;
+- identify evaluation evidence and unresolved benchmark/threshold questions;
+- never claim guaranteed accuracy or fully autonomous regulated decision-making.
+
+### Security, compliance, and audit - conditional
+
+- Carry source-backed access, encryption, residency, retention, logging, disclaimer, audit, and regulator requirements into the relevant module.
+- Preserve exact mandatory wording when supplied.
+- If exact wording, control owner, evidence, or approval is missing, describe the mechanism and add an open clarification.
+
+### Dependencies and validation
+
+End each module with `#### Dependencies and Validation` containing:
+
+- confirmed customer inputs/access/approvals;
+- upstream/downstream module dependencies;
+- the observable demonstration, test record, reconciliation, log, report, or sign-off evidence for the module;
+- proposed items clearly labelled for baseline confirmation.
+
+DOCUMENT-WIDE COMPLETENESS CHECK
+
+Before returning the section, verify that every key feature, workflow step, use case, integration, data source, technical requirement, compliance requirement, security requirement, success metric, and expressly in-scope deliverable from the requirements baseline appears in at least one module. Do not omit difficult or ambiguous requirements; preserve them and flag the ambiguity.
+
+EXCLUSIONS
+
+- Do not add standalone timeline, test plan, risk register, customer responsibility, support, change-order, termination, marketing, terms, data ownership, or deliverable-acceptance subsections.
+- Do not repeat architecture service catalogues, pricing, or staffing here.
+- Do not create diagram placeholders or ASCII diagrams.
+
+[META_GENERATED]
+## 5. Solution Architecture — AWS
+
+PURPOSE
+Provide the two-view written architecture treatment used by the reference SOW, with enough specificity for engineering review and later diagram production.
+
+ARCHITECTURE EVIDENCE RULE
+
+- Treat `confirmed_aws_services` as confirmed.
+- Treat `proposed_aws_services`, architect-selected patterns, topology, scaling, and availability choices as Proposed unless the source confirms them.
+- Never state a deployment region, data residency rule, number of Availability Zones, environment count, service tier, or network path as confirmed unless supplied.
+- Use the module taxonomy from Section 2 and show how each module maps to components/services.
+
+REQUIRED STRUCTURE
+
+### 5.1 Architecture Drivers and Constraints
+
+Cover workload shape, personas/channels, data sensitivity/volume, integration boundaries, performance/resilience requirements, compliance constraints, and cost/POC constraints. State unknown material drivers as open items.
+
+### 5.2 High-Level Architecture
+
+Write two to four paragraphs plus concise bullets covering:
+
+- users and channels;
+- edge and ingress;
+- application/API layer;
+- module services/workers;
+- shared data and search layer;
+- AI/ML layer;
+- external integrations;
+- security, governance, and observability.
+
+Then provide a compact component map:
+
+| Layer/Component | Purpose | Status |
+|---|---|---|
+
+`Status` must be `Confirmed`, `Proposed`, or `Open`. Do not create more than five columns.
+
+### 5.3 End-to-End Data Flow
+
+Use a numbered sequence from user/system trigger through validation, processing, persistence, AI invocation where relevant, human review, downstream action, and audit/monitoring. Include error/fallback handling and asynchronous processing only when relevant. Do not invent protocols or payload fields.
+
+### 5.4 Low-Level Architecture
+
+#### 5.4.1 Network and Compute
+Cover VPC/subnet exposure, ingress, compute/runtime, scaling, private connectivity, administrative access, and environment separation as confirmed or proposed.
+
+#### 5.4.2 Data, Search, and AI Services
+Cover systems of record, object storage, cache/queue/search/vector needs, model access, grounding, lifecycle, backup/recovery, and data movement as applicable.
+
+#### 5.4.3 Security and Observability
+Cover identity, least privilege, secrets, encryption, network controls, logs, metrics, alarms, audit trail, threat detection, and evidence retention as applicable.
+
+#### 5.4.4 Integration Boundaries
+List each external system, direction, business event/data exchanged, expected interface, authentication owner, and unresolved dependency. Keep unknown protocol/authentication facts open.
+
+#### 5.4.5 Design Principles and Decisions
+State four to eight concise decisions with rationale and status. Include rejected alternatives only when supported by requirements or when explicitly labelled proposed; do not fabricate a decision history.
+
+### 5.5 Non-Functional Design Alignment
+
+Map confirmed performance, availability, security, audit, residency, retention, RTO/RPO, and scalability requirements to design responses. When a target is absent, do not invent one; identify the confirmation needed.
+
+COMPLIANCE BOUNDARY
+
+Repeat the exact source qualification for residency/regulatory expectations when necessary. Architecture language must describe controls and intent, not certify compliance.
+
+OUTPUT RULES
+
+- No diagram in this phase and no placeholder image box.
+- Do not list unrelated AWS services.
+- Every named service needs a purpose and Confirmed/Proposed status.
+- Do not state a multi-AZ, serverless, container, microservices, or managed-service pattern as decided unless the evidence supports it or it is explicitly labelled Proposed.
 
 [META_TABLE]
-## AWS Pricing
+## 6. Open Clarifications
 
-Generate realistic AWS MRR based on objective_analysis.aws_services, data_volume_gb,
-concurrent_users, and complexity_context.level.
+PURPOSE
+Create the authoritative unresolved-item register for facts that materially affect design, scope, acceptance, cost, compliance, or dependency sequencing.
 
-MRR ESTIMATION GUIDELINES:
-- simple + low data volume: $200–$500/month
-- moderate + medium data volume: $500–$1,500/month
-- complex + high data volume: $1,500–$5,000/month
-- enterprise + very high data volume: $5,000–$15,000/month
-- Add $50–$200/month if ui_required=true (CloudFront, WAF)
-- Add $100–$500/month per major integration in integration_details
+REQUIRED OUTPUT
+
+Start with one short paragraph explaining that items must be closed during discovery/design before the affected baseline is committed.
+
+Use exactly this three-column table:
+
+| Module/Area | Open Item | Status / Note |
+|---|---|---|
+
+INCLUSION RULES
+
+- Carry every unresolved item already present in the normalized requirements.
+- Add specific gaps discovered while authoring Current State, Detailed Scope, Architecture, Pricing, Success Criteria, or Team Effort.
+- Include, where applicable: roles/permissions, sample data, volumes/peaks, data quality, migration reconciliation, interfaces/APIs, authentication, error handling, AI evaluation dataset, quality thresholds, human-review workflow, exact disclaimers/guardrails, regulatory approval owner, retention/deletion, environments, NFRs, RTO/RPO, acceptance evidence, calculator inputs, staffing, duration, and production boundary.
+- Phrase each item as one answerable question or confirmation request, not a vague topic.
+- State the impact or next action in `Status / Note` and preserve supplied statuses verbatim.
+- Use the same module names as Section 2.
+
+PROHIBITIONS
+
+- Do not silently resolve an unknown.
+- Do not label a source-confirmed fact open.
+- Do not invent customer responses such as `Will check and update`.
+- Do not repeat low-impact editorial questions.
+- Do not include generic boilerplate such as `requirements to be confirmed` without naming the requirement and impact.
+
+[META_GENERATED]
+## 7. Out of Scope
+
+PURPOSE
+Make the POC boundary explicit while preserving the nuanced difference between a limited included baseline and an advanced deferred capability.
+
+REQUIRED STRUCTURE
+
+- Write one opening paragraph explaining the basis of exclusion: expressly deferred, outside the stated POC objective, dependent on a later phase, or not supported by the supplied baseline.
+- Group meaningful exclusions under numbered subsections such as `### 7.1 <Capability Group>`.
+- Use the actual deferred capability names from the source. For each group, state what is excluded and, where needed, what limited related capability remains included.
+- Include eight to fifteen concrete exclusions when the evidence supports that breadth; do not inflate a narrow project.
+
+CONDITIONAL COVERAGE
+
+- Functional: workflows/features beyond the agreed use cases.
+- Data: volumes, formats, history, enrichment, migration, or labeling beyond the agreed baseline.
+- Integration: external systems/interfaces not expressly included.
+- AI/ML: fine-tuning, custom-model development, autonomous decisions, or unsupported modalities unless expressly in scope.
+- UI/channel: native mobile, portals, dashboards, voice, social, or other channels only when they are outside the stated baseline.
+- Operational: production rollout, 24x7 support, managed operations, broad training, or extensive documentation unless expressly included.
+- Compliance: certification or legal/regulatory approval unless expressly included.
+- Commercial: third-party licenses, cloud consumption, or services not included in the stated commercial boundary, without inventing terms.
+
+RULES
+
+- Do not exclude a capability included in Detailed Scope.
+- Do not use broad exclusions that nullify the POC objective.
+- Do not add contractual change-control language or legal boilerplate.
+- Do not exclude testing needed to demonstrate the POC's Success Criteria.
+
+[META_GENERATED]
+## 8. Assumptions and Dependencies
+
+PURPOSE
+State the specific conditions required for delivery and the consequences of missing them, separated from unresolved questions.
+
+REQUIRED STRUCTURE
+
+Use only applicable subsections, normally selected from:
+
+### 8.1 Platform and Integration
+### 8.2 Data
+### 8.3 Access, Security, and Compliance
+### 8.4 Governance and Business Inputs
+### 8.5 Sequencing and Environments
+
+CONTENT RULES
+
+- Generate eight to sixteen specific items according to project complexity.
+- Every item must derive from the source or be explicitly labelled as a planning assumption.
+- Identify the responsible party when useful: `{COMPANY_NAME_SHORT}`, `{AUTHOR_ORG_SHORT}`, a named vendor, or a project role.
+- Include the consequence when an unmet assumption affects schedule, scope, cost, quality, architecture, or acceptance.
+- Use concrete supplied systems, formats, volumes, services, approval bodies, and review inputs.
+- Include integration access only for relevant named/proposed integrations.
+- Include data quality, representativeness, rights, and format assumptions when data is used.
+- Include AI evaluation/grounding inputs and human reviewers when AI is in scope.
+- Include compliance/security approvals only when applicable and preserve qualifications.
+- State parallel/sequential relationships using the module names from Section 2.
+
+DISTINCTION RULES
+
+- A dependency is a required external input, access, approval, preceding capability, or environment.
+- An assumption is a planning condition used to draft the SOW.
+- An open clarification is a question whose answer is not known. Do not disguise an open question as an assumption.
+- Do not invent feedback SLAs, access-provision periods, dates, or durations.
+
+STYLE
+
+- Formal, specific, and readable.
+- Prefer bullets; use a compact table only if ownership/consequence comparison materially improves clarity.
+- Do not duplicate Out of Scope verbatim.
+
+[META_GENERATED]
+## 9. Success Criteria
+
+PURPOSE
+Define observable, reviewable evidence that the POC has demonstrated the in-scope capabilities without manufacturing unagreed numeric commitments.
+
+REQUIRED OUTPUT
+
+- Begin directly with seven to twelve concise bullets for a multi-module POC; use five to eight for a genuinely simple POC.
+- Each bullet must contain: the capability/outcome, validation method/evidence, and any confirmed threshold.
+- Use the same module names and requirement terminology as Detailed Scope.
+- Collectively cover:
+  - end-to-end workflow completion;
+  - data ingestion/migration/reconciliation where relevant;
+  - each major module's functional outcome;
+  - integration behavior where relevant;
+  - AI/ML quality and human-review behavior where relevant;
+  - security/compliance control evidence where relevant;
+  - stakeholder demonstration/UAT/sign-off boundary when supplied.
+
+VALIDATION EVIDENCE
+
+Use applicable evidence such as demonstration records, UAT scenarios, test reports, benchmark-dataset comparison, reconciliation reports, processing logs, monitoring evidence, audit logs, accuracy reports, or stakeholder sign-off.
+
+METRIC RULES
+
+- Preserve supplied accuracy, latency, throughput, availability, volume, quality, and error thresholds exactly.
+- If no threshold is supplied, describe the evidence to be demonstrated and label any proposed target `proposed for baseline confirmation`.
+- Do not use complexity-based default accuracy, latency, availability, or success rates.
+- Do not claim production operation or decommissioning unless production rollout is explicitly in scope.
+- Avoid vague outcomes such as `works as expected`, `improved performance`, or `successful implementation`.
+
+FORMAT RULES
+
+- Bullet list only; no table, grouped heading, or acceptance boilerplate.
+- Do not add a separate testing or deliverable-acceptance section.
+
+[META_TABLE]
+## 10. AWS Pricing
+
+PURPOSE
+Reproduce source-backed cloud pricing with the restrained reference layout, or clearly show what remains pending.
+
+IF A SOURCE-BACKED AWS PRICING CALCULATOR ESTIMATE EXISTS
+
+1. Reproduce the supplied calculator link/label exactly; never fabricate a URL.
+2. Use exactly this table structure:
 
 | Item | MRR in USD |
-|------|------------|
-| AWS Pricing Calculator | {MRR} |
-| AWS MRR | {MRR} |
-| AWS ARR | {ARR} |
+|---|---|
+| AWS Pricing Calculator | <confirmed amount> |
+| AWS MRR | <confirmed amount> |
+| AWS ARR | <confirmed amount> |
 
-RULES:
-- ARR = MRR × 12
-- Use a single realistic number (not a range) for MRR
-- Do NOT itemise individual service costs in the table
-- Preserve table structure exactly
+3. Preserve the exact MRR. Calculate ARR only when mathematically implied as MRR x 12 and make no other adjustment.
+4. Reproduce the confirmed volume, environment, and calculator assumptions. Clearly distinguish DEV/UAT/Production or other environments only when supplied.
 
+IF NO SOURCE-BACKED ESTIMATE EXISTS
 
-[META_STATIC]
-## Customer Responsibilities
+- State: `AWS pricing is pending completion of a source-backed AWS Pricing Calculator estimate.`
+- Do not produce an amount table with guessed values.
+- Provide a compact table of the material confirmed and open sizing inputs, using no more than three columns:
 
-• Designate and provide access throughout the project to the Customer individuals serving in project support roles, including the project sponsor and stakeholders, each having suitable skills, experience knowledge, capacity, and subject matter expertise for their role.
-• Provide promptly such information, documentation, decisions, approvals, and assistance as requested or necessary for ShellKode's performance and maintenance of project cadence.
-• Customer and ShellKode will make every effort to leverage best practices and technologies as needed for effective remote project delivery.
-• Provide complete, accurate, and current information and update it promptly and continuously as necessary during the course of the engagement.
-• Assume responsibility for any delays, additional costs, or other liabilities caused by or associated with any deficiencies in (i) discharging the Customer Responsibilities, and (ii) the Assumptions.
-• Provide subject matter expertise in regard to source systems and other components.
-• Provide necessary environments for development, testing, and production.
-• Ensure the use and procurement of appropriate licenses(if applicable).
+| Pricing Input | Current Basis | Confirmation Needed |
+|---|---|---|
 
+- Cover only relevant inputs: region, environments, requests/transactions, users/concurrency, storage/retention, data transfer, model usage, compute pattern, database/search sizing, logging, resilience, and support plan.
 
-[META_STATIC]
-## Duration of Work
+PROHIBITIONS
 
-Services under this scope of work are expected to begin on {START_DATE} and end no later than {END_DATE}.
-
-Changes to the scope of the Services shall be mutually agreed to in writing between {COMPANY_NAME_SHORT} and {AUTHOR_ORG_SHORT}. Changes to project scope, assumptions, etc. may have cost, resource, or timeline implications. All changes will be documented in a mutually agreed-upon Change Order, as per the agreed terms and conditions.
-
+- Do not use complexity-based MRR ranges.
+- Do not invent a single "realistic" number, AWS funding status, discount, approval, service-level cost breakdown, or false precision.
+- Do not treat implementation fees as AWS consumption.
 
 [META_TABLE]
-## Shellkode Implementation Cost
+## 11. {AUTHOR_ORG_SHORT} Project Team Effort
 
-Generate resource allocation based on complexity_context.level and the timeline duration
-determined in Timelines and Deliverables. Effort/Week MUST match the total project duration.
+PURPOSE
+Show the delivery roles and effort basis using the reference SOW's compact staffing table without turning an inferred team into a commitment.
 
-RESOURCE ALLOCATION RULES (apply based on complexity_context.level):
-- simple: 1× AIML Engineer only; Solution Architect oversight 1–2 weeks
-- moderate: 1× AIML Engineer + 1× Sr AIML Engineer; Solution Architect oversight 2–3 weeks
-- complex: 1× AIML Engineer + 1× Sr AIML Engineer; Solution Architect involvement 3–4 weeks
-- enterprise: 2× AIML Engineers + 1× Sr AIML Engineer; Solution Architect full engagement
+REQUIRED TABLE
 
-ADD frontend resource ONLY if ui_required=true:
-- simple + ui: add 1× Frontend Developer at same duration
-- moderate/complex/enterprise + ui: add 1× Sr Frontend Developer at same duration
+| Resource | Resource Count | Effort Duration in Weeks |
+|---|---|---|
 
-Effort/Week must equal the total weeks from the Timelines section (not a generic number).
+SOURCE-BACKED STAFFING
 
-| Resource | Effort/Week | Pricing (INR) |
-|----------|-------------|---------------|
-| AIML Engineer | {total_weeks} weeks | AWS Funded |
-| Sr AIML Engineer | {total_weeks} weeks | AWS Funded |
-| Solution Architect | {oversight_weeks} weeks | AWS Funded |
-| Frontend Developer | {total_weeks} weeks | AWS Funded |
+- Reproduce supplied roles, counts, and durations exactly.
+- Preserve role naming such as Solution Architect, AI/ML Lead, Cloud Engineer, Fullstack Engineer, UI/UX Developer, Database Engineer, Technical Project Manager, and QA Engineer when supplied.
+- Do not add rates, pricing, funding status, or utilization unless supplied.
 
-RULES:
-- Only 4 resource types: AIML Engineer, Sr AIML Engineer, Solution Architect, Frontend Developer
-- Add Frontend Developer row ONLY if ui_required=true (use "Frontend Developer" for simple, "Sr Frontend Developer" for others)
-- Omit Sr AIML Engineer row for simple projects
-- Pricing column always shows "AWS Funded" for all rows
-- Effort/Week must be a specific number matching the project timeline
+WHEN STAFFING IS NOT SUPPLIED
 
+- Provide a clearly labelled `Proposed delivery team - subject to effort estimation and commercial confirmation`.
+- Derive roles from the actual modules, architecture, integrations, data work, UI, AI, quality, security, and project-governance needs.
+- Include a role only when it has material work in scope.
+- Use conservative whole-number resource counts.
+- For duration, use a supplied project duration when available. Otherwise write `TBC` rather than inventing weeks.
+- Do not force the four resource types from the old template and do not assume all workstreams run for the same duration.
 
-[META_GENERATED]
-## Success Criteria
+AFTER THE TABLE
 
-Generate success criteria as a simple bullet list only. Do not use tables, grouped headings, or subsection headings.
-
-OUTPUT FORMAT:
-- Start directly with bullet points.
-- Use the bullet symbol "•".
-- Do not include ### headings.
-- Do not group success criteria by category.
-- Each bullet must describe one measurable or clearly testable success condition.
-- Each bullet may be 1–2 sentences if needed for clarity.
-
-MANDATORY RULES:
-- Generate 5–8 bullets for POC.
-- Generate 7–10 bullets for production.
-- Every bullet must contain a measurable or clearly testable target.
-- Every success criterion must be verifiable through at least one of:
-  - UAT execution
-  - test reports
-  - benchmark dataset comparison
-  - processing logs
-  - monitoring reports
-  - accuracy reports
-  - stakeholder sign-off
-- Include one workflow completion metric.
-- Include one processing success metric.
-- Include one performance metric.
-- Include one availability or reliability metric.
-- Include one acceptance/sign-off metric.
-- Include AI/ML accuracy only if aws_services contains Bedrock, SageMaker, Textract, Comprehend, Rekognition, or another AI/ML capability.
-- Include integration success only if integration_details is non-empty.
-- Include user acceptance only if ui_required=true or primary_personas is non-empty.
-- Include security/compliance validation only if compliance_requirements or security_requirements is non-empty.
-- Do not use vague phrases such as:
-  “system works as expected”
-  “improved performance”
-  “better user experience”
-  “successful implementation”
-- Do not invent unrelated KPIs.
-- Do not include explanations before or after the bullet list.
-
-ACCURACY TARGETS:
-- POC simple: ≥85%
-- POC moderate: ≥90%
-- POC complex: ≥95%
-- POC enterprise: ≥99%
-- Production simple: ≥90%
-- Production moderate: ≥93%
-- Production complex: ≥97%
-- Production enterprise: ≥99.5%
-
-PERFORMANCE TARGET:
-Use concurrent_users from objective_analysis.
-If latency is available in performance_requirements, use it.
-If latency is not available:
-- simple: p95 response time below 5 seconds
-- moderate: p95 response time below 3 seconds
-- complex: p95 response time below 2 seconds
-- enterprise: p95 response time below 1 second
-
-AVAILABILITY TARGET:
-- POC: system availability ≥99% during the validation window.
-- Production: system availability ≥99.9% during production readiness or agreed monitoring window.
-
-STYLE RULES:
-- Write in formal SOW language.
-- Use concrete numbers from objective_analysis wherever available.
-- Reference validation method inside the bullet itself.
-- Keep each bullet concise and acceptance-oriented.
-
-
-[META_STATIC]
-## Deliverable Acceptance
-
-Customers will notify {AUTHOR_ORG_SHORT} in writing within ten (10) calendar days of receiving a Deliverable whether it accepts or rejects that Deliverable. If no notification is delivered to ShellKode within this period, the Deliverable will be considered accepted. As a time and materials engagement, changes to a rejected Deliverable constitute billable project time unless the parties determine that such Deliverable was not performed in accordance with good commercial practices.
-
-
-[META_STATIC]
-## Project Plan Termination
-
-Upon termination of this Project Plan executed in accordance with the terms of the Agreement, Customer shall pay {AUTHOR_ORG_SHORT} for any Customer-approved Services performed and expenses incurred up to the date of the termination and any expenses necessarily and reasonably incurred by AWS Partner in terminating Customer-approved obligations to third parties.
-
-
-[META_STATIC]
-## Change Order
-
-Changes to project scope, incorrect assumptions, or missing prerequisites may affect cost, resources, or scheduling. Other circumstances may arise beyond {AUTHOR_ORG_SHORT}'s control that may cause it to be unable to accomplish the project objectives and would require a modification to this proposal. Any such modification shall be memorialized in a mutually executed change order that details material changes to staff requirements, deliverables, fees, and milestones, as applicable. If the parties do not agree to such a proposed change order, then either may suspend the Services to allow time for the parties to agree on an alternative change order. Should Services be suspended for a consecutive period of five (5) business days, either party may thereafter terminate this proposal immediately upon notice.
-
-
-[META_STATIC_TABLE]
-## Contacts and Reporting
-
-| Name | Title | Email | Phone |
-|------|-------|-------|-------|
-| Bala | Delivery Head | bala@shellkode.com | +91 95389 16855  |
-| Bakrudeen K | AI/ML Practice Head | bakrudeen.k@shellkode.com | +91 78454 06910  |
-| Suman Perumal | Solution Architect | suman.p@shellkode.com | +91 97382 41191  |
-| Velmurugan S | Delivery Manager | vel@shellkode.com | +91 99946 07336  |
-
-
-[META_STATIC]
-## Marketing Authorization
-
-Upon successful completion of the project, Customer agrees to provide a reference for {AUTHOR_ORG_SHORT} for services provided under this SOW. {AUTHOR_ORG_SHORT} agrees to follow the Customer's terms and conditions for the use of such reference and the Customer's name and logo.
-
-
-[META_STATIC]
-## Terms & Conditions
-
-• Working hours
-  ○ Standard work hours are 10 am - 07 pm IST Monday to Friday.
-  ○ If the resource has to be summoned before or after the specified business hour prior notice is to be issued.
-  ○ However, the above statement is not applicable during the production release cycle/P1 issues.
-• The SLAs of Cloud services are governed and owned by Cloud Platform directly.
-• The effort estimate is limited to the understood scope of work. Any substantial change in the scope may lead to the enhancement in the commercials and effort.
-• Changes to the scope of the services shall be mutually agreed to in writing between Customer and {AUTHOR_ORG_SHORT}. Changes to project scope, assumptions, etc. may have cost, resource, or timeline implications.
-• The client may terminate this agreement or ramp down resources with or without cause upon thirty (30) days written notice to {AUTHOR_ORG_SHORT}.
-• The client will provide feedback on the deliverables submitted by the {AUTHOR_ORG_SHORT} team at the earliest During the above-mentioned period, {AUTHOR_ORG_SHORT} resources will be reporting to the Customer directly & his/her work and deliverables are tracked and managed by the Customer. This proposal contains proprietary and confidential information of {AUTHOR_ORG_SHORT} Proprietor and shall not be used, disclosed, or reproduced, in whole or in part, for any purpose other than to evaluate this proposal, without the prior written consent of authorized {AUTHOR_ORG_SHORT} personnel in and to this document and all information contained herein remains at all times in {AUTHOR_ORG_SHORT}.
-
+- Add one short paragraph explaining the effort basis and identifying any open assumptions affecting staffing.
+- Do not add implementation cost, rate card, timeline, or commercial-commitment language.
 
 [META_STATIC_TABLE]
 ## Acceptance and Signatories to Statement of Work
@@ -504,8 +665,6 @@ Upon successful completion of the project, Customer agrees to provide a referenc
 |--------------------|----------------------|
 | Signature  | Signature  |
 
-
 | Bhuvanesh CTO | XXX |
-
 
 | Date of acceptance: | Date of acceptance: |

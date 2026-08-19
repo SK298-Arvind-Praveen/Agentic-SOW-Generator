@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sys
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -21,6 +22,11 @@ from app.agents.rule_engine_agent import RuleEngineAgent
 from app.agents.poc_writer_agent import POCWriterAgent
 from app.document.document_builder import DocumentBuilder
 from app.document.doc_reader import read_document, extract_metadata_from_content, validate_extraction
+from app.core.sow_quality import (
+    clean_markdown_preserving_structure,
+    merge_requirement_extractions,
+    normalize_requirements,
+)
 import boto3
 
 # Initialize config once
@@ -33,6 +39,7 @@ _token_usage = {
     'total_tokens': 0,
     'api_calls': 0
 }
+_token_usage_lock = threading.Lock()
 
 def _track_tokens(response_body: dict, call_name: str = "API Call"):
     """Track token usage from Bedrock API response"""
@@ -42,36 +49,40 @@ def _track_tokens(response_body: dict, call_name: str = "API Call"):
     input_tokens = usage.get('input_tokens', 0)
     output_tokens = usage.get('output_tokens', 0)
     
-    _token_usage['total_input_tokens'] += input_tokens
-    _token_usage['total_output_tokens'] += output_tokens
-    _token_usage['total_tokens'] += (input_tokens + output_tokens)
-    _token_usage['api_calls'] += 1
+    with _token_usage_lock:
+        _token_usage['total_input_tokens'] += input_tokens
+        _token_usage['total_output_tokens'] += output_tokens
+        _token_usage['total_tokens'] += (input_tokens + output_tokens)
+        _token_usage['api_calls'] += 1
     
     print(f"   🔢 {call_name} - Input: {input_tokens:,} | Output: {output_tokens:,} | Total: {input_tokens + output_tokens:,}")
 
 def get_token_usage():
     """Get current token usage statistics"""
-    return _token_usage.copy()
+    with _token_usage_lock:
+        return _token_usage.copy()
 
 def reset_token_usage():
     """Reset token usage counters"""
     global _token_usage
-    _token_usage = {
-        'total_input_tokens': 0,
-        'total_output_tokens': 0,
-        'total_tokens': 0,
-        'api_calls': 0
-    }
+    with _token_usage_lock:
+        _token_usage = {
+            'total_input_tokens': 0,
+            'total_output_tokens': 0,
+            'total_tokens': 0,
+            'api_calls': 0
+        }
 
 def print_token_summary():
     """Print final token usage summary"""
+    usage = get_token_usage()
     print("\n" + "="*70)
     print("📊 BEDROCK API TOKEN USAGE SUMMARY")
     print("="*70)
-    print(f"Total API Calls:      {_token_usage['api_calls']}")
-    print(f"Total Input Tokens:   {_token_usage['total_input_tokens']:,}")
-    print(f"Total Output Tokens:  {_token_usage['total_output_tokens']:,}")
-    print(f"Total Tokens:         {_token_usage['total_tokens']:,}")
+    print(f"Total API Calls:      {usage['api_calls']}")
+    print(f"Total Input Tokens:   {usage['total_input_tokens']:,}")
+    print(f"Total Output Tokens:  {usage['total_output_tokens']:,}")
+    print(f"Total Tokens:         {usage['total_tokens']:,}")
     print("="*70 + "\n")
 
 def _clean_final_content(text: str) -> str:
@@ -81,23 +92,7 @@ def _clean_final_content(text: str) -> str:
     if not text:
         return text
     
-    # Remove various markdown artifacts that cause formatting issues
-    text = re.sub(r'\*{3,}', '', text)  # Remove 3+ asterisks
-    text = re.sub(r'_{3,}', '', text)   # Remove 3+ underscores  
-    text = re.sub(r'-{3,}', '', text)   # Remove 3+ dashes
-    text = re.sub(r'#{3,}', '', text)   # Remove 3+ hashes
-    
-    # Clean up isolated markdown symbols (but preserve intentional formatting)
-    text = re.sub(r'(?<!\w)\*{3,}(?!\w)', '', text)  # Remove 3+ isolated asterisks
-    text = re.sub(r'(?<!\w)_{3,}(?!\w)', '', text)   # Remove 3+ isolated underscores
-    text = re.sub(r'(?<!\w)-{3,}(?!\w)', '', text)   # Remove 3+ isolated dashes
-    
-    # Clean up extra whitespace but preserve paragraph structure
-    text = re.sub(r'[ \t]+', ' ', text)  # Multiple spaces/tabs to single space
-    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)  # Multiple blank lines to double newline
-    text = text.strip()
-    
-    return text
+    return clean_markdown_preserving_structure(text)
 
 def poc_ingestion_node(state: AgentState) -> AgentState:
     """
@@ -164,8 +159,8 @@ def poc_ingestion_node(state: AgentState) -> AgentState:
                 'objective': 'Project Implementation',
                 'document_date': datetime.now().strftime("%d %B %Y"),
                 'version': '2.0',
-                'start_date': (datetime.now() + timedelta(days=7)).strftime("%d %B %Y"),
-                'end_date': (datetime.now() + timedelta(weeks=14)).strftime("%d %B %Y"),
+                'start_date': '',
+                'end_date': '',
                 'timezone': 'IST'
             }
             
@@ -246,8 +241,10 @@ def poc_ingestion_node(state: AgentState) -> AgentState:
                 'Project Implementation'),
             'document_date': existing_metadata.get('document_date') or extracted_metadata.get('document_date', datetime.now().strftime("%d %B %Y")),
             'version': extracted_metadata.get('version', '2.0'),  # Production version
-            'start_date': extracted_metadata.get('start_date', (datetime.now() + timedelta(days=7)).strftime("%d %B %Y")),
-            'end_date': extracted_metadata.get('end_date', (datetime.now() + timedelta(weeks=14)).strftime("%d %B %Y")),
+            # Dates in the source POC may be historical. Do not convert them into
+            # production commitments unless the user explicitly supplied new dates.
+            'start_date': existing_metadata.get('start_date') or '',
+            'end_date': existing_metadata.get('end_date') or '',
             'timezone': extracted_metadata.get('timezone', 'IST')
         }
         
@@ -258,7 +255,7 @@ def poc_ingestion_node(state: AgentState) -> AgentState:
                 "unique_use_cases": requirements.get('key_features', []),
                 "unique_technical_components": requirements.get('technical_stack', []),
                 "unique_data_sources": [],
-                "unique_integrations": requirements.get('integrations', []),
+                "unique_integrations": requirements.get('integration_details', requirements.get('integrations', [])),
                 "unique_success_criteria": requirements.get('success_metrics', []),
                 "unique_challenges_addressed": [],
                 "unique_data_flow": {},
@@ -861,8 +858,8 @@ Return format:
                 
                 # Add missing fields
                 extracted['version'] = "2.0"
-                extracted['start_date'] = (datetime.now() + timedelta(days=7)).strftime("%d %B %Y")
-                extracted['end_date'] = (datetime.now() + timedelta(weeks=14)).strftime("%d %B %Y")
+                extracted['start_date'] = None
+                extracted['end_date'] = None
                 extracted['timezone'] = "IST"
                 
                 return extracted
@@ -1024,93 +1021,99 @@ def _extract_author_name_regex(text_content: str, company_name: str = "") -> str
 
 
 def _extract_requirements_with_llm(text_content: str) -> dict:
-    """Extract detailed requirements from document content using LLM"""
+    """Extract the complete POC in overlapping chunks and merge source evidence."""
+    if not text_content:
+        return normalize_requirements({}, "", "POC_TO_PROD")
     try:
         bedrock = boto3.client(
             service_name='bedrock-runtime',
             region_name=config.AWS_REGION,
             config=config.BOTO_CONFIG
         )
-        
-        prompt = f"""Analyze this POC document and extract key technical requirements and information.
+        chunk_size, overlap = 14000, 1200
+        chunks = []
+        start = 0
+        while start < len(text_content):
+            end = min(len(text_content), start + chunk_size)
+            chunks.append(text_content[start:end])
+            if end == len(text_content):
+                break
+            start = end - overlap
 
-DOCUMENT CONTENT (First 5000 chars):
-{text_content[:5000]}
+        extractions = []
+        for index, chunk in enumerate(chunks, 1):
+            prompt = f"""Extract source evidence from part {index} of {len(chunks)} of an existing POC SOW.
 
-Extract and return ONLY valid JSON (no markdown, no extra text):
+DOCUMENT EXCERPT:
+{chunk}
 
+Return JSON only. Use [] or null when absent. Do not infer production requirements or invent results.
 {{
-  "project_overview": "What the POC delivered/accomplished",
-  "key_features": ["feature1", "feature2"],
-  "aws_services": ["service1", "service2"],
-  "technical_stack": ["tech1", "tech2"],
-  "success_metrics": ["metric1", "metric2"],
-  "architecture_components": ["component1", "component2"],
-  "integrations": ["integration1"],
-  "business_impact": "Business value or outcome",
-  "timeline": "Timeline or duration mentioned",
-  "scope": "Project scope and boundaries"
-}}
+  "project_overview": null,
+  "current_state": [],
+  "key_features": [],
+  "functional_requirements": [],
+  "non_functional_requirements": [],
+  "confirmed_aws_services": [],
+  "aws_services": [],
+  "technical_stack": [],
+  "architecture_components": [],
+  "workflow_steps": [],
+  "data_sources": [],
+  "data_characteristics": {{}},
+  "integration_details": [],
+  "security_requirements": [],
+  "compliance_requirements": [],
+  "success_metrics": [],
+  "test_evidence": [],
+  "key_deliverables": [],
+  "assumptions": [],
+  "out_of_scope": [],
+  "risks_and_mitigations": [],
+  "known_limitations": [],
+  "timeline": null,
+  "duration_weeks": null,
+  "business_impact": null,
+  "poc_evidence": [],
+  "open_clarifications": []
+}}"""
+            response = bedrock.invoke_model(
+                modelId=config.MODEL_ID,
+                body=json.dumps({
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 4096,
+                    "temperature": 0.0,
+                    "messages": [{"role": "user", "content": prompt}]
+                })
+            )
+            body = json.loads(response['body'].read())
+            _track_tokens(body, f"Requirements Extraction {index}/{len(chunks)}")
+            raw = body['content'][0]['text'].strip()
+            match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if match:
+                try:
+                    extractions.append(json.loads(match.group(0)))
+                except json.JSONDecodeError as parse_error:
+                    print(f"⚠️ Chunk {index} extraction JSON invalid: {parse_error}")
 
-IMPORTANT: Use ONLY information from the document. If not found, use empty arrays [] or "Not specified"."""
-
-        response = bedrock.invoke_model(
-            modelId=config.MODEL_ID,
-            body=json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 2048,
-                "temperature": 0.1,
-                "messages": [{"role": "user", "content": prompt}]
-            })
-        )
-        
-        response_body = json.loads(response['body'].read())
-        _track_tokens(response_body, "Requirements Extraction")
-        llm_output = response_body['content'][0]['text'].strip()
-        
-        # Clean JSON
-        if '```json' in llm_output:
-            llm_output = llm_output.split('```json')[1].split('```')[0].strip()
-        elif '```' in llm_output:
-            llm_output = llm_output.split('```')[1].split('```')[0].strip()
-        
-        # Parse JSON
-        try:
-            requirements = json.loads(llm_output)
-            print(f"✅ Requirements extraction successful:")
-            print(f"   Features: {len(requirements.get('key_features', []))}")
-            print(f"   AWS Services: {len(requirements.get('aws_services', []))}")
-            print(f"   Tech Stack: {len(requirements.get('technical_stack', []))}")
-            return requirements
-        except json.JSONDecodeError as e:
-            print(f"⚠️  Requirements JSON parse failed: {e}")
-            return {
-                "project_overview": "POC Implementation",
-                "key_features": [],
-                "aws_services": [],
-                "technical_stack": [],
-                "success_metrics": [],
-                "architecture_components": [],
-                "integrations": [],
-                "business_impact": "Not specified",
-                "timeline": "Not specified",
-                "scope": "Not specified"
-            }
-        
+        merged = merge_requirement_extractions(extractions)
+        merged["source_basis"] = ["Uploaded POC document"]
+        merged["requirements_provenance"] = {
+            "confirmed_aws_services": "confirmed",
+            "poc_evidence": "confirmed",
+            "success_metrics": "confirmed",
+        }
+        merged["confirmed_aws_services"] = merged.get("confirmed_aws_services") or merged.get("aws_services", [])
+        merged["proposed_aws_services"] = []
+        requirements = normalize_requirements(merged, merged.get("project_overview") or "", "POC_TO_PROD")
+        print(f"✅ Merged requirements from {len(extractions)}/{len(chunks)} document chunks")
+        return requirements
     except Exception as e:
         print(f"❌ Requirements extraction error: {e}")
-        return {
-            "project_overview": "POC Implementation",
-            "key_features": [],
-            "aws_services": [],
-            "technical_stack": [],
-            "success_metrics": [],
-            "architecture_components": [],
-            "integrations": [],
-            "business_impact": "Not specified",
-            "timeline": "Not specified",
-            "scope": "Not specified"
-        }
+        return normalize_requirements({
+            "source_basis": ["Uploaded POC document"],
+            "open_clarifications": ["The POC document could not be fully analyzed; production scope requires source review."],
+        }, "", "POC_TO_PROD")
 
 
 def research_node(state: AgentState) -> AgentState:
@@ -1131,7 +1134,7 @@ def research_node(state: AgentState) -> AgentState:
     metadata['author_org_description'] = results.get(metadata['author_org'], 
         "Shellkode specializes in developing advanced data and AI solutions for businesses.")
     metadata['company_description'] = results.get(metadata['company_name'], 
-        f"Leading organization focused on digital transformation and innovation.")
+        f"{metadata['company_name']} is the customer organization for this engagement; project-specific context is documented in this SOW.")
     
     print(f"✅ Company research completed")
     print(f"   Vendor: {metadata['author_org']}")
@@ -1245,7 +1248,8 @@ def rule_validation_node(state: AgentState) -> AgentState:
     rule_engine = RuleEngineAgent(config)
     validated_requirements = rule_engine.validate_requirements(
         analyzed_requirements,
-        objective
+        objective,
+        mode=state.get('mode', 'POC')
     )
     
     return {"validated_requirements": validated_requirements, "current_step": "validate"}
@@ -1259,7 +1263,7 @@ def content_generation_node(state: AgentState) -> AgentState:
     metadata = state['metadata']
     mode = state.get('mode', 'POC')
     
-    template_type = "PROD" if mode in ["PROD", "POC_TO_PROD"] else "POC"
+    template_type = mode if mode in ["POC", "PROD", "POC_TO_PROD"] else "POC"
     print(f"✅ Using Template: {template_type}")
     print(f"   Company: {metadata.get('company_name', 'N/A')}")
     print(f"   Project: {metadata.get('project_title', 'N/A')}")
@@ -1267,7 +1271,11 @@ def content_generation_node(state: AgentState) -> AgentState:
     
     # Merge user-specified data from analyzed_requirements into validated_requirements
     # This preserves user-specified timeline, AWS services, etc.
-    final_requirements = validated_requirements.copy()
+    final_requirements = normalize_requirements(
+        validated_requirements,
+        state.get('objective', ''),
+        mode
+    )
     
     # Preserve user-specified fields from analyzed_requirements
     user_fields = ['duration_weeks', 'timeline', 'aws_services', 'document_volume', 'ui_required']

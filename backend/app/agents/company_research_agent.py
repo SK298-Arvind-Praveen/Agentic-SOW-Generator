@@ -73,14 +73,13 @@ class CompanyResearchAgent:
         Returns:
             Company description
         """
-        prompt = f"""Write a professional 2-3 sentence description for {company_name} for a business proposal.
+        prompt = f"""Write a conservative 2-3 sentence client-context paragraph for a Statement of Work whose named customer is {company_name}.
 
-Requirements:
-- Professional tone
-- 40-80 words
-- Focus on what they do
-
-Generate ONLY the description:"""
+Use only widely established facts you are confident apply to this exact organization. Do not
+invent size, products, locations, rankings, market position, customers, regulations, or strategic
+priorities. If identity or facts are uncertain, say only that {company_name} is the customer for
+this engagement and connect its business context to the supplied project later in the SOW.
+Professional tone, 35-70 words. Return only the paragraph."""
         
         try:
             response = self.bedrock_client.invoke_model(
@@ -102,7 +101,10 @@ Generate ONLY the description:"""
             return response_body['content'][0]['text'].strip()
         except Exception as e:
             print(f"Error researching {company_name}: {e}")
-            return f"Unable to research {company_name}"
+            return (
+                f"{company_name} is the customer organization for this engagement. "
+                "Project-specific business context and priorities are documented in the scope and requirements sections of this SOW."
+            )
 
 
 # Usage example

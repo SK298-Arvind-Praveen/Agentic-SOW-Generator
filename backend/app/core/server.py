@@ -583,8 +583,8 @@ Return ONLY valid JSON, no markdown:
                 extracted['objective'] = extracted.get('objective') or "Project Implementation"
                 extracted['document_date'] = extracted.get('document_date') or datetime.now().strftime("%d %B %Y")
                 extracted['version'] = "1.0"
-                extracted['start_date'] = (datetime.now() + timedelta(days=7)).strftime("%d %B %Y")
-                extracted['end_date'] = (datetime.now() + timedelta(weeks=14)).strftime("%d %B %Y")
+                extracted['start_date'] = None
+                extracted['end_date'] = None
                 extracted['timezone'] = "IST"
 
                 # Clean project title - remove LLM embellishments
@@ -888,8 +888,8 @@ def process_document_generation(task_id, task_data):
             "author_org_description": author_org_description,
             "document_date": document_date,
             "version": version,
-            "start_date": (datetime.now() + timedelta(days=7)).strftime("%d %B %Y"),
-            "end_date": (datetime.now() + timedelta(weeks=14)).strftime("%d %B %Y"),
+            "start_date": task_data.get("start_date") or "",
+            "end_date": task_data.get("end_date") or "",
             "timezone": "IST",
             "project_title": project_name or "To be extracted from document"
         }
@@ -2141,8 +2141,8 @@ def generate_preview():
             "author_org_description": "Shellkode specializes in developing advanced data and AI solutions for businesses.",
             "document_date": document_date,
             "version": version,
-            "start_date": (datetime.now() + timedelta(days=7)).strftime("%d %B %Y"),
-            "end_date": (datetime.now() + timedelta(weeks=14)).strftime("%d %B %Y"),
+            "start_date": request.form.get('start_date', '').strip(),
+            "end_date": request.form.get('end_date', '').strip(),
             "timezone": "IST",
             "project_title": project_name
         }
@@ -2375,6 +2375,10 @@ def title_to_section_key(title: str) -> str:
     key_mappings = {
         'about_author_org_short': 'about_shellkode',
         'about_company_name': 'about_company',
+        'executive_summary_and_project_overview': 'project_overview',
+        'detailed_scope_of_work': 'scope_of_work',
+        'detailed_production_scope_of_work': 'scope_of_work',
+        'architecture_overview': 'architecture_diagram',
         'shellkode_implementation_cost': 'implementation_cost',
         'project_overview_objectives': 'project_overview_objectives',
         'technical_specifications_system_design': 'technical_specifications_system_design',
@@ -2495,8 +2499,8 @@ def get_preview_status_api(preview_id):
                 "author_name": metadata.get("author_name", "Unknown Author"),
                 "author_org": metadata.get("author_org", "Shellkode"),
                 "document_date": metadata.get("document_date", datetime.now().strftime("%d %B %Y")),
-                "start_date": metadata.get("start_date", (datetime.now() + timedelta(days=7)).strftime("%d %B %Y")),
-                "end_date": metadata.get("end_date", (datetime.now() + timedelta(weeks=14)).strftime("%d %B %Y")),
+                "start_date": metadata.get("start_date") or "To be confirmed",
+                "end_date": metadata.get("end_date") or "To be confirmed",
                 "version": metadata.get("version", "1.0"),
                 "timezone": metadata.get("timezone", "IST"),
                 "author_org_description": metadata.get("author_org_description", "Shellkode specializes in developing advanced data and AI solutions for businesses.")
@@ -2557,30 +2561,9 @@ def get_poc_sections():
     try:
         print(f"\n[API] GET /api/sections/poc - Getting POC sections")
         
-        # Hardcoded POC sections based on template TOC
-        sections = [
-            {"key": "about_shellkode", "name": "About Shellkode"},
-            {"key": "about_indus", "name": "About INDUS"},
-            {"key": "project_overview", "name": "Project Overview"},
-            {"key": "scope_of_work", "name": "Scope of Work"},
-            {"key": "architecture_diagram", "name": "Architecture Diagram"},
-            {"key": "customer_dependencies", "name": "Customer Dependencies"},
-            {"key": "assumptions", "name": "Assumptions"},
-            {"key": "out_of_scope", "name": "Out Of Scope"},
-            {"key": "timelines_and_deliverables", "name": "Timelines and Deliverables"},
-            {"key": "aws_pricing", "name": "AWS Pricing"},
-            {"key": "customer_responsibilities", "name": "Customer Responsibilities"},
-            {"key": "duration_of_work", "name": "Duration of Work"},
-            {"key": "shellkode_implementation_cost", "name": "Shellkode Implementation Cost"},
-            {"key": "success_criteria", "name": "Success Criteria"},
-            {"key": "deliverable_acceptance", "name": "Deliverable Acceptance"},
-            {"key": "change_order", "name": "Change Order"},
-            {"key": "project_plan_termination", "name": "Project Plan Termination"},
-            {"key": "contacts_and_reporting", "name": "Contacts and Reporting"},
-            {"key": "marketing_authorization", "name": "Marketing Authorization"},
-            {"key": "terms_conditions", "name": "Terms & Conditions"},
-            {"key": "acceptance_and_signatories_to_statement_of_work", "name": "Acceptance and Signatories to Statement of Work"}
-        ]
+        template = config.POC_TEMPLATE_FILE.read_text(encoding='utf-8')
+        extracted = extract_sections_from_template(template, 'POC')
+        sections = [{"key": item["key"], "name": item["name"]} for item in extracted]
         
         return jsonify({
             "success": True,
@@ -2603,32 +2586,9 @@ def get_prod_sections():
     try:
         print(f"\n[API] GET /api/sections/prod - Getting PROD sections")
         
-        # Hardcoded PROD sections based on template TOC
-        sections = [
-            {"key": "about_shellkode", "name": "About Shellkode"},
-            {"key": "about_indus", "name": "About INDUS"},
-            {"key": "project_overview", "name": "Project Overview"},
-            {"key": "scope_of_work", "name": "Scope of Work"},
-            {"key": "technical_specifications_system_design", "name": "Technical Specifications & System Design"},
-            {"key": "architecture_integrations", "name": "Architecture & Integrations"},
-            {"key": "customer_dependencies", "name": "Customer Dependencies"},
-            {"key": "assumptions", "name": "Assumptions"},
-            {"key": "out_of_scope", "name": "Out Of Scope"},
-            {"key": "timelines_and_deliverables", "name": "Timelines and Deliverables"},
-            {"key": "customer_responsibilities", "name": "Customer Responsibilities"},
-            {"key": "duration_of_work", "name": "Duration of Work"},
-            {"key": "aws_pricing", "name": "AWS Pricing"},
-            {"key": "shellkode_implementation_cost", "name": "Shellkode Implementation Cost"},
-            {"key": "success_criteria", "name": "Success Criteria"},
-            {"key": "day_2_operations_support", "name": "Day-2 Operations & Support"},
-            {"key": "deliverable_acceptance", "name": "Deliverable Acceptance"},
-            {"key": "change_management", "name": "Change Management"},
-            {"key": "project_plan_termination", "name": "Project Plan Termination"},
-            {"key": "contacts_and_reporting", "name": "Contacts and Reporting"},
-            {"key": "marketing_authorization", "name": "Marketing Authorization"},
-            {"key": "terms_conditions", "name": "Terms & Conditions"},
-            {"key": "acceptance_and_signatories_to_statement_of_work", "name": "Acceptance and Signatories to Statement of Work"}
-        ]
+        template = config.PRODUCTION_TEMPLATE_FILE.read_text(encoding='utf-8')
+        extracted = extract_sections_from_template(template, 'PROD')
+        sections = [{"key": item["key"], "name": item["name"]} for item in extracted]
         
         return jsonify({
             "success": True,
@@ -2978,8 +2938,8 @@ def edit_preview():
             "author_name": metadata.get("author_name", "Unknown Author"),
             "author_org": metadata.get("author_org", "Shellkode"),
             "document_date": metadata.get("document_date", datetime.now().strftime("%d %B %Y")),
-            "start_date": metadata.get("start_date", (datetime.now() + timedelta(days=7)).strftime("%d %B %Y")),
-            "end_date": metadata.get("end_date", (datetime.now() + timedelta(weeks=14)).strftime("%d %B %Y")),
+            "start_date": metadata.get("start_date") or "To be confirmed",
+            "end_date": metadata.get("end_date") or "To be confirmed",
             "version": metadata.get("version", "1.0"),
             "timezone": metadata.get("timezone", "IST"),
             "author_org_description": metadata.get("author_org_description", "Shellkode specializes in developing advanced data and AI solutions for businesses.")

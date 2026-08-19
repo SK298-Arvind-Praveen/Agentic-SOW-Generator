@@ -5,6 +5,18 @@ backend/config/token.pickle
 backend/config/*.pickle
 **/.env.local
 **/.env.*.local
+# Environment files
+.env
+.env.*
+frontend/.env
+backend/.env
+
+# Dependencies and Python files
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/

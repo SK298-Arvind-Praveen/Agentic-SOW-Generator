@@ -10,7 +10,11 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from pypdf import PdfReader
 import docx
-from docx.oxml import parse_xml
+from docx.document import Document as _DocumentType
+from docx.table import Table
+from docx.text.paragraph import Paragraph
+from docx.oxml.table import CT_Tbl
+from docx.oxml.text.paragraph import CT_P
 import zipfile
 import io
 
@@ -71,7 +75,7 @@ def _read_pdf(file_path: str) -> str:
         image_based_count = 0
         
         for page_num, page in enumerate(reader.pages):
-            page_text = page.extract_text()
+            page_text = page.extract_text() or ""
             if page_text.strip():
                 text_parts.append(f"\n--- Page {page_num + 1} ---\n")
                 text_parts.append(page_text)
@@ -97,6 +101,16 @@ def _read_pdf(file_path: str) -> str:
     except Exception as e:
         print(f"❌ Error reading PDF: {e}")
         raise
+
+
+def _iter_docx_blocks(document):
+    """Yield paragraphs and tables in their actual document-body order."""
+    parent = document.element.body
+    for child in parent.iterchildren():
+        if isinstance(child, CT_P):
+            yield Paragraph(child, document)
+        elif isinstance(child, CT_Tbl):
+            yield Table(child, document)
 
 
 def _read_docx(file_path: str) -> str:
@@ -160,47 +174,26 @@ def _read_docx(file_path: str) -> str:
                     if para.text.strip():
                         text_parts.append(f"FOOTER: {para.text.strip()}")
         
-        # 2. Extract paragraphs from document body
-        for para in doc.paragraphs:
-            para_text = para.text.strip()
-            if para_text:
-                text_parts.append(para_text)
-        
-        # 3. Extract from tables (enhanced extraction)
-        for table_idx, table in enumerate(doc.tables):
-            table_text = _extract_table_content_enhanced(table, table_idx)
-            if table_text.strip():
-                text_parts.append(table_text)
-        
-        # 4. Try to extract from document XML for any missed content
-        try:
-            from xml.etree import ElementTree as ET
-            
-            with zipfile.ZipFile(file_path, 'r') as docx_zip:
-                if 'word/document.xml' in docx_zip.namelist():
-                    xml_content = docx_zip.read('word/document.xml')
-                    root = ET.fromstring(xml_content)
-                    
-                    # Extract all text nodes that might not be captured by python-docx
-                    for text_elem in root.iter():
-                        if text_elem.tag.endswith('}t') and text_elem.text:  # Word text elements
-                            text = text_elem.text.strip()
-                            if text and len(text) > 3 and text not in ' '.join(text_parts):
-                                text_parts.append(f"XML_EXTRACTED: {text}")
-        except Exception as xml_e:
-            print(f"   ⚠️  XML extraction failed (not critical): {xml_e}")
-        
-        # Join all content with newlines
-        full_text = "\n".join(text_parts)
-        
-        # Clean up the text
-        lines = []
-        for line in full_text.split('\n'):
-            line = line.strip()
-            if line and line not in lines:  # Remove duplicates
-                lines.append(line)
-        
-        final_text = "\n".join(lines)
+        # 2. Extract paragraphs and tables in source order.  The previous reader
+        # appended every table after every paragraph and globally de-duplicated
+        # lines, which destroyed context and legitimate repeated requirements.
+        table_idx = 0
+        for block in _iter_docx_blocks(doc):
+            if isinstance(block, Paragraph):
+                para_text = block.text.strip()
+                if para_text:
+                    style = block.style.name if block.style is not None else ""
+                    if style.lower().startswith("heading"):
+                        text_parts.append(f"HEADING: {para_text}")
+                    else:
+                        text_parts.append(para_text)
+            else:
+                table_text = _extract_table_content_enhanced(block, table_idx)
+                table_idx += 1
+                if table_text.strip():
+                    text_parts.append(table_text)
+
+        final_text = "\n".join(part.strip() for part in text_parts if part and part.strip())
         
         print(f"   ✓ Extracted {len(final_text)} characters from DOCX")
         print(f"   ✓ Found {len(doc.paragraphs)} paragraphs, {len(doc.tables)} tables")

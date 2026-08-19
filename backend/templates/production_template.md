@@ -1,577 +1,320 @@
 [META_STATIC]
 ## {PROJECT_TITLE}
 
-{COMPANY_NAME}
+Statement of Work - Production Implementation
 
-Prepared by: {AUTHOR_NAME}
-{DOCUMENT_DATE} [Version {VERSION}]
-{AUTHOR_ORG}
-
+Prepared for {COMPANY_NAME}
+Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
+{DOCUMENT_DATE} | Version {VERSION}
 
 [META_STATIC_TABLE]
 ## Table_of_contents
 
-1. About {AUTHOR_ORG_SHORT}
-2. About {COMPANY_NAME}
-3. Project Overview
-4. Scope of Work
-5. Technical Specifications & System Design
-6. Architecture & Integrations
-7. Customer Dependencies
-8. Assumptions
-9. Out of Scope
-10. Timelines and Deliverables
-11. Customer Responsibilities
-12. Duration of Work
-13. AWS Pricing
-14. Shellkode Implementation Cost
-15. Success Criteria
-16. Day-2 Operations & Support
-17. Deliverable Acceptance
-18. Change Management
-19. Project Plan Termination
-20. Contacts and Reporting
-21. Marketing Authorization
-22. Terms & Conditions
-23. Acceptance and Signatories to Statement of Work
+1. Document Control and Basis
+2. About {AUTHOR_ORG_SHORT}
+3. About {COMPANY_NAME}
+4. Executive Summary and Project Overview
+5. Current State and Business Context
+6. Scope at a Glance
+7. Detailed Scope of Work
+8. Technical Specifications and System Design
+9. Architecture and Integrations
+10. Data Migration and Readiness
+11. Security, Privacy and Compliance
+12. Customer Dependencies
+13. Assumptions
+14. Open Clarifications
+15. Out of Scope
+16. Timelines and Deliverables
+17. Testing and Acceptance Plan
+18. Deployment, Cutover and Rollback
+19. AWS Pricing
+20. Customer Responsibilities
+21. Duration of Work
+22. Shellkode Implementation Cost
+23. Success Criteria
+24. Risks and Mitigations
+25. Day-2 Operations and Support
+26. Deliverable Acceptance
+27. Change Management
+28. Project Plan Termination
+29. Contacts and Reporting
+30. Marketing Authorization
+31. Terms and Conditions
+32. Acceptance and Signatories to Statement of Work
 
+[META_GENERATED]
+## Document Control and Basis
 
-[META_HYBRID_company_research]
+Create a document-control table with Document, Customer, Delivery Partner, Version, Status,
+Date, Engagement Type, Planning Horizon, and Governing Source. Add Purpose and Intended Audience,
+Source Basis, Requirements Classification, and Approval Basis. Define Confirmed, Proposed,
+Planning Assumption, and Open Clarification. Do not invent approval or source documents.
+
+[META_HYBRID]
 ## About {AUTHOR_ORG_SHORT}
 
 {AUTHOR_ORG_DESCRIPTION}
 
-
-[META_HYBRID_company_research]
+[META_HYBRID]
 ## About {COMPANY_NAME}
 
 {COMPANY_DESCRIPTION}
 
+[META_GENERATED]
+## Executive Summary and Project Overview
+
+Write a decision-oriented production summary covering business problem, target operating outcome,
+solution boundary, production qualities, migration approach, principal dependencies, measurable
+acceptance basis, and intended handover. Use 4-6 short paragraphs plus a key-facts table. Do not
+claim projected benefits have already been achieved.
 
 [META_GENERATED]
-## Project Overview
+## Current State and Business Context
 
-Generate a concise project overview based on objective_analysis fields.
-Keep content focused and use bullet points instead of dense paragraphs.
-
-### Solution Overview
-
-Write EXACTLY ONE paragraph of 2-3 sentences:
-- Sentence 1: Describe the production-grade platform and the specific business problem it solves
-- Sentence 2: Name the core AI/ML capabilities and primary workflow
-- Sentence 3: State the production-readiness commitment with key metrics
-
-RULES: Must call it a "production-grade platform". No marketing language. Keep concise.
-
-### Business Objectives
-
-Generate {bullet_count} focused bullet points using ● where:
-- simple complexity → 3 bullets
-- moderate complexity → 4 bullets  
-- complex/enterprise complexity → 4 bullets (reduced from 5)
-
-Each bullet must be ONE clear business outcome in 1-2 lines maximum.
-
-### Technical Objectives
-
-Generate {bullet_count} focused bullet points using ● where:
-- simple → 3 bullets with 1 numeric target
-- moderate → 4 bullets with 2 numeric targets
-- complex → 4 bullets with 2 numeric targets (reduced from 5)
-- enterprise → 5 bullets with 3 numeric targets (reduced from 6)
-
-Each bullet must be ONE clear technical objective in 1-2 lines maximum.
-
-### End-State Vision
-
-Write ONE paragraph (2-3 sentences) followed by {bullet_count} capability bullets using ●:
-- simple → 3 bullets
-- moderate → 3 bullets (reduced from 3-4)
-- complex/enterprise → 4 bullets (reduced from 4-5)
-
-Keep paragraph concise. Each bullet must be 1-2 lines maximum.
-
+Document known current-state processes, systems, actors, volumes, pain points, constraints,
+existing controls, and operational impact. Separate facts, inferences, and gaps. Include Current-
+State Workflow, Pain Points and Root Causes, Business/Technical Drivers, and Evidence Gaps.
 
 [META_GENERATED]
-## Scope of Work
+## Scope at a Glance
 
-Generate a focused Scope of Work for PRODUCTION DEPLOYMENT based on objective_analysis fields.
-Keep each section concise with clear bullet points instead of dense paragraphs.
-
-BULLET COUNT PER SECTION (based on complexity_context.level):
-- simple → 3 bullets (minimum viable production)
-- moderate → 3 bullets (standard)
-- complex → 4 bullets (enhanced)
-- enterprise → 4 bullets (comprehensive, reduced from 4-5)
-
-SECTION TITLES (preserve order, apply conditional naming):
-
-### Application & Backend Implementation
-Brief description (1-2 sentences) + bullets per complexity count
-
-### User Access & Interaction Layer
-← or "API & Service Integration Layer" if ui_required=false
-Brief description (1-2 sentences) + bullets per complexity count
-
-### Infrastructure, Scalability & Operations  
-Brief description (1-2 sentences) + bullets per complexity count
-
-### Data Processing & AI Capabilities
-Brief description (1-2 sentences) + bullets per complexity count
-
-### Testing, Go-Live & Production Readiness
-Brief description (1-2 sentences) + bullets per complexity count
-
-FORMATTING RULES:
-- Each section: 1-2 sentence intro + bullet points
-- Each bullet: 1-2 lines maximum, specific and actionable
-- Use bullet symbol "•"
-- Reference specific AWS services and measurable deliverables
-- No verbose explanations or sub-bullets
-- **CRITICAL: Do NOT add numbers (1., 2., 3., etc.) before subsection titles. Use only the title text.**
-
+Create a one-page orientation view: objectives; in-scope capabilities; user groups; data sources;
+integrations; target environments; proposed AWS service families; explicit exclusions; production
+quality attributes; planning duration; deployment approach; and acceptance authority.
 
 [META_GENERATED]
-## Technical Specifications & System Design
+## Detailed Scope of Work
 
-Generate a concise technical overview based on objective_analysis fields.
-Keep each subsection to 2-3 sentences maximum to prevent truncation.
-
-### System Architecture Overview
-
-Describe the overall system architecture in 2-3 sentences:
-- Core processing approach (derive from workflow_steps and aws_services)
-- Data flow pattern (reference key AWS services from aws_services list)
-- Deployment model (reference deployment_environment: serverless/containerized/hybrid)
-
-### Data Processing & Storage
-
-Describe data handling in 2-3 sentences:
-- Data formats and volume (use data_characteristics.format and data_volume_description)
-- Storage strategy (reference S3, DynamoDB, or RDS from aws_services)
-- Processing approach (reference Lambda, Bedrock, or other processing services from aws_services)
-
-### User Access & Interface
-
-Describe user interaction in 2-3 sentences:
-- Access method (API-based if ui_required=false, web interface if ui_required=true)
-- User roles (reference primary_personas if available)
-- Authentication approach (reference IAM or Cognito from aws_services)
-
-### Performance & Scalability
-
-Describe performance characteristics in 2-3 sentences:
-- Concurrent user capacity (use concurrent_users from objective_analysis)
-- Scaling approach (auto-scaling for serverless, manual scaling for others)
-- Availability target (99.9% uptime for production systems)
-
-### Security & Compliance
-
-Describe security measures in 2-3 sentences:
-- Data encryption (at rest and in transit using AWS managed services)
-- Access controls (IAM roles and policies)
-- Compliance framework (reference compliance_requirements if non-empty, else "standard AWS security practices")
-
-### Integration & Monitoring
-
-Describe system integration in 2-3 sentences:
-- External integrations (reference integration_details if non-empty, else "internal services only")
-- Monitoring approach (CloudWatch and CloudTrail from aws_services)
-- Logging strategy (application and infrastructure logs)
-
+Build a complete, testable work breakdown:
+### Mobilization, Discovery and Baseline
+### Functional Requirements
+Use IDs FR-01 onward with Requirement, Source/Status, Delivery Response, Output, Validation Method.
+### Application and Workflow Engineering
+### Data and AI Engineering
+### Integration Engineering
+### User Experience
+Include only if ui_required is true.
+### Platform Engineering and Infrastructure as Code
+### Security and Compliance Implementation
+### Observability and Operational Readiness
+### Documentation, Training and Knowledge Transfer
+### Deliverables Register
+Use DEL-01 onward with Description, Format, Owner, Acceptance Evidence, and Timing.
 
 [META_GENERATED]
-## Architecture & Integrations
+## Technical Specifications and System Design
 
-Generate based on objective_analysis.aws_services, deployment_environment,
-integration_details, compliance_requirements, and complexity_context.
+Define reviewable specifications rather than generic technology prose:
+### Functional Component Specifications
+### API and Interface Contracts
+### Data Model and Storage Design
+### AI/ML or Rules Design
+Include only if applicable; distinguish model selection from model training/fine-tuning.
+### Non-Functional Requirements
+Use NFR-01 onward with Quality Attribute, Target/Proposed Target, Measurement, Environment, Status.
+### Environment and Configuration Strategy
+### CI/CD and Infrastructure as Code
+### Backup, Recovery, Retention and Deletion
+### Design Decisions and Trade-offs
 
-1. Overview paragraph (3–4 sentences):
-   - Sentence 1: Describe the multi-AZ, high-availability architecture for {COMPANY_NAME}
-     naming the primary AWS region and deployment pattern (serverless/containerised/EC2)
-   - Sentence 2: Describe the VPC design (public/private subnets, NAT Gateway)
-     ONLY if deployment_environment is NOT serverless; if serverless, describe the
-     API Gateway → Lambda → data store flow instead
-   - Sentence 3: Reference security layers — include WAF and Shield ONLY for
-     complex/enterprise or if ui_required=true; always include Security Groups and IAM
-   - Sentence 4: Reference CloudWatch, CloudTrail, and any compliance services (Config,
-     GuardDuty, Macie) ONLY if they appear in aws_services
+[META_GENERATED]
+## Architecture and Integrations
 
-2. Deployment Topology (3 bullets):
-   • Multi-AZ: describe AZ spread for the primary compute service from aws_services
-     (Lambda=implicit multi-AZ; ECS/EKS=explicit AZ placement; EC2=ASG multi-AZ)
-   • VPC Design: public/private subnet split ONLY if deployment_environment uses VPC;
-     for pure serverless, describe endpoint isolation instead
-   • Security Layers: list ONLY security services present in aws_services
-     (WAF, Shield, Security Groups, GuardDuty, KMS, Macie, etc.)
+Do not create a diagram. Provide Architecture Principles, Logical Component Map, End-to-End Data
+Flow, Network/Account/Environment Boundaries, Integration Contract Matrix, Security Trust
+Boundaries, High Availability and Scaling, Observability, and Alternatives/Trade-offs. Tables must
+distinguish confirmed components from proposals and state purpose, data, control, owner, and status.
 
-3. Integration Points (conditional — include category ONLY if data exists):
-   • Third-party APIs → include ONLY if integration_details contains api_integrations
-     or third_party_services; list specific systems from integration_details
-   • Legacy Systems → include ONLY if integration_details contains legacy_systems;
-     describe migration or coexistence approach
-   • Data Sources → include ONLY if data_characteristics.access_pattern is non-empty;
-     describe ingestion mechanism
-   If ALL three are empty → replace with "Internal Service Communication" describing
-   the event-driven or synchronous service-to-service patterns within the platform
+[META_GENERATED]
+## Data Migration and Readiness
 
+Describe source inventory, ownership, extraction, profiling, cleansing, mapping, transformation,
+reconciliation, migration waves, validation, rollback, retention, archival, and deletion. Provide a
+migration object table with Source, Object/Data Set, Volume/Status, Method, Owner, Validation,
+and Open Issue. If migration is not in scope, state the precise data-readiness work that is.
+
+[META_GENERATED]
+## Security, Privacy and Compliance
+
+Create a control-oriented plan covering identity/access, secrets, encryption, network boundaries,
+logging/audit, vulnerability management, data classification/privacy, threat modeling, incident
+response, evidence, and customer approvals. Use a matrix: Control Area, Requirement, Implementation
+Response, Evidence, Owner, Status. Mention a framework only if source-confirmed.
 
 [META_GENERATED]
 ## Customer Dependencies
 
-Generate concise dependencies and responsibilities based on objective_analysis.
-Keep all content concise and avoid overly detailed sub-bullets.
-
-### Dependencies
-
-1. Technical Environment
-   - AWS console and programmatic access with appropriate permissions
-   - IAM roles configured with least-privilege access for project resources
-   - Network connectivity to AWS services from customer environment
-
-2. Dataset Access
-   - Data volume: {data_volume_description if available, else "Approximately {data_volume_gb} GB total for project implementation"}
-   - Format requirements: Customer to provide data in machine-readable format
-   - Access permissions: Customer to grant necessary data access permissions before project initiation
-
-### Responsibilities
-
-• Provide timely access to required systems and data sources within agreed timeline windows
-• Ensure AWS environment access and configuration is complete prior to project kick-off
-• Assign technical point of contact for infrastructure and access-related queries
-• Review and approve project deliverables according to agreed timeline
-• Participate in regular status meetings and provide timely feedback
-• Provide subject matter expertise for {industry} domain requirements
-• Ensure all internal approvals are obtained within the specified project timeline
-
+Create a dependency register with ID, Dependency, Customer Owner Role, Needed By, Impact if Late,
+Mitigation, and Status. Cover accounts/environments, connectivity, data, SMEs, integration owners,
+security/compliance decisions, licenses, change windows, UAT participants, and operations readiness.
 
 [META_GENERATED]
 ## Assumptions
 
-Generate 8–12 bullet points using •.
+Write 10-15 concrete assumptions as bullets. State owner and impact. Distinguish planning
+assumptions from facts; cover environment, data, integrations, availability of decision-makers,
+test windows, deployment approvals, support readiness, and timeline inputs without inventing values.
 
-Derive EVERY assumption from objective_analysis. Map each assumption to a specific field:
+[META_GENERATED]
+## Open Clarifications
 
-Data assumptions (from data_characteristics, data_volume_description):
-• Customer-provided data will be in {data_characteristics.format} format;
-  reformatting or conversion of other formats is out of scope
-• Total project data volume will not exceed the specified volume ({data_volume_description if available, else "{data_volume_gb} GB"});
-  exceeding this threshold requires a mutually agreed Change Order
-• Source data quality is assumed sufficient for {accuracy_floor}% accuracy targets;
-  poor quality data (blurred scans, corrupt files) will reduce model performance below
-  committed thresholds
-
-Access and dependency assumptions (from aws_services, integration_details, compliance_requirements):
-• Customer will provision AWS account access with required IAM permissions within
-  {Week 1 for simple/moderate, Week 1-2 for complex/enterprise} of SOW execution
-• [If integration_details non-empty] API credentials and sandbox access for
-  {integration_details[0]} will be provided before Feature Implementation phase begins
-• [If compliance_requirements non-empty] Customer is responsible for defining data
-  classification and confirming regulatory scope; any ambiguity will pause
-  compliance-related development until resolved
-• [If compliance_requirements empty] No personally identifiable information (PII)
-  or regulated data will be processed in the POC environment
-
-Delivery and acceptance assumptions (from complexity_context, primary_personas):
-• Customer stakeholders from {primary_personas} will participate in weekly reviews;
-  unresponsiveness exceeding {3 for simple, 5 for moderate, 7 for enterprise} business
-  days will pause the affected delivery phase
-• Feedback on submitted deliverables will be provided within
-  {3 for simple, 5 for moderate, 7 for enterprise} business days of delivery
-• The project scope is limited to English-language content unless explicitly stated
-  otherwise in the objective
-• Changes to the project objective after Discovery phase will be handled via Change Order
-  and may affect cost and timeline
-
-RULES:
-- At least 2 bullets must explicitly assign responsibility to the customer
-- At least 1 bullet must state consequences of violation (timeline/cost impact)
-- Use real numbers from objective_analysis: weeks from complexity_context.duration_weeks,
-  data from data_volume_gb, accuracy from success_metrics
-- No introductory text, no generic placeholders
-
+Create a decision log: ID, Clarification, Why It Matters, Decision Owner Role, Required By,
+Affected Sections, and Status. Carry forward every material unknown and do not answer it for the customer.
 
 [META_GENERATED]
 ## Out of Scope
 
-Generate 8–10 bullet points using •. EVERY item must be conditional.
-
-CONDITIONAL RULES (apply each independently):
-
-Always include:
-• CI/CD pipeline setup and automated deployment configuration beyond basic environment provisioning
-• Staff training programs, end-user documentation, and operational runbooks beyond basic handover
-• Support or maintenance beyond the contracted Day-2 period without a separate agreement
-
-Conditional items:
-• "Model fine-tuning, retraining, or custom model development" →
-  INCLUDE ONLY if aws_services contains Bedrock or SageMaker
-  If neither → replace with "Custom AI model development outside of managed AWS AI services"
-
-• "Mobile application development (iOS/Android native applications)" →
-  INCLUDE ONLY if ui_required=true (web UI is in scope when ui_required=true; native mobile is not)
-  If ui_required=false → replace with "Frontend, web portal, or user interface development of any kind"
-
-• "Multi-region deployment, global CDN configuration, and cross-region failover" →
-  INCLUDE ONLY if complexity=complex or enterprise
-  If complexity=simple/moderate → replace with
-  "Production-grade high availability, disaster recovery, and multi-AZ redundancy beyond single-region POC"
-
-• "Performance or load testing at production scale beyond {concurrent_users} concurrent users" →
-  Always include; use actual concurrent_users value from objective_analysis
-
-• "{compliance_requirements[0]} compliance certification and third-party audit" →
-  INCLUDE ONLY if compliance_requirements is non-empty; name the actual framework
-  If empty → replace with "Formal compliance certification or regulatory audit preparation"
-
-• "Legacy data migration, ETL development, or data cleansing for source systems" →
-  INCLUDE ONLY if integration_details contains legacy_systems
-  If no legacy systems → replace with "Data pre-processing, cleansing, or quality remediation"
-
-• "Advanced BI dashboards, custom reporting, and real-time analytics visualisation" →
-  INCLUDE ONLY if analytics is NOT in key_features
-  If analytics IS in key_features → replace with
-  "Enterprise-grade BI platform integration beyond the defined POC analytics scope"
-
-FORMAT:
-- One line per bullet; no explanations or sub-bullets
-- No introductory text
-- Start directly with •
-
+Group relevant exclusions under Functional, Data/AI, Integration, Platform, Migration, Security/
+Compliance, Operations/Support, and Commercial. Reconcile exclusions with the deliverables register
+and route additions through Change Management.
 
 [META_TABLE]
 ## Timelines and Deliverables
 
-Generate a two-column timeline table.
+Build a week-by-week or phase/week plan using confirmed duration or planning_duration_weeks.
+Label derived timing as a planning assumption. Columns: Timeframe, Phase/Objective, Activities,
+Deliverables/Evidence, Customer Inputs, Exit Criteria. Include design gates, iterative build,
+migration/readiness, test cycles, security review, performance test, UAT, cutover rehearsal,
+production release, hypercare, documentation, knowledge transfer, and handover as applicable.
 
-TABLE FORMAT:
-| Timeframe | Milestones |
-|----------|------------|
-| Week 1 | **{Use-case-specific milestone title}**<br>• {Point 1}<br>• {Point 2}<br>• {Point 3}<br>• {Point 4} |
+[META_GENERATED]
+## Testing and Acceptance Plan
 
-RULES:
-- Use only two columns: Timeframe and Milestones.
-- Each Milestones cell must start with one bold use-case-specific subtopic title.
-- Under each title, include exactly 3–4 bullet points.
-- Use <br> between the title and each bullet.
-- Do not use paragraph text before or after the table.
-- Do not use old columns: Duration, Phase, Deliverables.
-- Do not use generic titles like “Feature Implementation” unless no better use-case-specific title exists.
-- Bullet points must be concise and specific to workflow_steps, key_features, aws_services, integrations, data_characteristics, and success_metrics.
-- Each bullet must be maximum 1 line where possible.
-- Avoid long bullets over 20 words.
-- Do not include raw markdown headings inside the table.
+Define environments, test ownership, traceability, test-data controls, functional/integration/
+regression testing, data/AI quality, performance/resilience, security, migration reconciliation,
+UAT, defects/retest, evidence repository, entry/exit criteria, and acceptance authority. Include a
+Requirements Traceability Matrix with Requirement/Deliverable ID, Test, Evidence, Owner, Authority.
+All unsupplied thresholds must be proposed for baseline confirmation.
 
+[META_GENERATED]
+## Deployment, Cutover and Rollback
 
-[META_STATIC]
-## Customer Responsibilities
-
-• Designate and provide access throughout the project to the Customer individuals serving in project support roles, including the project sponsor and stakeholders, each having suitable skills, experience knowledge, capacity, and subject matter expertise for their role.
-• Provide promptly such information, documentation, decisions, approvals, and assistance as requested or necessary for ShellKode's performance and maintenance of project cadence.
-• Customer and ShellKode will make every effort to leverage best practices and technologies as needed for effective remote project delivery.
-• Provide complete, accurate, and current information and update it promptly and continuously as necessary during the course of the engagement.
-• Assume responsibility for any delays, additional costs, or other liabilities caused by or associated with any deficiencies in (i) discharging the Customer Responsibilities, and (ii) the Assumptions.
-• Provide subject matter expertise in regard to source systems and other components.
-• Provide necessary environments for development, testing, and production.
-• Ensure the use and procurement of appropriate licenses(if applicable).
-
-
-[META_STATIC]
-## Duration of Work
-
-Services commence on {START_DATE} and conclude no later than {END_DATE}. All scope changes require a mutually agreed Change Order.
-
+Provide release prerequisites, deployment sequence, configuration/data migration, smoke tests,
+go/no-go criteria, decision authority, communications, rollback triggers, rollback steps, recovery
+validation, hypercare, and transition to operations. Use a responsibility/runbook table where helpful.
 
 [META_TABLE]
 ## AWS Pricing
 
-Generate realistic AWS MRR based on objective_analysis.aws_services, data_volume_gb,
-concurrent_users, and complexity_context.level.
-PROD pricing is higher than POC due to production-grade infrastructure (multi-AZ, monitoring, backups).
+Use a source-backed estimate when available. Otherwise provide planning ranges by major cost driver
+and state the usage variables required for an AWS Pricing Calculator baseline. Columns: Cost Driver,
+Usage Assumption, Estimate Status, Monthly Range/Basis, Optimization Lever, Customer Action.
+Separate one-time migration/test usage from steady state. Never claim approved funding.
 
-MRR ESTIMATION GUIDELINES FOR PRODUCTION:
-- simple + low data: $800–$2,000/month
-- moderate + medium data: $2,000–$6,000/month
-- complex + high data: $6,000–$15,000/month
-- enterprise + very high data: $15,000–$50,000/month
-- Add $300–$800/month if ui_required=true (CloudFront, WAF, Shield Standard)
-- Add $200–$1,000/month per major integration in integration_details
-- Add $200–$500/month if compliance_requirements non-empty (Config, GuardDuty, Macie, etc.)
+[META_STATIC]
+## Customer Responsibilities
 
-| Item | MRR in USD |
-|------|------------|
-| AWS Pricing Calculator | {MRR} |
-| AWS MRR | {MRR} |
-| AWS ARR | {ARR} |
+- Nominate executive, product, technical, security, data, operations, and acceptance owners.
+- Provide approved AWS accounts, environments, connectivity, access, representative data, source-system support, and change windows.
+- Confirm data ownership, lawful use, classification, retention, residency, privacy, and applicable control requirements.
+- Approve architecture, security, migration, deployment, rollback, and operational-readiness decisions within the agreed cadence.
+- Execute customer-owned UAT and production go/no-go responsibilities and provide written acceptance evidence.
+- Procure licenses, subscriptions, cloud consumption, certificates, domains, and third-party services not expressly included.
+- Ensure customer teams are available for knowledge transfer and assume agreed operational ownership at handover.
 
-RULES:
-- ARR = MRR × 12
-- Use a single realistic number (not a range) for MRR
-- Do NOT itemise individual service costs in the table
-- Preserve table structure exactly
+[META_GENERATED]
+## Duration of Work
 
+State confirmed dates if provided. Otherwise state the planning horizon and that dates require
+dependency/resource confirmation. Reconcile with the timeline, feedback windows, change freezes,
+deployment approvals, and hypercare. Do not fabricate calendar dates.
 
 [META_TABLE]
 ## Shellkode Implementation Cost
 
-Generate resource allocation based on complexity_context.level and the total weeks
-determined in Timelines and Deliverables. Effort/Week MUST match project duration.
-
-RESOURCE ALLOCATION RULES FOR PRODUCTION:
-- simple (8–12 weeks): 1× AIML Engineer; Solution Architect 2–3 weeks
-- moderate (12–18 weeks): 1× AIML Engineer + 1× Sr AIML Engineer;
-  Solution Architect 3–4 weeks
-- complex (18–24 weeks): 1× AIML Engineer + 1× Sr AIML Engineer;
-  Solution Architect 4–6 weeks
-- enterprise (24–32 weeks): 2× AIML Engineers + 1× Sr AIML Engineer;
-  Solution Architect full engagement (proportional weeks)
-
-ADD frontend resource ONLY if ui_required=true:
-- simple + ui: add 1× Frontend Developer at full project duration
-- moderate/complex/enterprise + ui: add 1× Sr Frontend Developer at full project duration
-
-| Resource | Effort/Week | Pricing (INR) |
-|----------|-------------|---------------|
-| AIML Engineer | {total_weeks} weeks | AWS Funded |
-| Sr AIML Engineer | {total_weeks} weeks | AWS Funded |
-| Solution Architect | {oversight_weeks} weeks | AWS Funded |
-| Frontend Developer | {total_weeks} weeks | AWS Funded |
-
-RULES:
-- Only 4 resource types: AIML Engineer, Sr AIML Engineer, Solution Architect, Frontend Developer
-- Add Frontend Developer row ONLY if ui_required=true (use "Frontend Developer" for simple, "Sr Frontend Developer" for others)
-- Omit Sr AIML Engineer row for simple projects
-- All Pricing (INR) cells must show "AWS Funded"
-- Effort/Week must be specific numbers matching the project timeline
-
+Create a proposed role/loading table with Role, Responsibilities, Indicative Involvement,
+Commercial Status. Use To be confirmed unless a commercial/funding source exists. Reconcile all
+roles with scope and timeline; include delivery/project management, architecture, engineering,
+quality/security/DevOps/data specialties only as warranted; frontend only when ui_required is true.
 
 [META_GENERATED]
 ## Success Criteria
 
-Generate 5–7 measurable bullets using • derived from objective_analysis.success_metrics.
-Production criteria are STRICTER than POC criteria.
-
-DERIVATION RULES:
-1. Map each item in success_metrics to one bullet with a specific percentage or numeric target
-2. Accuracy targets (PROD floors — higher than POC):
-   - simple: ≥90% accuracy
-   - moderate: ≥93% accuracy
-   - complex: ≥97% accuracy
-   - enterprise: ≥99.5% accuracy
-3. Always include: system uptime ≥99.9% in production environment
-4. Always include: processing success rate ≥98% based on data_volume_gb monthly volume
-5. If ui_required=true → add: "User acceptance rate ≥85% based on structured UAT
-   with {primary_personas[0]} representative group"
-6. If compliance_requirements non-empty → add: "100% of security and audit events
-   captured in CloudTrail with zero data gaps; {compliance_requirements[0]} controls
-   validated during pre-production security review"
-7. Performance: "System supports {concurrent_users} concurrent users with
-   <{latency}s p95 response time under sustained load"
-   Use latency from performance_requirements if available; else use complexity default:
-   simple=5s, moderate=3s, complex=2s, enterprise=1s
-8. Scalability: "Auto-scaling validated to {concurrent_users × 2} concurrent users
-   without manual intervention"
-
-FORMAT: • symbol, one measurable bullet per line, no introductory text
-
+Create 8-12 acceptance criteria SC-01 onward with Criterion, Confirmed/Proposed Target,
+Measurement, Evidence, Test Window, Authority. Cover workflow, functional correctness, data/AI
+quality if relevant, integration, performance, availability/resilience, security, migration,
+operations, documentation, and acceptance. Do not invent achieved results or agreed SLAs.
 
 [META_GENERATED]
-## Day-2 Operations & Support
+## Risks and Mitigations
 
-Generate concise operational support overview based on complexity_context.level.
-Keep all bullet points to maximum 2 lines each.
+Create a legible six-column production risk register with ID, Risk / Trigger,
+Likelihood / Impact, Mitigation, Contingency, Owner Role. Cover relevant data, integration, security, compliance,
+performance, migration, cutover, rollback, dependency, schedule, adoption, operations, and cost risks.
 
-CONTENT STRUCTURE (4 main sections only):
+[META_GENERATED]
+## Day-2 Operations and Support
 
-### Monitoring and Incident Response
-• Business hours monitoring (10am-7pm IST, Mon-Fri)
-• Incident Response SLAs based on complexity:
-  - Simple: P1=4hr, P2=8hr, P3=next business day
-  - Moderate: P1=2hr, P2=4hr, P3=8hr  
-  - Complex: P1=1hr, P2=2hr, P3=4hr
-  - Enterprise: P1=30min, P2=1hr, P3=2hr
-
-### Patch Management and Updates
-• Security patches applied according to severity:
-  Critical vulnerabilities within 24 hours, standard updates within 30 days
-• Monthly maintenance window for non-critical updates
-• Patch testing in staging environment before production deployment
-
-### Support Coverage
-• L2 Application Support
-  Available during business hours for application functionality and performance issues
-• L3 Technical Support
-  Architecture and infrastructure issues, available for critical escalations
-
-### Service Reviews
-• Monthly service review meetings covering:
-  System uptime and SLA compliance, cost tracking against budget,
-  performance metrics review, pending change requests and updates
-
-BOUNDARY (always include, exact text):
-Any support or operational engagement beyond the defined Day-2 period requires a separate Statement of Work or Support Agreement mutually executed by both parties.
-
+Define the proposed operating model: service ownership; monitoring and alerting; incident severity,
+triage and escalation; runbooks; backup/recovery; patch/vulnerability management; capacity/cost;
+model/data quality monitoring if relevant; maintenance/change; service reviews; knowledge base;
+support hours and SLAs status; and the boundary between included hypercare and a separate support
+agreement. Do not invent agreed SLAs.
 
 [META_STATIC]
 ## Deliverable Acceptance
 
-Customers will notify {AUTHOR_ORG_SHORT} in writing within ten (10) calendar days of receiving a Deliverable whether it accepts or rejects that Deliverable. If no notification is delivered to ShellKode within this period, the Deliverable will be considered accepted. As a time and materials engagement, changes to a rejected Deliverable constitute billable project time unless the parties determine that such Deliverable was not performed in accordance with good commercial practices.
-
+The Customer will review each deliverable against its documented acceptance criteria and provide
+written acceptance or a consolidated rejection notice identifying unmet criteria within ten (10)
+calendar days of receipt, unless the approved project plan states another period. Verified non-
+conformities within scope will be corrected; new requirements follow Change Management.
 
 [META_STATIC]
 ## Change Management
 
-Changes to project scope, incorrect assumptions, or missing prerequisites may affect cost, resources, or scheduling. Other circumstances may arise beyond {AUTHOR_ORG_SHORT}'s control that may cause it to be unable to accomplish the project objectives and would require a modification to this proposal. Any such modification shall be memorialized in a mutually executed change order that details material changes to staff requirements, deliverables, fees, and milestones, as applicable. If the parties do not agree to such a proposed change order, then either may suspend the Services to allow time for the parties to agree on an alternative change order. Should Services be suspended for a consecutive period of five (5) business days, either party may thereafter terminate this proposal immediately upon notice.
-
+Either party may request a change to scope, assumptions, deliverables, dependencies, architecture,
+schedule, deployment, support, resources, or commercials. A change becomes effective only through
+a mutually approved written change record describing rationale, impacts, revised criteria, owners,
+and effective date. Material unresolved changes may pause affected work by mutual agreement.
 
 [META_STATIC]
 ## Project Plan Termination
 
-Upon termination of this Project Plan executed in accordance with the terms of the Agreement, Customer shall pay {AUTHOR_ORG_SHORT} for any Customer-approved Services performed and expenses incurred up to the date of the termination and any expenses necessarily and reasonably incurred by AWS Partner in terminating Customer-approved obligations to third parties.
-
+Termination rights and notice periods are governed by the applicable master agreement. On
+termination, the Customer will pay approved fees and expenses incurred through the effective date,
+and both parties will agree an orderly handover of completed work, data, access, environments, and
+outstanding obligations, subject to the governing agreement.
 
 [META_STATIC_TABLE]
 ## Contacts and Reporting
 
-| Name | Title | Email | Phone |
-|-----|------|------|------|
-| Bala | Delivery Head | bala@shellkode.com | +91 95389 16855 |
-| Bakrudeen K | AI/ML Head | bakrudeen.k@shellkode.com | +91 78454 06910 |
-| Suman Perumal | Solution Architect | suman.p@shellkode.com | +91 97382 41191 |
-| Velmurugan S | Delivery Manager | vel@shellkode.com | +91 99946 07336 |
+| Organization | Role | Name | Email | Responsibilities |
+|---|---|---|---|---|
+| {COMPANY_NAME_SHORT} | Executive Sponsor | To be nominated | To be confirmed | Direction and escalation |
+| {COMPANY_NAME_SHORT} | Product/Acceptance Owner | To be nominated | To be confirmed | Requirements, UAT and acceptance |
+| {COMPANY_NAME_SHORT} | Technical/Security/Operations Owners | To be nominated | To be confirmed | Platform decisions and operational ownership |
+| {AUTHOR_ORG_SHORT} | Engagement Lead | {AUTHOR_NAME} | To be confirmed | Delivery coordination and reporting |
+| {AUTHOR_ORG_SHORT} | Solution Architect | To be nominated | To be confirmed | Design authority and technical assurance |
 
+The kickoff will confirm reporting cadence, governance forums, escalation path, and distribution list.
 
 [META_STATIC]
 ## Marketing Authorization
 
-Upon successful completion of the project, Customer agrees to provide a reference for {AUTHOR_ORG_SHORT} for services provided under this SOW. {AUTHOR_ORG_SHORT} agrees to follow the Customer's terms and conditions for the use of such reference and the Customer's name and logo.
-
+No public reference, customer name/logo use, case study, press release, or marketing statement is
+authorized by this SOW alone. Any such use requires separate prior written Customer approval and
+must comply with Customer brand and communications policies.
 
 [META_STATIC]
-## Terms & Conditions
+## Terms and Conditions
 
-• Working hours
-  ○ Standard work hours are 10 am - 07 pm IST Monday to Friday.
-  ○ If the resource has to be summoned before or after the specified business hour prior notice is to be issued.
-  ○ However, the above statement is not applicable during the production release cycle/P1 issues.
-• The SLAs of Cloud services are governed and owned by Cloud Platform directly.
-• The effort estimate is limited to the understood scope of work. Any substantial change in the scope may lead to the enhancement in the commercials and effort.
-• Changes to the scope of the services shall be mutually agreed to in writing between Customer and {AUTHOR_ORG_SHORT}. Changes to project scope, assumptions, etc. may have cost, resource, or timeline implications.
-• The client may terminate this agreement or ramp down resources with or without cause upon thirty (30) days written notice to {AUTHOR_ORG_SHORT}.
-• The client will provide feedback on the deliverables submitted by the {AUTHOR_ORG_SHORT} team at the earliest During the above-mentioned period, {AUTHOR_ORG_SHORT} resources will be reporting to the Customer directly & his/her work and deliverables are tracked and managed by the Customer. This proposal contains proprietary and confidential information of {AUTHOR_ORG_SHORT} Proprietor and shall not be used, disclosed, or reproduced, in whole or in part, for any purpose other than to evaluate this proposal, without the prior written consent of authorized {AUTHOR_ORG_SHORT} personnel in and to this document and all information contained herein remains at all times in {AUTHOR_ORG_SHORT}.
-
+- This SOW is governed by the applicable master agreement or other agreement executed by the parties.
+- Working location/hours, holidays, expenses, invoicing, taxes, payment, and travel are governed by that agreement or an approved commercial schedule.
+- AWS and third-party availability, pricing, and service levels are governed by their providers.
+- Customer data is handled under agreed ownership, confidentiality, privacy, security, residency, retention, and deletion obligations.
+- Intellectual property, confidentiality, warranties, liability, indemnities, and order of precedence are governed by the applicable agreement.
 
 [META_STATIC_TABLE]
 ## Acceptance and Signatories to Statement of Work
 
-"Client" verifies that the terms of this Statement of Work/Proposal and Service Level Agreements are acceptable. The parties hereto are each, acting with proper authority by their respective companies.IN WITNESS WHEREOF, {AUTHOR_ORG_SHORT} and Client have executed this SOW on the Execution Date.
+The authorized representatives below acknowledge that they have reviewed this SOW and agree to
+its scope, responsibilities, assumptions, deliverables, acceptance criteria, schedule basis,
+commercial terms, and production-transition obligations, subject to the governing agreement.
 
-| {AUTHOR_ORG_SHORT} | {COMPANY_NAME_SHORT} |
-|--------------------|----------------------|
-| Signature  | Signature  |
-
-
-| Bhuvanesh CTO | XXX |
-
-
-| Date of acceptance: | Date of acceptance: |
+| For {AUTHOR_ORG_SHORT} | For {COMPANY_NAME_SHORT} |
+|---|---|
+| Name: To be nominated | Name: To be nominated |
+| Title: To be confirmed | Title: To be confirmed |
+| Signature: | Signature: |
+| Date: | Date: |

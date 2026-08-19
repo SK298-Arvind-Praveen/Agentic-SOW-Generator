@@ -7,6 +7,7 @@ import os
 import re
 import boto3
 from typing import Dict, Any
+from app.core.sow_quality import normalize_requirements
 
 
 class ObjectiveAgent:
@@ -42,14 +43,13 @@ class ObjectiveAgent:
             Dictionary containing all analyzed requirements for template generation
         """
         if not objective or not objective.strip():
-            print("⚠️  Empty objective provided — using default")
-            objective = "Build a comprehensive AWS-based AI solution for business process automation"
+            print("⚠️  Empty objective provided — preserving the gap for clarification")
+            objective = "Project objective was not provided and must be confirmed during discovery."
 
         objective = objective.strip()
 
         if len(objective) < 10:
-            print(f"⚠️  Very short objective ({len(objective)} chars) — enhancing for analysis")
-            objective = f"Build a comprehensive AWS-based solution to {objective} using modern cloud architecture"
+            print(f"⚠️  Very short objective ({len(objective)} chars) — analyzing without inventing scope")
 
         # ✅ NEW: Extract specific data from objective before LLM analysis
         print("🔍 Extracting specific data from objective...")
@@ -152,173 +152,72 @@ The following documents provide additional context and requirements for this pro
 Use this supporting information to enrich your analysis and extract more detailed requirements.
 """
 
-        return f"""You are an expert AWS solutions architect analyzing a project objective
-to generate a Statement of Work (SOW).
+        return f"""You are the requirements analyst for a professional AWS Statement of Work.
 
-Project Objective:
+SOURCE 1 - USER'S PRODUCT DETAILS (highest authority):
 {objective}
 {context_section}
-Analyze this objective carefully and return a single JSON object with ALL of the fields
-listed below. Every field is required — use your best judgment where the objective does not
-explicitly state a value; do not omit any field.
 
-FIELD DEFINITIONS AND RULES:
+Extract facts and produce a useful solution hypothesis, while keeping the two separate.
+Never turn an absent number, integration, compliance framework, service, SLA, date, data
+volume, user count, or accuracy threshold into a confirmed requirement. Use null or [] for
+unknown facts. Recommended architecture belongs in proposed_aws_services or
+planning_assumptions. Do not invent facts about the customer.
 
-"project_overview"        — 2–3 sentence factual description of the system
-"key_features"            — list of 5–8 specific capabilities the system provides
-"aws_services"            — list of AWS services required; detect any AWS services mentioned
-                            in the objective (e.g., TextExtract, Bedrock, Lambda, S3, etc.);
-                            prefer Bedrock over SageMaker for LLM work; prefer Lambda/Step Functions over EC2 for APIs;
-                            always include CloudWatch and CloudTrail; max 12 services
-"architecture_components" — list of architectural layers (e.g., "API Gateway", "Lambda",
-                            "DynamoDB", "S3"); derive from aws_services
-"use_cases"               — list of 3–5 specific, concrete user scenarios
-"success_metrics"         — list of 5–7 MEASURABLE targets with percentages or numbers
-                            (e.g., "≥90% extraction accuracy", "p95 response time <2s")
-"technical_requirements"  — list of 3–6 specific non-functional requirements
-"data_characteristics"    — object with:
-                              "volume": plain English + GB estimate (e.g., "~500 PDF documents, ~2 GB")
-                              "format": exact formats (e.g., "PDF, DOCX, HTML")
-                              "access_pattern": read/write pattern description
-"workflow_steps"          — ordered list of 4–6 steps describing the end-to-end data flow
-                            (e.g., ["User uploads PDF to S3", "Lambda triggers text extraction",
-                            "Bedrock Claude processes extracted text", "Results stored in DynamoDB",
-                            "User retrieves structured output via API"])
-"ui_required"             — boolean: DEFAULT TO FALSE. Set to true ONLY if objective explicitly mentions UI-specific terms:
-                            "User Interface", "UI" (as standalone word), "Frontend", "Web interface", 
-                            "Dashboard", "Web application", "Portal", "Screen/Screens", "Visualization"
-                            AND these terms are mentioned in a POSITIVE context (not preceded by "no", 
-                            "without", "backend-only", "API-only", etc.). 
-                            IMPORTANT: If no UI terms are mentioned, or only general terms like "platform", 
-                            "system", "solution", "analysis" are used, set this to FALSE.
-"deployment_environment"  — one of: "serverless" | "containerized" | "ec2_based" | "hybrid"
-                            (prefer "serverless" unless objective explicitly requires containers/EC2)
-"primary_personas"        — list of 2–5 user personas with role descriptions
-                            (e.g., ["Content Analyst - uploads and reviews documents",
-                            "System Administrator - manages user access and monitors pipeline"])
-"compliance_requirements" — list of applicable frameworks (e.g., ["HIPAA"], ["GDPR", "SOX"]);
-                            empty list [] if objective mentions no regulated data or industry
-"data_volume_gb"          — integer: estimated total data volume in GB for the POC
-                            (derive from data_characteristics.volume;
-                            use 1 for trivial, 5 for small, 20 for medium, 100 for large)
-"concurrent_users"        — integer: expected simultaneous users during peak load
-                            (use 5 for simple internal tools, 20 for departmental, 
-                            100 for enterprise-wide, 500+ for public-facing)
-"mrr_estimate"            — integer: realistic AWS MRR in USD for POC scale
-                            (simple $200–$500, moderate $500–$1500, complex $1500–$5000)
-"performance_requirements"— list of specific performance constraints mentioned in objective
-                            (e.g., ["API response < 2 seconds", "batch job completes within 1 hour"])
-"accuracy_metrics"        — object with:
-                              "target_percentage": integer accuracy floor (85–99 based on domain)
-                              "measurement_method": how accuracy is validated (e.g., "human review sample")
-                              "domain_constraints": any scope limits (e.g., "English only", "PDF only")
-"integration_details"     — list of external systems/APIs to integrate with;
-                            empty list [] if no external integrations mentioned
-"security_requirements"   — list of specific security controls required
-                            (e.g., ["encryption at rest", "VPC isolation", "audit logging"]);
-                            always include at minimum ["encryption at rest", "audit logging"]
-"industry"                — detected industry from one of:
-                            "financial_services" | "healthcare" | "retail_ecommerce" |
-                            "manufacturing" | "technology" | "government" | "education" |
-                            "media_entertainment" | "generic"
+Return one valid JSON object using this contract:
+{{
+  "project_overview": "2-4 factual sentences grounded in the source",
+  "business_problem": "problem and operational impact stated or directly implied",
+  "desired_outcomes": ["outcome"],
+  "current_state": ["known current-state fact"],
+  "key_features": ["functional capability"],
+  "functional_requirements": ["testable functional requirement"],
+  "non_functional_requirements": ["only explicitly supplied constraints"],
+  "confirmed_aws_services": ["only services named in a source"],
+  "proposed_aws_services": ["architectural recommendations, kept distinct from facts"],
+  "aws_services": ["deduplicated union of confirmed and proposed services"],
+  "architecture_components": ["logical component or layer"],
+  "workflow_steps": ["ordered end-to-end step"],
+  "use_cases": ["specific scenario"],
+  "primary_personas": ["role - responsibility"],
+  "data_sources": ["source and owner if known"],
+  "data_characteristics": {{"volume": null, "format": null, "access_pattern": null, "retention": null, "classification": null}},
+  "data_volume_gb": null,
+  "concurrent_users": null,
+  "deployment_environment": null,
+  "integration_details": ["system/interface/auth/owner if known"],
+  "security_requirements": ["only stated controls"],
+  "compliance_requirements": ["only stated frameworks"],
+  "performance_requirements": ["only stated SLOs or constraints"],
+  "accuracy_metrics": {{"target_percentage": null, "measurement_method": null, "domain_constraints": null}},
+  "success_metrics": ["source-grounded measurable metric; omit invented targets"],
+  "key_deliverables": ["explicit or directly implied deliverable"],
+  "timeline": null,
+  "duration_weeks": null,
+  "budget_monthly": null,
+  "mrr_estimate": null,
+  "ui_required": false,
+  "industry": "financial_services|healthcare|retail_ecommerce|manufacturing|technology|government|education|media_entertainment|generic",
+  "confirmed_requirements": {{"field": "source-grounded value"}},
+  "planning_assumptions": ["clearly labelled assumption used to make the draft actionable"],
+  "open_clarifications": ["material question whose answer affects scope, design, schedule, cost, or acceptance"],
+  "source_basis": ["User product details", "supporting document name or type"],
+  "requirements_provenance": {{"field": "confirmed|inferred|proposed|unknown"}}
+}}
 
-RESPOND WITH ONLY THE JSON OBJECT — NO MARKDOWN, NO EXPLANATION, NO PREAMBLE.
-Start with {{ and end with }}.
-
-EXAMPLES FOR ui_required:
-- "Build a data processing API" → ui_required: false
-- "Create a document analysis system" → ui_required: false  
-- "Build a web dashboard for data visualization" → ui_required: true
-- "Develop a backend-only solution" → ui_required: false
+Rules:
+- ui_required is true only for an explicitly positive UI/dashboard/portal requirement.
+- Do not automatically add CloudWatch, CloudTrail, IAM, KMS, Lambda, S3, or any other service.
+- Proposed services must be justified by the workflow and presented as proposed.
+- Extract all useful detail from short input, but express unknowns as clarifications rather than fake precision.
+- Respond with JSON only, beginning with {{ and ending with }}.
 """
 
     def _ensure_complete_fields(self, req: Dict[str, Any], objective: str) -> Dict[str, Any]:
         """
-        Fill any missing fields with sensible defaults so downstream template
-        generation never encounters a KeyError or None value.
+        Fill structural gaps without converting unknowns into commitments.
         """
-        defaults = {
-            "project_overview": f"AWS-based solution to: {objective[:100]}",
-            "key_features": ["AI-powered processing", "Secure data handling",
-                             "Scalable cloud architecture", "REST API interface",
-                             "Monitoring and alerting"],
-            "aws_services": ["Amazon Bedrock", "AWS Lambda", "Amazon S3",
-                             "Amazon DynamoDB", "Amazon API Gateway",
-                             "Amazon CloudWatch", "AWS CloudTrail", "AWS IAM"],
-            "architecture_components": ["API Gateway", "Lambda", "S3", "DynamoDB",
-                                        "CloudWatch", "IAM"],
-            "use_cases": ["Primary automated workflow", "Data ingestion and processing",
-                          "Output retrieval and review", "System monitoring and alerting"],
-            "success_metrics": ["≥90% processing accuracy", "≥99% system uptime",
-                                "p95 API response <3s", "≥95% processing success rate",
-                                "User acceptance rate ≥80%"],
-            "technical_requirements": ["Serverless-first architecture",
-                                       "API-first design", "Encryption at rest and in transit",
-                                       "CloudWatch monitoring and alerting"],
-            "data_characteristics": {
-                "volume": "Estimated 1–5 GB of structured and unstructured data",
-                "format": "PDF, JSON",
-                "access_pattern": "Read-heavy with periodic writes"
-            },
-            "workflow_steps": ["Data uploaded to S3", "Lambda triggers processing",
-                               "Bedrock model processes content",
-                               "Results stored in DynamoDB",
-                               "Output returned via API Gateway"],
-            "ui_required": False,  # Only true when explicitly mentioned
-            "deployment_environment": "serverless",
-            "primary_personas": ["End User - consumes system outputs via API or interface",
-                                 "System Administrator - manages configuration and monitors pipeline"],
-            "compliance_requirements": [],
-            "data_volume_gb": 5,
-            "concurrent_users": 20,
-            "mrr_estimate": 500,
-            "performance_requirements": ["API response time < 3 seconds",
-                                         "99% uptime during business hours"],
-            "accuracy_metrics": {
-                "target_percentage": 90,
-                "measurement_method": "human review of random sample",
-                "domain_constraints": "English language only"
-            },
-            "integration_details": [],
-            "security_requirements": ["encryption at rest", "encryption in transit",
-                                      "audit logging", "IAM least-privilege"],
-            "industry": "generic"
-        }
-
-        for key, default_value in defaults.items():
-            if key not in req or req[key] is None:
-                req[key] = default_value
-                print(f"  ↳ Defaulted missing field: {key}")
-            elif key == "data_characteristics" and not isinstance(req[key], dict):
-                req[key] = default_value
-            elif key in ("aws_services", "key_features", "workflow_steps",
-                         "primary_personas", "use_cases", "success_metrics",
-                         "integration_details", "compliance_requirements",
-                         "security_requirements", "performance_requirements") \
-                    and not isinstance(req[key], list):
-                req[key] = default_value
-
-        # Type coercions
-        for int_field in ("data_volume_gb", "concurrent_users", "mrr_estimate"):
-            try:
-                req[int_field] = int(req[int_field])
-            except (TypeError, ValueError):
-                req[int_field] = defaults[int_field]
-
-        req["ui_required"] = bool(req.get("ui_required", False))
-
-        if req.get("deployment_environment") not in (
-                "serverless", "containerized", "ec2_based", "hybrid"):
-            req["deployment_environment"] = "serverless"
-
-        valid_industries = {
-            "financial_services", "healthcare", "retail_ecommerce", "manufacturing",
-            "technology", "government", "education", "media_entertainment", "generic"
-        }
-        if req.get("industry") not in valid_industries:
-            req["industry"] = "generic"
-
-        return req
+        return normalize_requirements(req, objective=objective, mode="POC")
 
     def _log_analysis_summary(self, req: Dict[str, Any]) -> None:
         print("\n📊 Objective Analysis Summary:")
@@ -332,7 +231,8 @@ EXAMPLES FOR ui_required:
         print(f"  Compliance:        {req.get('compliance_requirements', []) or 'None'}")
         print(f"  Workflow Steps:    {len(req.get('workflow_steps', []))} steps")
         print(f"  Personas:          {len(req.get('primary_personas', []))} roles")
-        print(f"  MRR Estimate:      ${req.get('mrr_estimate', 0):,}/month")
+        mrr = req.get('mrr_estimate')
+        print(f"  MRR Estimate:      {f'${mrr:,}/month' if isinstance(mrr, (int, float)) else 'not provided'}")
         print(f"  Accuracy Target:   {req.get('accuracy_metrics', {}).get('target_percentage', '?')}%\n")
 
     def _get_fallback_requirements(self, objective: str) -> Dict[str, Any]:
@@ -340,91 +240,19 @@ EXAMPLES FOR ui_required:
         Minimal fallback requirements when AI analysis fails entirely.
         All downstream code must handle these defaults gracefully.
         """
-        return {
-            "project_overview": (
-                f"AWS-based AI solution to address: {objective[:120]}. "
-                "The system leverages managed AWS services to deliver scalable, "
-                "secure, and cost-effective functionality."
-            ),
-            "key_features": [
-                "AI-powered data processing",
-                "Secure document ingestion",
-                "REST API for output retrieval",
-                "Real-time monitoring and alerting",
-                "Role-based access control"
+        return normalize_requirements({
+            "project_overview": f"The stated project need is: {objective}",
+            "source_basis": ["User product details"],
+            "requirements_provenance": {"project_overview": "confirmed"},
+            "planning_assumptions": [
+                "The draft will use a proposed AWS architecture until discovery confirms the target environment and constraints."
             ],
-            "aws_services": [
-                "Amazon Bedrock",
-                "AWS Lambda",
-                "Amazon S3",
-                "Amazon DynamoDB",
-                "Amazon API Gateway",
-                "Amazon CloudWatch",
-                "AWS CloudTrail",
-                "AWS IAM"
+            "open_clarifications": [
+                "Functional scope and prioritized user journeys must be confirmed because automated requirements analysis was unavailable."
             ],
-            "architecture_components": [
-                "API Gateway", "Lambda", "S3", "DynamoDB", "CloudWatch", "IAM"
-            ],
-            "use_cases": [
-                "Automated data ingestion and extraction",
-                "AI-driven content processing and analysis",
-                "Structured output storage and retrieval",
-                "System health monitoring and incident alerting"
-            ],
-            "success_metrics": [
-                "≥90% processing accuracy validated by human review",
-                "≥99% system uptime during POC test window",
-                "p95 API response time under 3 seconds",
-                "≥95% of submitted documents processed without error",
-                "User acceptance rate ≥80% based on UAT feedback"
-            ],
-            "technical_requirements": [
-                "Serverless-first architecture using Lambda and API Gateway",
-                "All data encrypted at rest (S3 SSE) and in transit (TLS 1.2+)",
-                "Full audit trail via CloudTrail",
-                "CloudWatch dashboards for operational visibility"
-            ],
-            "data_characteristics": {
-                "volume": "Estimated 1–5 GB of documents for POC",
-                "format": "PDF, DOCX, JSON",
-                "access_pattern": "Read-heavy with write operations during ingestion"
-            },
-            "workflow_steps": [
-                "Documents uploaded to S3 input bucket",
-                "Lambda function triggered on S3 upload event",
-                "Bedrock Claude model processes document content",
-                "Extracted data validated and stored in DynamoDB",
-                "Results accessible via API Gateway REST endpoint"
-            ],
+            "industry": "generic",
             "ui_required": False,
-            "deployment_environment": "serverless",
-            "primary_personas": [
-                "Business Analyst - uploads source documents and reviews extracted results",
-                "System Administrator - manages access, monitors pipeline health"
-            ],
-            "compliance_requirements": [],
-            "data_volume_gb": 5,
-            "concurrent_users": 20,
-            "mrr_estimate": 500,
-            "performance_requirements": [
-                "API response time under 3 seconds for synchronous requests",
-                "Batch processing job completes within 1 hour for full dataset"
-            ],
-            "accuracy_metrics": {
-                "target_percentage": 90,
-                "measurement_method": "random sample human review (10% of outputs)",
-                "domain_constraints": "English language documents only"
-            },
-            "integration_details": [],
-            "security_requirements": [
-                "encryption at rest",
-                "encryption in transit",
-                "IAM least-privilege access",
-                "audit logging via CloudTrail"
-            ],
-            "industry": "generic"
-        }
+        }, objective=objective, mode="POC")
     def _extract_specific_data_from_objective(self, objective: str) -> Dict[str, Any]:
         """
         Extract specific data like pricing, timelines, SKUs, etc. from the objective text
@@ -811,8 +639,7 @@ EXAMPLES FOR ui_required:
             else:
                 # Keep original format for document counts
                 merged['data_volume_description'] = original_volume
-                # Set a reasonable GB estimate for backend processing
-                merged['data_volume_gb'] = 10  # Default estimate for document processing
+                merged['data_volume_gb'] = None
             print(f"   ✅ Using user-specified data volume: {original_volume}")
         
         if 'invoice_volume' in extracted_data:
@@ -855,7 +682,7 @@ EXAMPLES FOR ui_required:
         
         return merged
 
-    def _parse_duration_to_weeks(self, duration_str: str) -> int:
+    def _parse_duration_to_weeks(self, duration_str: str):
         """Parse duration string to weeks"""
         import re
         
@@ -881,7 +708,7 @@ EXAMPLES FOR ui_required:
         # Extract single number and unit
         match = re.search(r'(\d+)\s*(weeks?|months?|days?)', duration_lower)
         if not match:
-            return 8  # Default fallback
+            return None
         
         number = int(match.group(1))
         unit = match.group(2)
@@ -893,7 +720,7 @@ EXAMPLES FOR ui_required:
         elif 'day' in unit:
             return max(1, number // 7)  # Convert days to weeks
         
-        return 8  # Default fallback
+        return None
 
     def _parse_data_volume_to_gb(self, volume_str: str) -> float:
         """Parse data volume string to GB"""
@@ -904,7 +731,7 @@ EXAMPLES FOR ui_required:
         # Extract number and unit
         match = re.search(r'(\d+(?:\.\d+)?)\s*(gb|tb|mb)', volume_lower)
         if not match:
-            return 10.0  # Default fallback
+            return None
         
         number = float(match.group(1))
         unit = match.group(2)
@@ -916,4 +743,4 @@ EXAMPLES FOR ui_required:
         elif unit == 'mb':
             return number / 1024  # MB to GB
         
-        return 10.0  # Default fallback
+        return None
