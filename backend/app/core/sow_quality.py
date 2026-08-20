@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import copy
 import re
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
 UNKNOWN_VALUES = {
@@ -289,10 +289,18 @@ def section_quality_issues(content: str, section_name: str = "") -> List[str]:
     return issues
 
 
-def validate_generated_sections(sections: Dict[str, Any], mode: str) -> Tuple[List[str], List[str]]:
+def validate_generated_sections(
+    sections: Dict[str, Any],
+    mode: str,
+    required_keys: Optional[Iterable[str]] = None,
+) -> Tuple[List[str], List[str]]:
     """Return (missing_keys, quality_messages) for deterministic generation gating."""
     mode = (mode or "POC").upper()
-    required = REQUIRED_GENERATED_KEYS.get(mode, REQUIRED_GENERATED_KEYS["POC"])
+    required = (
+        set(required_keys)
+        if required_keys is not None
+        else REQUIRED_GENERATED_KEYS.get(mode, REQUIRED_GENERATED_KEYS["POC"])
+    )
     missing = sorted(key for key in required if not sections.get(key))
     issues: List[str] = []
     for key, value in sections.items():

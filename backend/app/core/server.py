@@ -46,12 +46,12 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 import boto3
-import requests
+from botocore.exceptions import ClientError
 
 from app.core.graph import create_graph, create_preview_graph, create_fast_preview_graph
 from app.core.config import Config
 from app.storage.upload import upload_generated_document
-from app.storage.upload1 import upload_to_s3
+from app.storage.upload1 import parse_s3_location, upload_to_s3
 from app.db.dynamodb_handler_optimized import (
     DynamoDBHandlerOptimized,
     save_to_dynamodb_optimized as save_to_dynamodb,
@@ -505,7 +505,7 @@ def extract_metadata_with_llm(text_content: str) -> dict:
         config = Config()
         bedrock = boto3.client(
             service_name='bedrock-runtime',
-            region_name=config.AWS_REGION,
+            region_name=config.BEDROCK_REGION,
             aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
             aws_session_token=os.getenv('AWS_SESSION_TOKEN'),
@@ -891,7 +891,8 @@ def process_document_generation(task_id, task_data):
             "start_date": task_data.get("start_date") or "",
             "end_date": task_data.get("end_date") or "",
             "timezone": "IST",
-            "project_title": project_name or "To be extracted from document"
+            "project_title": project_name or "To be extracted from document",
+            "selected_sow_sections": task_data.get("selected_sow_sections", []),
         }
 
         update_task(task_id, progress=10, current_step="Extracting metadata")
@@ -987,7 +988,8 @@ def process_document_generation(task_id, task_data):
             "errors": [],
             "current_step": "start",
             "supporting_documents": supporting_files,
-            "supporting_context": supporting_context
+            "supporting_context": supporting_context,
+            "selected_sow_sections": task_data.get("selected_sow_sections"),
         }
 
         app_graph = create_graph()
@@ -1082,8 +1084,8 @@ def process_document_generation(task_id, task_data):
                         s3_url=s3_url,
                         s3_result=s3_result,
                         drive_link=drive_link,  # ✅ Include drive link
-                        table_name="agentic-poc",
-                        region="us-east-1",
+                        table_name=os.getenv('DYNAMODB_TABLE_POC_DOCUMENTS', 'agentic-poc'),
+                        region=os.getenv('AWS_REGION', 'us-east-1'),
                         task_id=task_id
                     )
                 except Exception as e:
@@ -1101,7 +1103,6 @@ def process_document_generation(task_id, task_data):
         # ✅ AUTO-CLEANUP: Delete temporary files after successful cloud upload
         if storage_success["s3"] and storage_success["google_drive"] and upload_file:
             try:
-                import os
                 if os.path.exists(upload_file):
                     os.remove(upload_file)
                     print(f"✅ Cleaned up temporary file: {Path(upload_file).name}")
@@ -1201,6 +1202,14 @@ def generate_document():
                 "success": False,
                 "error": "Invalid or missing mode (POC, PROD, or POC_TO_PROD)"
             }), 400
+
+        from app.core.sow_section_preferences import parse_selected_section_ids
+        try:
+            selected_sow_sections = parse_selected_section_ids(
+                request.form.get('selected_sow_sections'), mode
+            )
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
 
         # Validate required fields based on mode
         if mode == "POC_TO_PROD":
@@ -1302,7 +1311,8 @@ def generate_document():
             'version': version,
             'source_file': source_file,
             'uploaded_file_path': uploaded_file_path,
-            'supporting_files': supporting_files  # List of supporting document paths
+            'supporting_files': supporting_files,  # List of supporting document paths
+            'selected_sow_sections': selected_sow_sections,
         }
 
         # Start background processing AFTER task is confirmed to exist
@@ -1436,7 +1446,7 @@ def get_task_status(task_id):
 
 @app.route('/api/proxy-download', methods=['POST'])
 def proxy_download():
-    """Proxy download from S3 URL to handle CORS issues"""
+    """Download a private S3 object with the application's AWS credentials."""
     try:
         data = request.get_json()
         s3_url = data.get('s3_url')
@@ -1449,36 +1459,49 @@ def proxy_download():
 
         print(f"[API] Proxy downloading from S3: {s3_url}")
 
-        response = requests.get(s3_url, timeout=30)
+        bucket, key = parse_s3_location(s3_url)
+        s3_client = get_s3_client()
+        if s3_client is None:
+            raise RuntimeError("Unable to initialize the S3 client")
 
-        if not response.ok:
-            return jsonify({
-                "error": f"Failed to download from S3: {response.status_code}"
-            }), 400
+        s3_response = s3_client.get_object(Bucket=bucket, Key=key)
+        body = s3_response['Body']
+        try:
+            content = body.read()
+        finally:
+            body.close()
 
-        content_type = response.headers.get('content-type', 'application/octet-stream')
+        content_type = s3_response.get('ContentType', 'application/octet-stream')
         if 'officedocument' in content_type or s3_url.endswith('.docx'):
             content_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         elif s3_url.endswith('.pdf'):
             content_type = 'application/pdf'
 
-        print(f"[API] Successfully downloaded {len(response.content)} bytes from S3")
+        print(f"[API] Successfully downloaded {len(content)} bytes from S3")
 
-        filename = s3_url.split('/')[-1].split('?')[0] or "document.docx"
+        filename = secure_filename(Path(key).name) or "document.docx"
 
         return Response(
-            response.content,
+            content,
             mimetype=content_type,
             headers={
                 'Content-Disposition': f'attachment; filename="{filename}"',
                 'Access-Control-Allow-Origin': '*',
-                'Content-Length': len(response.content),
+                'Content-Length': len(content),
                 'X-Content-Type-Options': 'nosniff',
                 'Content-Security-Policy': "default-src 'none'",
                 'Cache-Control': 'no-cache, no-store, must-revalidate'
             }
         )
 
+    except ValueError as e:
+        print(f"[API] Proxy download rejected: {e}")
+        return jsonify({"error": str(e)}), 400
+    except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', 'S3Error')
+        print(f"[API] S3 download error ({error_code}): {e}")
+        status = 404 if error_code in {'NoSuchKey', 'NoSuchBucket', '404'} else 403
+        return jsonify({"error": f"S3 download failed: {error_code}"}), status
     except Exception as e:
         print(f"[API] Proxy download error: {e}")
         return jsonify({
@@ -2032,6 +2055,14 @@ def generate_preview():
                 "success": False,
                 "error": "Invalid or missing mode (POC, PROD, or POC_TO_PROD)"
             }), 400
+
+        from app.core.sow_section_preferences import parse_selected_section_ids
+        try:
+            selected_sow_sections = parse_selected_section_ids(
+                request.form.get('selected_sow_sections'), mode
+            )
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
         
         # Always use async mode now - remove async parameter check
         use_fast_mode = request.form.get('fast_mode', 'true').lower() == 'true'
@@ -2144,7 +2175,8 @@ def generate_preview():
             "start_date": request.form.get('start_date', '').strip(),
             "end_date": request.form.get('end_date', '').strip(),
             "timezone": "IST",
-            "project_title": project_name
+            "project_title": project_name,
+            "selected_sow_sections": selected_sow_sections,
         }
         
         # ✅ NEW: Capture project_id and account_id if provided (for linking SOW to project later)
@@ -2217,7 +2249,8 @@ def generate_preview():
             "errors": [],
             "current_step": "start",
             "supporting_documents": supporting_files,
-            "supporting_context": supporting_context
+            "supporting_context": supporting_context,
+            "selected_sow_sections": selected_sow_sections,
         }
         
         # Create preview ID first
@@ -3173,8 +3206,8 @@ def finalize_document():
                     s3_url=s3_url,
                     s3_result=s3_result,
                     drive_link=drive_link,
-                    table_name="agentic-poc",
-                    region="us-east-1",
+                    table_name=os.getenv('DYNAMODB_TABLE_POC_DOCUMENTS', 'agentic-poc'),
+                    region=os.getenv('AWS_REGION', 'us-east-1'),
                     task_id=task_id,
                     account_id=account_id,  # ✅ NEW: Pass account_id
                     project_id=project_id  # ✅ NEW: Pass project_id
@@ -3255,7 +3288,6 @@ def finalize_document():
         # ✅ AUTO-CLEANUP: Delete temporary files after successful cloud upload
         if drive_result and s3_result and upload_file:
             try:
-                import os
                 if os.path.exists(upload_file):
                     os.remove(upload_file)
                     print(f"   ✅ Cleaned up temporary file: {Path(upload_file).name}")
@@ -4118,8 +4150,8 @@ def create_sow_for_project(project_id):
                             s3_url=s3_url,
                             s3_result={"https_url": s3_url, "s3_url": s3_url} if s3_url else None,
                             drive_link=drive_link,
-                            table_name="agentic-poc",
-                            region="us-east-1",
+                            table_name=os.getenv('DYNAMODB_TABLE_POC_DOCUMENTS', 'agentic-poc'),
+                            region=os.getenv('AWS_REGION', 'us-east-1'),
                             task_id=task_id,
                             account_id=project.get('account_id'),
                             project_id=project_id

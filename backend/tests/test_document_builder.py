@@ -7,7 +7,7 @@ from pathlib import Path
 from docx import Document
 from docx.oxml.ns import qn
 
-from app.document.document_builder import DocumentBuilder
+from app.document.document_builder import CHROME_INSET_IN, DocumentBuilder
 
 
 class _Config:
@@ -82,6 +82,18 @@ class DocumentBuilderTests(unittest.TestCase):
             self.assertIn('w:numId="92"', numbering)
             self.assertIn("w:startOverride", numbering)
             self.assertIn("1.1 Business Need", xml)
+            pageref_targets = re.findall(r"PAGEREF\s+([^\s<]+)\s+\\h", xml)
+            bookmark_names = set(re.findall(r'<w:bookmarkStart[^>]+w:name="([^"]+)"', xml))
+            self.assertTrue(pageref_targets)
+            self.assertTrue(set(pageref_targets).issubset(bookmark_names))
+
+    def test_singular_timeline_title_resolves_shared_timeline_content_key(self):
+        builder = DocumentBuilder.__new__(DocumentBuilder)
+        sections = {"timelines_and_deliverables": "A source-grounded delivery sequence."}
+        self.assertEqual(
+            builder._resolve_content("3. Timeline and Deliverables", sections),
+            "A source-grounded delivery sequence.",
+        )
 
     def test_benchmark_order_chrome_and_wide_table_fallback(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -104,8 +116,9 @@ class DocumentBuilderTests(unittest.TestCase):
                     "| R-1 | Route requests | BRD | Configure rules | Queue | Test log | Lead | Proposed |"
                 ),
                 "acceptance_and_signatories_to_statement_of_work": (
-                    "| ShellKode | Example Customer |\n|---|---|\n| Signature | Signature |\n\n"
-                    "| Bhuvanesh CTO | XXX |"
+                    "| ShellKode | Example Customer |\n|---|---|\n"
+                    "| Name: | Name: |\n| Title: | Title: |\n"
+                    "| Signature: | Signature: |\n| Date: | Date: |"
                 ),
             }
             metadata = {
@@ -121,13 +134,14 @@ class DocumentBuilderTests(unittest.TestCase):
             body_text = [paragraph.text for paragraph in document.paragraphs]
             self.assertLess(body_text.index("Document Control"), body_text.index("Table of Contents"))
             self.assertLess(body_text.index("Table of Contents"), body_text.index("1. Purpose and Scope of This Deliverable"))
-            self.assertEqual(len(document.tables), 5)  # 1 control + 2 split wide + 2 signature tables
+            self.assertEqual(len(document.tables), 4)  # 1 control + 2 split wide + 1 signature table
 
-            signature_continuation = document.tables[-1]
-            shading = signature_continuation.cell(0, 0)._tc.tcPr.find(qn("w:shd"))
+            signature_table = document.tables[-1]
+            shading = signature_table.cell(0, 0)._tc.tcPr.find(qn("w:shd"))
             self.assertIsNotNone(shading)
-            self.assertEqual(shading.get(qn("w:fill")), "FFFFFF")
-            self.assertFalse(signature_continuation.cell(0, 0).paragraphs[0].runs[0].bold)
+            self.assertEqual(shading.get(qn("w:fill")), "5D3FD3")
+            self.assertEqual(signature_table.cell(1, 0).text, "Name:")
+            self.assertNotIn("Bhuvanesh", "\n".join(cell.text for row in signature_table.rows for cell in row.cells))
 
             control_header = document.tables[0].cell(0, 0)._tc.tcPr.find(qn("w:shd"))
             self.assertEqual(control_header.get(qn("w:val")), "clear")
@@ -137,11 +151,37 @@ class DocumentBuilderTests(unittest.TestCase):
             content_section = document.sections[-1]
             self.assertAlmostEqual(content_section.left_margin.inches, 0.68, places=2)
             self.assertIn("Confidential Copyright © ShellKode 2026", content_section.footer.paragraphs[0].text)
+            self.assertAlmostEqual(
+                content_section.header.tables[0].cell(0, 0).paragraphs[0].paragraph_format.left_indent.inches,
+                CHROME_INSET_IN,
+                places=2,
+            )
+            self.assertAlmostEqual(
+                content_section.header.tables[0].cell(0, 1).paragraphs[0].paragraph_format.right_indent.inches,
+                CHROME_INSET_IN,
+                places=2,
+            )
+            self.assertEqual(content_section.footer.paragraphs[1].alignment, 1)
 
             with zipfile.ZipFile(output) as package:
                 document_xml = package.read("word/document.xml").decode("utf-8")
-                header_xml = package.read("word/header1.xml").decode("utf-8")
-                footer_xml = package.read("word/footer1.xml").decode("utf-8")
+                header_xml = "\n".join(
+                    package.read(name).decode("utf-8")
+                    for name in package.namelist()
+                    if re.fullmatch(r"word/header\d+\.xml", name)
+                )
+                footer_xml = "\n".join(
+                    package.read(name).decode("utf-8")
+                    for name in package.namelist()
+                    if re.fullmatch(r"word/footer\d+\.xml", name)
+                )
+                settings_xml = package.read("word/settings.xml").decode("utf-8")
+                styles_xml = package.read("word/styles.xml").decode("utf-8")
+                font_table_xml = package.read("word/fontTable.xml").decode("utf-8")
+                font_relationships_xml = package.read(
+                    "word/_rels/fontTable.xml.rels"
+                ).decode("utf-8")
+                package_names = set(package.namelist())
             self.assertEqual(document_xml.count('<w:br w:type="page"'), 2)
             self.assertNotIn('<w:pageBreakBefore w:val="0"', document_xml)
             self.assertIn("w:drawing", header_xml)
@@ -149,6 +189,16 @@ class DocumentBuilderTests(unittest.TestCase):
             self.assertIn('w:jc w:val="right"', header_xml)
             self.assertIn("PAGE", footer_xml)
             self.assertIn("NUMPAGES", footer_xml)
+            self.assertIn('<w:updateFields w:val="true"', settings_xml)
+            self.assertNotIn("Courier", document_xml)
+            for font_attribute in ("ascii", "hAnsi", "eastAsia", "cs"):
+                self.assertIn(f'w:{font_attribute}="DM Sans"', styles_xml)
+            self.assertIn('w:name="DM Sans"', font_table_xml)
+            self.assertIn("w:embedRegular", font_table_xml)
+            self.assertIn("w:embedBold", font_table_xml)
+            self.assertIn("/relationships/font", font_relationships_xml)
+            self.assertIn("word/fonts/DMSans-Regular.odttf", package_names)
+            self.assertIn("word/fonts/DMSans-Bold.odttf", package_names)
 
             cover_extents = [
                 int(value) for value in re.findall(r'<wp:extent[^>]+cy="(\d+)"', document_xml)

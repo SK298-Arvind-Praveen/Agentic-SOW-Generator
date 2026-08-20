@@ -24,7 +24,7 @@ class ObjectiveAgent:
         self.config = config
         self.bedrock = boto3.client(
             service_name='bedrock-runtime',
-            region_name=config.AWS_REGION,
+            region_name=config.BEDROCK_REGION,
             aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
             aws_session_token=os.getenv('AWS_SESSION_TOKEN'),

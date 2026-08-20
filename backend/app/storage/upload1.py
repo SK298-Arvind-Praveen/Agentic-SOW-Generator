@@ -7,6 +7,7 @@ import boto3
 import os
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import unquote, urlparse
 from botocore.exceptions import NoCredentialsError, ClientError
 from dotenv import load_dotenv
 
@@ -14,7 +15,42 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[2] / "config" / ".env")
 
 # AWS Configuration
-S3_BUCKET_NAME = 'agentic-sow-files'
+S3_BUCKET_NAME = os.getenv('S3_BUCKET_NAME', 'agentic-sow-files')
+
+
+def parse_s3_location(s3_url, expected_bucket=None):
+    """Parse an S3/HTTPS URL and restrict it to the configured bucket."""
+    expected_bucket = expected_bucket or os.getenv(
+        'S3_BUCKET_NAME', 'agentic-sow-files'
+    )
+    parsed = urlparse(str(s3_url).strip())
+
+    if parsed.scheme == 's3':
+        bucket = parsed.netloc
+        key = unquote(parsed.path.lstrip('/'))
+    elif parsed.scheme in {'http', 'https'}:
+        host = (parsed.hostname or '').lower()
+        key = unquote(parsed.path.lstrip('/'))
+        if host.endswith('.amazonaws.com') and '.s3' in host:
+            bucket = host.split('.s3', 1)[0]
+        elif host == 's3.amazonaws.com' or (
+            host.endswith('.amazonaws.com') and host.startswith(('s3.', 's3-'))
+        ):
+            path_parts = key.split('/', 1)
+            if len(path_parts) != 2:
+                raise ValueError('S3 URL does not contain an object key')
+            bucket, key = path_parts
+        else:
+            raise ValueError('Only Amazon S3 URLs are supported')
+    else:
+        raise ValueError('Only s3:// or https:// S3 URLs are supported')
+
+    if bucket != expected_bucket:
+        raise ValueError('The requested object is not in the configured S3 bucket')
+    if not key:
+        raise ValueError('S3 URL does not contain an object key')
+
+    return bucket, key
 
 # ✅ FIXED: Correct S3 folder structure matching FOLDER_MAPPING in main.py
 S3_FOLDER_STRUCTURE = {

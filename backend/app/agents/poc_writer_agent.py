@@ -19,6 +19,12 @@ from app.core.sow_quality import (
     section_quality_issues,
     validate_generated_sections,
 )
+from app.core.sow_section_preferences import (
+    SECTION_LABELS,
+    excluded_section_labels,
+    parse_selected_section_ids,
+    section_category,
+)
 
 
 class SectionType(Enum):
@@ -67,7 +73,7 @@ class POCWriterAgent:
         self.template_type = (template_type or "POC").upper()
         self.bedrock = boto3.client(
             service_name="bedrock-runtime",
-            region_name=config.AWS_REGION,
+            region_name=config.BEDROCK_REGION,
             aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
             aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
             aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
@@ -187,31 +193,46 @@ class POCWriterAgent:
         metadata: Dict[str, Any],
         rag_context: Optional[Dict[str, Any]] = None,
         supporting_context: Optional[str] = None,
+        selected_sow_sections: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         mode = self.template_type
+        selected_preferences = parse_selected_section_ids(selected_sow_sections, mode)
+        selected_set = set(selected_preferences)
         req = normalize_requirements(requirements, requirements.get("_original_objective", metadata.get("objective", "")), mode)
         req["_complexity"] = classify_complexity(req)
+        req["_selected_sow_sections"] = selected_preferences
+        req["_excluded_sow_sections"] = excluded_section_labels(selected_preferences, mode)
         metadata = dict(metadata)
+        metadata["selected_sow_sections"] = selected_preferences
         metadata["author_org_short"] = self._short_name(metadata.get("author_org", ""))
         metadata["company_name_short"] = self._short_name(metadata.get("company_name", ""))
         metadata.setdefault("project_title", "Project Statement of Work")
 
         active_sections = [
             section for section in self.sections
-            if req.get("ui_required") or section.name not in {
-                "User Interaction Layer", "User Access & Interaction Layer", "UI Development"
-            }
+            if (
+                section_category(section.name) is None
+                or section_category(section.name) in selected_set
+            ) and (
+                req.get("ui_required") or section.name not in {
+                    "User Interaction Layer", "User Access & Interaction Layer", "UI Development"
+                }
+            )
         ]
+        self.selected_section_preferences = selected_preferences
+        self.excluded_section_preferences = excluded_section_labels(selected_preferences, mode)
         source_context = self._context_excerpt(supporting_context, rag_context)
         output: Dict[str, str] = {}
         rendered: Dict[int, Tuple[str, str, bool]] = {}
         generation_jobs: List[Tuple[int, TemplateSection, str]] = []
-        consistency_notes = self._consistency_notes(req, metadata)
+        consistency_notes = self._consistency_notes(req, metadata, selected_set)
 
         print(f"\n🚀 Starting {mode} SOW generation ({len(active_sections)} sections)")
         for index, section in enumerate(active_sections, 1):
             key = self._section_key(section.name, metadata)
-            if section.section_type in {SectionType.STATIC, SectionType.STATIC_TABLE}:
+            if key == "toc_structure":
+                content = self._dynamic_toc(active_sections, metadata)
+            elif section.section_type in {SectionType.STATIC, SectionType.STATIC_TABLE}:
                 content = self._replace_placeholders(section.content, metadata, req)
             elif section.section_type == SectionType.HYBRID and not self._needs_generation(section.content):
                 content = self._replace_placeholders(section.content, metadata, req)
@@ -273,7 +294,12 @@ class POCWriterAgent:
             key, content, _ = rendered[index]
             output[key] = content
 
-        missing, issues = validate_generated_sections(output, mode)
+        expected_generated_keys = {
+            key for key, _content, generated in rendered.values() if generated
+        }
+        missing, issues = validate_generated_sections(
+            output, mode, required_keys=expected_generated_keys
+        )
         if missing:
             print(f"⚠ Generation gate missing expected sections: {', '.join(missing)}")
         if issues:
@@ -291,13 +317,19 @@ class POCWriterAgent:
         return max(1, min(configured, 8, max(1, job_count)))
 
     @staticmethod
-    def _consistency_notes(requirements: Dict[str, Any], metadata: Dict[str, Any]) -> List[str]:
+    def _consistency_notes(
+        requirements: Dict[str, Any],
+        metadata: Dict[str, Any],
+        selected_sections: Optional[set[str]] = None,
+    ) -> List[str]:
         """Create immutable cross-section notes suitable for concurrent authors."""
         notes = [
             f"Use the project name {metadata.get('project_title', 'Project')!r} consistently.",
             "The authoritative requirements baseline overrides any generic recommendation.",
         ]
-        duration = requirements.get("duration_weeks") or requirements.get("planning_duration_weeks")
+        duration = None
+        if selected_sections is None or "timeline" in selected_sections:
+            duration = requirements.get("duration_weeks") or requirements.get("planning_duration_weeks")
         if duration:
             label = "confirmed" if requirements.get("duration_weeks") else "planning assumption"
             notes.append(f"Duration is {duration} weeks ({label}); do not present it differently.")
@@ -305,6 +337,31 @@ class POCWriterAgent:
         if services:
             notes.append("Named AWS services: " + ", ".join(map(str, services)) + ".")
         return notes
+
+    def _dynamic_toc(
+        self,
+        active_sections: List[TemplateSection],
+        metadata: Dict[str, Any],
+    ) -> str:
+        """Build a contiguous TOC containing only sections selected for this SOW."""
+        lines: List[str] = []
+        counter = 0
+        for section in active_sections:
+            key = self._section_key(section.name, metadata)
+            if key in {"cover_page", "toc_structure"}:
+                continue
+            title = self._replace_placeholders(section.name, metadata)
+            title = re.sub(r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", title).strip()
+            unnumbered_poc_title = self.template_type == "POC" and (
+                title.casefold().startswith("document control")
+                or "acceptance and signator" in title.casefold()
+            )
+            if unnumbered_poc_title:
+                lines.append(title)
+            else:
+                counter += 1
+                lines.append(f"{counter}. {title}")
+        return "\n".join(lines)
 
     def _generate_section(
         self,
@@ -442,6 +499,14 @@ SOURCE EXCERPT (supporting evidence; may be empty)
 DOCUMENT CONSISTENCY NOTES
 {prior_context or '(none)'}
 
+USER-SELECTED DOCUMENT CUSTOMISATION
+- Optional topics to include: {', '.join(SECTION_LABELS.get(item, item) for item in getattr(self, 'selected_section_preferences', [])) or '(none)'}
+- Optional topics to exclude: {', '.join(getattr(self, 'excluded_section_preferences', [])) or '(none)'}
+- Author only the selected document structure. Do not introduce a section, table,
+  schedule, cost estimate, signature block, or substantive discussion for an excluded
+  optional topic elsewhere in the document. A brief source-grounded reference is allowed
+  only when it is necessary to define the mandatory project-scope overview.
+
 GLOBAL TEMPLATE AND REFERENCE-BENCHMARK CONTRACT
 {self.global_template_contract or '(no global contract supplied)'}
 
@@ -451,6 +516,10 @@ TEMPLATE AUTHORING INSTRUCTIONS:
 
 NON-NEGOTIABLE AUTHORING STANDARD
 - Return only the Markdown body. Do not repeat the top-level section heading and do not use code fences.
+- Use British Indian English throughout, never US spelling. Prefer forms such as
+  organisation, organise, centralised, analyse, behaviour, colour, programme,
+  licence (noun), and fulfilment. Preserve official product names, API fields,
+  source quotations, and other identifiers exactly as supplied.
 - Treat user/source values as confirmed; treat architect-derived choices as "Proposed"; put
   unknown material facts under "Open clarification" or state that they require confirmation.
 - Never invent customer facts, dates, prices, volumes, user counts, compliance claims, SLAs,
@@ -673,6 +742,8 @@ NON-NEGOTIABLE AUTHORING STANDARD
             "architecture overview": "architecture_diagram",
             "solution architecture — aws": "architecture_diagram",
             "solution architecture - aws": "architecture_diagram",
+            "timeline and deliverables": "timelines_and_deliverables",
+            "timelines and deliverables": "timelines_and_deliverables",
             "customer dependencies & responsibilities": "customer_dependencies_responsibilities",
             "shellkode implementation cost": "shellkode_implementation_cost",
         }

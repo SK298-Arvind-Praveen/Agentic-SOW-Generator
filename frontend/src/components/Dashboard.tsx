@@ -1,16 +1,13 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
-import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import {
-  LogOut,
   FileText,
   Code,
   Plus,
   Database,
   ChevronDown,
   ChevronRight,
-  User,
   Download,
   Search,
   Filter,
@@ -24,24 +21,19 @@ import {
 } from 'lucide-react';
 import SOWGenerator from './SOWGenerator';
 import DatePicker from 'react-datepicker';
-import 'react-datepicker/dist/react-datepicker.css'; 
+import 'react-datepicker/dist/react-datepicker.css';
 import apiService, { Document } from '../services/apiService';
-import ShellkodeLogo from './ShellkodeLogo';
 import './Dashboard.css';
-import './ShellkodeLogo.css';
 import './SOWGenerator.css';
 
 type SOWType = 'poc' | 'production' | 'poc-to-production';
 type ViewType = 'generate' | 'records' | 'documents';
 
 const Dashboard: React.FC = () => {
-  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [selectedSOW, setSelectedSOW] = useState<SOWType>('poc');
   const [selectedView, setSelectedView] = useState<ViewType>('generate');
-  const [expandedSOW, setExpandedSOW] = useState<SOWType>('poc');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
   const [recentPOCs, setRecentPOCs] = useState<Document[]>([]);
@@ -60,7 +52,6 @@ const Dashboard: React.FC = () => {
     endDate: null as Date | null
   });
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
-  const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [rowVersions, setRowVersions] = useState<{ [key: string]: Array<{ version: string; date: string; author: string; status: string; s3_url: string }> }>({});
   const [recordsSearchQuery, setRecordsSearchQuery] = useState('');
@@ -286,14 +277,6 @@ const Dashboard: React.FC = () => {
   const fetchProductionRecords = fetchAllRecords;
   const fetchPocToProductionRecords = fetchAllRecords;
 
-
-
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
-
   const sowOptions = [
     {
       id: 'poc' as SOWType,
@@ -320,7 +303,6 @@ const Dashboard: React.FC = () => {
 
   const handleSOWSelect = (sowId: SOWType) => {
     setSelectedSOW(sowId);
-    setExpandedSOW(sowId);
     setSelectedView('generate');
     setSelectedCompany(null); // Reset company selection when changing SOW type
   };
@@ -954,195 +936,7 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="dashboard">
-      <div className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
-        <div className="sidebar-header">
-          <div className="logo-section">
-            <ShellkodeLogo size="medium" />
-            {!sidebarCollapsed && <span className="logo-text">Shellkode</span>}
-          </div>
-          <button
-            className="sidebar-toggle"
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <ChevronRight className={`toggle-icon ${sidebarCollapsed ? 'collapsed' : ''}`} />
-          </button>
-        </div>
-
-        {/* {!sidebarCollapsed && (
-          <div className="sidebar-search">
-            <Search className="search-icon" />
-            <input 
-              type="text" 
-              placeholder="Search SOW..." 
-              className="search-input"
-            />
-          </div>
-        )} */}
-
-        <div className="sidebar-content">
-          <nav className="sidebar-nav">
-            <div className="nav-section-header">
-              <h3>Generate</h3>
-              {/* <span className="section-badge">{sowOptions.length}</span> */}
-            </div>
-            {sowOptions.map((sow) => {
-              const IconComponent = sow.icon;
-              const isExpanded = expandedSOW === sow.id;
-              const isActive = selectedSOW === sow.id && selectedView !== 'documents';
-              
-              return (
-                <div key={sow.id} className="nav-group">
-                  <button
-                    className={`nav-item ${isActive ? 'active' : ''}`}
-                    onClick={() => handleSOWSelect(sow.id)}
-                    title={sow.title}
-                  >
-                    <div className="nav-icon-wrapper" >
-                      <IconComponent className="nav-icon" style={{ color: sow.color }} />
-                    </div>
-                    {!sidebarCollapsed && (
-                      <div className="nav-content">
-                        <span className="nav-title">{sow.title}</span>
-                        <span className="nav-description">{sow.description}</span>
-                      </div>
-                    )}
-                    {!sidebarCollapsed && (
-                      isExpanded ? (
-                        <ChevronDown className="nav-chevron" />
-                      ) : (
-                        <ChevronRight className="nav-chevron" />
-                      )
-                    )}
-                  </button>
-                  
-                  {isExpanded && !sidebarCollapsed && (
-                    <div className="nav-submenu">
-                      <button
-                        className={`nav-subitem ${selectedView === 'generate' && isActive ? 'active' : ''}`}
-                        onClick={() => handleViewSelect('generate')}
-                      >
-                        <Plus className="nav-subicon" />
-                        <span>Generate</span>
-                      </button>
-                      <button
-                        className={`nav-subitem ${selectedView === 'records' && isActive ? 'active' : ''}`}
-                        onClick={() => handleViewSelect('records')}
-                      >
-                        <Database className="nav-subicon" />
-                        <span>Generated Records</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            
-            <hr className="nav-divider" />
-            
-            <div className="nav-section-header">
-              <h3>Documents</h3>
-            </div>
-
-            <div className="nav-group">
-              <button
-                className={`nav-item ${selectedView === 'documents' ? 'active' : ''}`}
-                onClick={() => handleViewDocuments()}
-                title="View Documents"
-              >
-                <div className="nav-icon-wrapper" style={{ backgroundColor: '#f59e0b20' }}>
-                  <FileText className="nav-icon" style={{ color: '#f59e0b' }} />
-                </div>
-                {!sidebarCollapsed && (
-                  <div className="nav-content">
-                    <span className="nav-title">View Documents</span>
-                  </div>
-                )}
-              </button>
-            </div>
-
-            <hr className="nav-divider" />
-
-            <div className="nav-section-header">
-              <h3>Analytics</h3>
-            </div>
-
-            <div className="nav-group">
-              <button
-                className="nav-item"
-                onClick={() => navigate('/sow-tracker')}
-                title="SOW Tracker"
-              >
-                <div className="nav-icon-wrapper" style={{ backgroundColor: '#10b98120' }}>
-                  <BarChart3 className="nav-icon" style={{ color: '#10b981' }} />
-                </div>
-                {!sidebarCollapsed && (
-                  <div className="nav-content">
-                    <span className="nav-title">SOW Tracker</span>
-                    <span className="nav-description">Track and analyze SOW documents</span>
-                  </div>
-                )}
-              </button>
-            </div>
-
-            <hr className="nav-divider" />
-
-            <div className="nav-section-header">
-              <h3>Management</h3>
-            </div>
-
-            <div className="nav-group">
-              <button
-                className="nav-item"
-                onClick={() => navigate('/accounts')}
-                title="Manage Accounts"
-              >
-                <div className="nav-icon-wrapper" style={{ backgroundColor: '#8b5cf620' }}>
-                  <Database className="nav-icon" style={{ color: '#8b5cf6' }} />
-                </div>
-                {!sidebarCollapsed && (
-                  <div className="nav-content">
-                    <span className="nav-title">Accounts</span>
-                    <span className="nav-description">Manage accounts and projects</span>
-                  </div>
-                )}
-              </button>
-            </div>
-          </nav>
-
-          {/* {!sidebarCollapsed && (
-            <div className="sidebar-stats">
-              <div className="stat-item">
-                <TrendingUp className="stat-icon" />
-                <div className="stat-content">
-                  <span className="stat-label">Total SOWs</span>
-                  <span className="stat-value">{generatedRecords.length}</span>
-                </div>
-              </div>
-              <div className="stat-item">
-                <Clock className="stat-icon" />
-                <div className="stat-content">
-                  <span className="stat-label">Recent</span>
-                  <span className="stat-value">Today</span>
-                </div>
-              </div>
-            </div>
-          )} */}
-        </div>
-
-        <div className="sidebar-footer">
-         
-          <div className="footer-actions">
-          
-            <button className="logout-btn" onClick={handleLogout} title="Logout">
-              <LogOut className="logout-icon" />
-              {!sidebarCollapsed && <span>Logout</span>}
-            </button>
-          </div>
-        </div>
-      </div>
-
+    <>
       <div className="main-content">
         <div className="content-header">
           <div className="header-left">
@@ -1157,46 +951,48 @@ const Dashboard: React.FC = () => {
               </div>
             </div>
           </div>
-          
-          <div className="header-right">
-            <div className="header-profile" onClick={() => setShowUserDropdown(!showUserDropdown)}>
-              <div className="profile-avatar-small">
-                <User className="profile-icon-small" />
-              </div>
-              <div className="header-user-info">
-                <span className="header-username">{user}</span>
-                <span className="header-role">Administrator</span>
-              </div>
-              <ChevronDown className="profile-dropdown-icon" />
 
-              {showUserDropdown && (
-                <div className="user-dropdown-menu" onClick={(e) => e.stopPropagation()}>
-                  <div className="dropdown-header">
-                    <div className="dropdown-avatar">
-                      <User size={20} />
-                    </div>
-                    <div className="dropdown-user-info">
-                      <div className="dropdown-username">{user}</div>
-                      <div className="dropdown-role">Administrator</div>
-                    </div>
-                  </div>
-                  <div className="dropdown-divider"></div>
-                  <button className="dropdown-item" onClick={() => navigate('/accounts')}>
-                    <Database size={16} />
-                    <span>Manage Accounts</span>
+          <div className="header-right">
+            <div className="dashboard-sow-tabs">
+              {sowOptions.map((sow) => {
+                const isActive = selectedSOW === sow.id && selectedView !== 'documents';
+                return (
+                  <button
+                    key={sow.id}
+                    className={`sow-tab ${isActive ? 'active' : ''}`}
+                    onClick={() => handleSOWSelect(sow.id)}
+                    title={sow.description}
+                  >
+                    {sow.title}
                   </button>
-                  <button className="dropdown-item" onClick={() => navigate('/dashboard')}>
-                    <FileText size={16} />
-                    <span>SOW Generator</span>
-                  </button>
-                  <div className="dropdown-divider"></div>
-                  <button className="dropdown-item logout-item" onClick={handleLogout}>
-                    <LogOut size={16} />
-                    <span>Logout</span>
-                  </button>
-                </div>
-              )}
+                );
+              })}
+              <button
+                className={`sow-tab ${selectedView === 'documents' ? 'active' : ''}`}
+                onClick={() => handleViewDocuments()}
+                title="View all generated documents"
+              >
+                Documents
+              </button>
             </div>
+            {selectedView !== 'documents' && (
+              <div className="dashboard-view-tabs">
+                <button
+                  className={`view-tab ${selectedView === 'generate' ? 'active' : ''}`}
+                  onClick={() => handleViewSelect('generate')}
+                >
+                  <Plus size={14} />
+                  <span>Generate</span>
+                </button>
+                <button
+                  className={`view-tab ${selectedView === 'records' ? 'active' : ''}`}
+                  onClick={() => handleViewSelect('records')}
+                >
+                  <Database size={14} />
+                  <span>Records</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1960,7 +1756,7 @@ const Dashboard: React.FC = () => {
 
       {/* Production loader overlay */}
       {/* Removed blocking production loader - now using non-blocking toast notifications */}
-    </div>
+    </>
   );
 };
 

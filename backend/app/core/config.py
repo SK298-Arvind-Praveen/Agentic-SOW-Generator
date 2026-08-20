@@ -5,6 +5,13 @@ Configuration for POC Generator (LangGraph Version)
 import os
 from pathlib import Path
 from botocore.config import Config as BotocoreConfig
+from dotenv import load_dotenv
+
+
+# Load the backend configuration before the module-level Config instance is
+# created. This keeps imports deterministic regardless of which entry point is
+# used to start the application.
+load_dotenv(Path(__file__).resolve().parents[2] / "config" / ".env")
 
 
 class Config:
@@ -45,8 +52,14 @@ class Config:
         # =====================================================================
         
         self.AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+        # Bedrock inference profiles are region-specific. Keep its region
+        # independent from DynamoDB/S3 so storage can live in another region.
+        self.BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
         # Using Claude Sonnet 4 - latest model with enhanced capabilities  
-        self.MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+        self.MODEL_ID = os.environ.get(
+            "BEDROCK_MODEL_ID",
+            "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        )
         
         # Model parameters
         # Large single responses were the main source of truncated/invalid JSON.
@@ -75,9 +88,8 @@ class Config:
         # DOCUMENT STYLING - Updated to match brand specifications
         # =====================================================================
         
-        # Arial is intentionally used in the Word body for renderer portability.
-        # The branded cover continues to use the bundled DM Sans font files.
-        self.FONT_FAMILY = "Arial"
+        # Use one typeface across the cover, body, tables, headers and footers.
+        self.FONT_FAMILY = "DM Sans"
         self.FONT_SIZE_COVER_COMPANY = 39  # Cover page company name
         self.FONT_SIZE_COVER_TITLE = 16    # Cover page project title  
         self.FONT_SIZE_COVER_SUBTITLE = 15 # Author organization on cover
@@ -156,8 +168,16 @@ class Config:
         # DYNAMODB CONFIGURATION
         # =====================================================================
         
-        self.DYNAMODB_TABLE_RAG_SCHEMA = 'rag-schema'
-        self.DYNAMODB_TABLE_POC_DOCUMENTS = 'agentic-poc'
+        self.DYNAMODB_TABLE_ACCOUNTS = os.environ.get(
+            "DYNAMODB_TABLE_ACCOUNTS", "agentic-sow-v2"
+        )
+        self.DYNAMODB_TABLE_RAG_SCHEMA = os.environ.get(
+            "DYNAMODB_TABLE_RAG_SCHEMA", "rag-schema"
+        )
+        self.DYNAMODB_TABLE_POC_DOCUMENTS = os.environ.get(
+            "DYNAMODB_TABLE_POC_DOCUMENTS", "agentic-poc"
+        )
+        self.S3_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME", "agentic-sow-files")
         
         # =====================================================================
         # SCHEMA CLEANER CONFIGURATION
@@ -278,7 +298,7 @@ class Config:
             dict: Bedrock configuration
         """
         return {
-            "region": self.AWS_REGION,
+            "region": self.BEDROCK_REGION,
             "model_id": self.MODEL_ID,
             "max_tokens": self.MAX_TOKENS,
             "temperature": self.TEMPERATURE
@@ -383,7 +403,8 @@ class Config:
         print(f"  Description: {self.AUTHOR_ORG_DESCRIPTION[:100]}...")
         
         print(f"\n✓ AWS Configuration:")
-        print(f"  Region: {self.AWS_REGION}")
+        print(f"  Storage Region: {self.AWS_REGION}")
+        print(f"  Bedrock Region: {self.BEDROCK_REGION}")
         print(f"  Model: {self.MODEL_ID}")
         print(f"  Max Tokens: {self.MAX_TOKENS}")
         print(f"  Temperature: {self.TEMPERATURE}")
@@ -403,8 +424,10 @@ class Config:
         print(f"  Strategy: {self.SCHEMA_CLEANING_STRATEGY}")
         
         print(f"\n✓ DynamoDB Tables:")
+        print(f"  Accounts: {self.DYNAMODB_TABLE_ACCOUNTS}")
         print(f"  RAG Schema: {self.DYNAMODB_TABLE_RAG_SCHEMA}")
         print(f"  POC Documents: {self.DYNAMODB_TABLE_POC_DOCUMENTS}")
+        print(f"  S3 Bucket: {self.S3_BUCKET_NAME}")
         
         print("\n" + "="*70)
 

@@ -33,8 +33,8 @@ class RAGDataDiagnostic:
         from app.core.config import Config
         config = Config()
         
-        table_name = table_name or config.DYNAMODB_TABLE_RAG
-        region = region or config.DYNAMODB_REGION
+        table_name = table_name or config.DYNAMODB_TABLE_RAG_SCHEMA
+        region = region or config.AWS_REGION
         
         self.table = boto3.resource(
             'dynamodb', 
@@ -80,7 +80,11 @@ class RAGDataDiagnostic:
 
 class EnhancedPOCRetriever:
 
-    def __init__(self, table_name='rag-schema', region='us-east-1'):
+    def __init__(self, table_name=None, region=None):
+        table_name = table_name or os.getenv(
+            'DYNAMODB_TABLE_RAG_SCHEMA', 'rag-schema'
+        )
+        region = region or os.getenv('AWS_REGION', 'us-east-1')
         self.table = boto3.resource(
             'dynamodb', 
             region_name=region,

@@ -16,7 +16,7 @@ class CompanyResearchAgent:
         self.config = config
         self.bedrock_client = boto3.client(
             'bedrock-runtime',
-            region_name=config.AWS_REGION
+            region_name=config.BEDROCK_REGION
         )
         
         # In-memory cache for companies researched in this session

@@ -6,6 +6,7 @@ import { toast } from 'react-toastify';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import apiService from '../services/apiService';
+import SOWSectionChecklist, { availableSowSectionIds } from './SOWSectionChecklist';
 import './SOWGenerator.css';
 
 interface SOWGeneratorData {
@@ -16,6 +17,7 @@ interface SOWGeneratorData {
   documentDate: string;
   projectObjective: string;
   uploadedFiles?: File[];
+  selectedSowSections?: string[];
 }
 
 interface SOWGeneratorProps {
@@ -75,6 +77,9 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
     projectObjective: '',
     uploadedFiles: []
   });
+  const [selectedSowSections, setSelectedSowSections] = useState<string[]>(
+    availableSowSectionIds(selectedMode || 'poc')
+  );
 
   // Track if initial auto-population has been done
   const [initialPopulationDone, setInitialPopulationDone] = useState(false);
@@ -391,6 +396,7 @@ Date                                         Date`
       uploadedFiles: []
     });
     setFileUploadError('');
+    setSelectedSowSections(availableSowSectionIds(selectedMode || 'poc'));
     setHasPreviewGenerated(false);
     setInitialPopulationDone(false); // Reset auto-population flag
   }, [selectedMode]);
@@ -674,7 +680,7 @@ Date                                         Date`
         if (isProjectBased && onSuccess) {
           onSuccess();
         } else {
-          onGenerateSuccess?.(formData);
+          onGenerateSuccess?.({ ...formData, selectedSowSections });
         }
       } else {
         const errorMessage = response.error || 'Failed to generate SOW';
@@ -742,7 +748,8 @@ Date                                         Date`
         objective: formData.projectObjective.substring(0, 100) + '...', // Log first 100 chars
         objectiveLength: formData.projectObjective.length,
         projectName,
-        isProjectBased
+        isProjectBased,
+        selectedSowSections,
       });
 
       // Separate main file (for POC_TO_PROD) from supporting documents
@@ -772,7 +779,8 @@ Date                                         Date`
         mainFile,
         supportingDocs,
         isProjectBased ? projectId : undefined,
-        isProjectBased ? accountId : undefined
+        isProjectBased ? accountId : undefined,
+        selectedSowSections,
       );
 
       console.log('Preview API Response:', response);
@@ -1243,6 +1251,12 @@ Date                                         Date`
               <Upload className="section-icon" />
               <h2 className="section-title">Upload POC Documents</h2>
             </div>
+
+            <SOWSectionChecklist
+              mode={formData.generationMode}
+              selected={selectedSowSections}
+              onChange={setSelectedSowSections}
+            />
             
             <div className="field-group full-width">
               <label className="field-label">POC Documents <span className="required">*</span></label>
@@ -1494,6 +1508,12 @@ Date                                         Date`
               <div className="section-header">
                 <h2 className="section-title">Project Details</h2>
               </div>
+
+              <SOWSectionChecklist
+                mode={formData.generationMode}
+                selected={selectedSowSections}
+                onChange={setSelectedSowSections}
+              />
               
               {/* Project Objectives - Full Width */}
               <div className="field-group full-width">

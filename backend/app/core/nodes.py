@@ -642,7 +642,7 @@ def _extract_metadata_with_llm(text_content: str) -> dict:
     try:
         bedrock = boto3.client(
             service_name='bedrock-runtime',
-            region_name=config.AWS_REGION,
+            region_name=config.BEDROCK_REGION,
             config=config.BOTO_CONFIG
         )
 
@@ -1027,7 +1027,7 @@ def _extract_requirements_with_llm(text_content: str) -> dict:
     try:
         bedrock = boto3.client(
             service_name='bedrock-runtime',
-            region_name=config.AWS_REGION,
+            region_name=config.BEDROCK_REGION,
             config=config.BOTO_CONFIG
         )
         chunk_size, overlap = 14000, 1200
@@ -1318,7 +1318,8 @@ def content_generation_node(state: AgentState) -> AgentState:
         requirements=final_requirements,
         metadata=metadata,
         rag_context=rag_context,
-        supporting_context=supporting_context
+        supporting_context=supporting_context,
+        selected_sow_sections=state.get('selected_sow_sections'),
     )
 
     print(f"✅ Content generation completed")

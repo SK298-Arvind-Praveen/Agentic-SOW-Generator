@@ -585,7 +585,8 @@ class APIService {
     file?: File,
     supportingDocs?: File[],
     projectId?: string,
-    accountId?: string
+    accountId?: string,
+    selectedSowSections?: string[]
   ): Promise<any> {
     const apiMode = this.mapModeToAPI(mode);
 
@@ -597,6 +598,7 @@ class APIService {
         const formData = new FormData();
         formData.append('mode', 'poc_to_prod');
         formData.append('file', file);
+        formData.append('selected_sow_sections', JSON.stringify(selectedSowSections || []));
 
         // Add supporting documents if provided
         if (supportingDocs && supportingDocs.length > 0) {
@@ -633,6 +635,7 @@ class APIService {
       formData.append('mode', apiMode);
       formData.append('objective', objective);
       formData.append('project_name', projectName);
+      formData.append('selected_sow_sections', JSON.stringify(selectedSowSections || []));
 
       // Add project_id and account_id if provided (for linking to project)
       if (projectId) {

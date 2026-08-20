@@ -23,7 +23,7 @@ def view_history():
         print("="*60)
         
         # Initialize DynamoDB handler
-        handler = DynamoDBHandler(table_name="agentic-poc", region="us-east-1")
+        handler = DynamoDBHandler()
         
         # Show filter options
         print("\n📌 Filter Options:")

@@ -146,8 +146,7 @@ SOWv2/
 - **Python** >= 3.11
 - **AWS account** with:
   - Bedrock access enabled for `us.anthropic.claude-sonnet-4-20250514-v1:0`
-  - DynamoDB tables: `rag-schema`, `agentic-poc`
-  - S3 bucket configured
+  - Permission to use DynamoDB and S3
 - **Google Cloud project** with Drive API enabled (optional, for Drive sync)
 
 ---
@@ -184,7 +183,10 @@ cd frontend
 npm install
 ```
 
-### 4. DynamoDB table setup (first time only)
+### 4. AWS storage setup (once per AWS account)
+
+Configure `backend/config/.env` first, including a globally unique S3 bucket
+name, and then run:
 
 ```bash
 cd backend
@@ -201,10 +203,22 @@ Create this file (never commit it):
 
 ```env
 AWS_REGION=us-east-1
+BEDROCK_REGION=us-east-1
+BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
 AWS_ACCESS_KEY_ID=your_access_key
 AWS_SECRET_ACCESS_KEY=your_secret_key
 # AWS_SESSION_TOKEN=your_session_token  # only if using temporary credentials
+
+# Resource names can differ between AWS accounts/environments.
+DYNAMODB_TABLE_ACCOUNTS=agentic-sow-v2
+DYNAMODB_TABLE_POC_DOCUMENTS=agentic-poc
+DYNAMODB_TABLE_RAG_SCHEMA=rag-schema
+S3_BUCKET_NAME=your-globally-unique-sow-bucket
 ```
+
+Changing accounts only requires changing these values and running the AWS
+storage setup command in the target account. If the default table names are
+acceptable, only the credentials, region, and S3 bucket name need to change.
 
 ### Frontend — `frontend/.env`
 

@@ -22,3 +22,4 @@ class AgentState(TypedDict):
     is_poc_table_conversion: Optional[bool]  # Flag for POC table conversion
     supporting_documents: Optional[List[str]]  # Paths to supporting documents
     supporting_context: Optional[str]  # Extracted content from supporting documents
+    selected_sow_sections: Optional[List[str]]  # User-selected optional section IDs

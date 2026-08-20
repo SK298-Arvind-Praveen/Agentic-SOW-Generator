@@ -41,9 +41,10 @@ class PocBenchmarkContractTests(unittest.TestCase):
                 "6. Open Clarifications",
                 "7. Out of Scope",
                 "8. Assumptions and Dependencies",
-                "9. Success Criteria",
-                "10. AWS Pricing",
-                "11. {AUTHOR_ORG_SHORT} Project Team Effort",
+                "9. Timeline and Deliverables",
+                "10. Success Criteria",
+                "11. AWS Pricing",
+                "12. {AUTHOR_ORG_SHORT} Project Team Effort",
                 "Acceptance and Signatories to Statement of Work",
             ],
         )
@@ -63,10 +64,22 @@ class PocBenchmarkContractTests(unittest.TestCase):
         ):
             self.assertNotIn(f"## {heading}", self.template)
 
-    def test_original_signatory_placeholders_are_preserved(self):
+    def test_signatory_names_and_titles_are_blank(self):
         self.assertIn('"Client" verifies that the terms of this Statement of Work/Proposal', self.template)
-        self.assertIn("| Bhuvanesh CTO | XXX |", self.template)
+        self.assertNotIn("Bhuvanesh CTO", self.template)
+        self.assertNotIn("| XXX |", self.template)
+        self.assertIn("| Name: | Name: |", self.template)
+        self.assertIn("| Title: | Title: |", self.template)
         self.assertIn("| Date of acceptance: | Date of acceptance: |", self.template)
+
+    def test_language_and_blank_signature_rules_cover_every_sow_mode(self):
+        template_dir = Path(__file__).resolve().parents[1] / "templates"
+        for name in ("poc_template.md", "production_template.md", "poc_to_prod_template.md"):
+            body = (template_dir / name).read_text(encoding="utf-8")
+            self.assertIn("British Indian English", body)
+            self.assertNotIn("Bhuvanesh CTO", body)
+            self.assertNotIn("Name: To be nominated", body)
+            self.assertNotIn("Title: To be confirmed", body)
 
     def test_detailed_global_benchmark_contract_is_embedded(self):
         contract = re.search(
@@ -88,6 +101,7 @@ class PocBenchmarkContractTests(unittest.TestCase):
             "#5D3FD3",
             "#1A4BD2",
             "Page X of Y",
+            "British Indian English",
         ):
             self.assertIn(required_rule, body)
 
@@ -102,9 +116,10 @@ class PocBenchmarkContractTests(unittest.TestCase):
             ("## 6. Open Clarifications", "INCLUSION RULES"),
             ("## 7. Out of Scope", "CONDITIONAL COVERAGE"),
             ("## 8. Assumptions and Dependencies", "DISTINCTION RULES"),
-            ("## 9. Success Criteria", "METRIC RULES"),
-            ("## 10. AWS Pricing", "PROHIBITIONS"),
-            ("## 11. {AUTHOR_ORG_SHORT} Project Team Effort", "WHEN STAFFING IS NOT SUPPLIED"),
+            ("## 9. Timeline and Deliverables", "REQUIRED OUTPUT"),
+            ("## 10. Success Criteria", "METRIC RULES"),
+            ("## 11. AWS Pricing", "PROHIBITIONS"),
+            ("## 12. {AUTHOR_ORG_SHORT} Project Team Effort", "WHEN STAFFING IS NOT SUPPLIED"),
         ):
             start = self.template.index(section_title)
             next_section = self.template.find("\n[META_", start + len(section_title))
@@ -136,6 +151,7 @@ class PocBenchmarkContractTests(unittest.TestCase):
         )
         self.assertIn("GLOBAL TEMPLATE AND REFERENCE-BENCHMARK CONTRACT", prompt)
         self.assertIn("Reference-derived visual contract", prompt)
+        self.assertIn("British Indian English", prompt)
 
     def test_section_specific_generation_gates_reject_rudimentary_drafts(self):
         detailed_scope = TemplateSection(

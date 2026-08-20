@@ -18,7 +18,7 @@ class RuleEngineAgent:
         self.config = config
         self.bedrock = boto3.client(
             service_name="bedrock-runtime",
-            region_name=config.AWS_REGION,
+            region_name=config.BEDROCK_REGION,
             config=config.BOTO_CONFIG,
         )
         self.rules = self._load_rules()

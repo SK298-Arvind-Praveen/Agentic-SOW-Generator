@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
+import uuid
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -27,11 +30,13 @@ from docx.enum.text import (
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import nsdecls, qn
 from docx.shared import Inches, Pt, RGBColor
+from lxml import etree
 
 
 PAGE_WIDTH_IN = 8.5
 PAGE_HEIGHT_IN = 11.0
 HORIZONTAL_MARGIN_IN = 0.68
+CHROME_INSET_IN = 0.08
 TOP_MARGIN_IN = 0.66
 BOTTOM_MARGIN_IN = 0.58
 CONTENT_WIDTH_DXA = 10282
@@ -44,6 +49,10 @@ INK = "434343"
 MUTED = "6F6F6F"
 LIGHT_FILL = "F2F2F2"
 BORDER = "D9D9D9"
+EMBEDDED_FONT_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.obfuscatedFont"
+FONT_RELATIONSHIP_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/font"
+RELATIONSHIPS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 
 
 def _set_font(run, name: str = FONT_NAME, size: Optional[float] = None,
@@ -122,6 +131,112 @@ def _mark_update_fields(document: Document) -> None:
         existing = OxmlElement("w:updateFields")
         settings.append(existing)
     existing.set(qn("w:val"), "true")
+
+
+def _obfuscate_embedded_font(font_data: bytes, font_key: uuid.UUID) -> bytes:
+    """Apply the ECMA-376 obfuscation used for embedded Word fonts."""
+    data = bytearray(font_data)
+    key = font_key.bytes
+    for index in range(min(32, len(data))):
+        data[index] ^= key[15 - (index % 16)]
+    return bytes(data)
+
+
+def _embed_dm_sans(document_path: Path, config) -> None:
+    """Embed the bundled DM Sans regular/bold faces in a generated DOCX."""
+    regular_path = Path(config.ASSETS_DIR) / "fonts" / "DMSans-Regular.ttf"
+    bold_path = Path(config.ASSETS_DIR) / "fonts" / "DMSans-Bold.ttf"
+    if not regular_path.exists() or not bold_path.exists():
+        raise FileNotFoundError("Bundled DM Sans regular and bold font files are required")
+
+    keys = {
+        "regular": uuid.UUID("65c9e9d6-9297-5b37-a1a2-62186d121c7e"),
+        "bold": uuid.UUID("c0bd415f-6064-5ea9-8cf0-72409c43db81"),
+    }
+    font_entries = {
+        "word/fonts/DMSans-Regular.odttf": _obfuscate_embedded_font(regular_path.read_bytes(), keys["regular"]),
+        "word/fonts/DMSans-Bold.odttf": _obfuscate_embedded_font(bold_path.read_bytes(), keys["bold"]),
+    }
+
+    with zipfile.ZipFile(document_path, "r") as source:
+        files = {name: source.read(name) for name in source.namelist()}
+
+    font_table = parse_xml(files["word/fontTable.xml"])
+    for existing in list(font_table.findall(qn("w:font"))):
+        if existing.get(qn("w:name")) == FONT_NAME:
+            font_table.remove(existing)
+    font = OxmlElement("w:font")
+    font.set(qn("w:name"), FONT_NAME)
+    family = OxmlElement("w:family")
+    family.set(qn("w:val"), "swiss")
+    pitch = OxmlElement("w:pitch")
+    pitch.set(qn("w:val"), "variable")
+    regular = OxmlElement("w:embedRegular")
+    regular.set(qn("r:id"), "rIdDmSansRegular")
+    regular.set(qn("w:fontKey"), "{" + str(keys["regular"]).upper() + "}")
+    regular.set(qn("w:subsetted"), "false")
+    bold = OxmlElement("w:embedBold")
+    bold.set(qn("r:id"), "rIdDmSansBold")
+    bold.set(qn("w:fontKey"), "{" + str(keys["bold"]).upper() + "}")
+    bold.set(qn("w:subsetted"), "false")
+    font.extend([family, pitch, regular, bold])
+    font_table.append(font)
+    files["word/fontTable.xml"] = etree.tostring(
+        font_table, xml_declaration=True, encoding="UTF-8", standalone=True
+    )
+
+    relationships_path = "word/_rels/fontTable.xml.rels"
+    if relationships_path in files:
+        relationships = parse_xml(files[relationships_path])
+    else:
+        relationships = etree.Element(
+            f"{{{RELATIONSHIPS_NS}}}Relationships", nsmap={None: RELATIONSHIPS_NS}
+        )
+    embedded_relationship_ids = {"rIdDmSansRegular", "rIdDmSansBold"}
+    for relationship in list(relationships):
+        if relationship.get("Id") in embedded_relationship_ids:
+            relationships.remove(relationship)
+    for rel_id, target in (
+        ("rIdDmSansRegular", "fonts/DMSans-Regular.odttf"),
+        ("rIdDmSansBold", "fonts/DMSans-Bold.odttf"),
+    ):
+        relationship = etree.Element(f"{{{RELATIONSHIPS_NS}}}Relationship")
+        relationship.set("Id", rel_id)
+        relationship.set("Type", FONT_RELATIONSHIP_TYPE)
+        relationship.set("Target", target)
+        relationships.append(relationship)
+    files[relationships_path] = etree.tostring(
+        relationships, xml_declaration=True, encoding="UTF-8", standalone=True
+    )
+
+    content_types = parse_xml(files["[Content_Types].xml"])
+    has_odttf = any(
+        child.get("Extension", "").casefold() == "odttf"
+        for child in content_types
+    )
+    if not has_odttf:
+        default = etree.Element(f"{{{CONTENT_TYPES_NS}}}Default")
+        default.set("Extension", "odttf")
+        default.set("ContentType", EMBEDDED_FONT_CONTENT_TYPE)
+        content_types.append(default)
+    files["[Content_Types].xml"] = etree.tostring(
+        content_types, xml_declaration=True, encoding="UTF-8", standalone=True
+    )
+    files.update(font_entries)
+
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{document_path.stem}-", suffix=".docx", dir=document_path.parent
+    )
+    os.close(descriptor)
+    temporary_path = Path(temporary_name)
+    try:
+        with zipfile.ZipFile(temporary_path, "w", zipfile.ZIP_DEFLATED) as destination:
+            for name, payload in files.items():
+                destination.writestr(name, payload)
+        os.replace(temporary_path, document_path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
 
 
 def _load_cover_font(config, bold: bool, size: int):
@@ -409,7 +524,10 @@ class SectionBuilder:
             code = part.startswith("`") and part.endswith("`")
             clean = part[2:-2] if bold else part[1:-1] if italic or code else part
             run = paragraph.add_run(clean)
-            _set_font(run, "Courier New" if code else FONT_NAME, size=size, bold=bold, italic=italic, color=color)
+            # Keep the document type system consistent even for inline code.
+            # Backticks still distinguish the source semantically; typography
+            # remains DM Sans as required by the SOW brand standard.
+            _set_font(run, FONT_NAME, size=size, bold=bold, italic=italic, color=color)
 
     @staticmethod
     def _apply_numbering(paragraph, num_id: int, level: int) -> None:
@@ -747,8 +865,8 @@ class DocumentBuilder:
         normal = styles["Normal"]
         normal.font.name = FONT_NAME
         normal.font.size = Pt(9.25)
-        normal._element.rPr.rFonts.set(qn("w:ascii"), FONT_NAME)
-        normal._element.rPr.rFonts.set(qn("w:hAnsi"), FONT_NAME)
+        for attr in ("ascii", "hAnsi", "eastAsia", "cs"):
+            normal._element.rPr.rFonts.set(qn(f"w:{attr}"), FONT_NAME)
         normal.paragraph_format.space_before = Pt(0)
         normal.paragraph_format.space_after = Pt(4)
         normal.paragraph_format.line_spacing = 1.12
@@ -767,8 +885,8 @@ class DocumentBuilder:
             style.font.size = Pt(size)
             style.font.bold = True
             style.font.color.rgb = RGBColor.from_string(color)
-            style._element.rPr.rFonts.set(qn("w:ascii"), FONT_NAME)
-            style._element.rPr.rFonts.set(qn("w:hAnsi"), FONT_NAME)
+            for attr in ("ascii", "hAnsi", "eastAsia", "cs"):
+                style._element.rPr.rFonts.set(qn(f"w:{attr}"), FONT_NAME)
             style.paragraph_format.space_before = Pt(before)
             style.paragraph_format.space_after = Pt(after)
             style.paragraph_format.keep_with_next = True
@@ -780,6 +898,8 @@ class DocumentBuilder:
         caption.font.size = Pt(7.5)
         caption.font.italic = True
         caption.font.color.rgb = RGBColor.from_string(MUTED)
+        for attr in ("ascii", "hAnsi", "eastAsia", "cs"):
+            caption._element.rPr.rFonts.set(qn(f"w:{attr}"), FONT_NAME)
         caption.paragraph_format.space_before = Pt(4)
         caption.paragraph_format.space_after = Pt(4)
 
@@ -858,8 +978,6 @@ class DocumentBuilder:
         cover_section.page_height = Inches(PAGE_HEIGHT_IN)
         cover_section.top_margin = cover_section.bottom_margin = Inches(0)
         cover_section.left_margin = cover_section.right_margin = Inches(0)
-        # The cover is already isolated in its own section.  Avoid w:titlePg:
-        # LibreOffice can incorrectly reuse that page style after later breaks.
         cover_section.different_first_page_header_footer = False
         cover_path = generate_cover_image(metadata, self.config)
         if cover_path:
@@ -889,9 +1007,6 @@ class DocumentBuilder:
         content_section.left_margin = content_section.right_margin = Inches(HORIZONTAL_MARGIN_IN)
         content_section.header_distance = Inches(0.28)
         content_section.footer_distance = Inches(0.25)
-        # add_section() clones the preceding cover section's title-page flag.
-        # Clear it so later page-break-before headings do not inherit the cover
-        # section's first-page header/footer treatment in LibreOffice.
         content_section.different_first_page_header_footer = False
         content_section.header.is_linked_to_previous = False
         content_section.footer.is_linked_to_previous = False
@@ -927,6 +1042,7 @@ class DocumentBuilder:
         props.keywords = "Statement of Work, SOW, AWS, ShellKode"
         props.comments = "Generated from source-grounded requirements; proposals and open clarifications are labelled."
         self.doc.save(str(output_path))
+        _embed_dm_sans(output_path, self.config)
         if cover_path:
             try:
                 cover_path.unlink()
@@ -969,35 +1085,6 @@ class DocumentBuilder:
             inline.insert(list(inline).index(extent) + 1 if extent is not None else 3, wrap)
 
     def _add_header_footer(self, section, metadata: Dict[str, Any], mode: str) -> None:
-        header = section.header
-        trailing_paragraph = header.paragraphs[0]
-        trailing_paragraph.paragraph_format.space_before = Pt(0)
-        trailing_paragraph.paragraph_format.space_after = Pt(0)
-        trailing_paragraph.paragraph_format.line_spacing = Pt(1)
-        header_table = header.add_table(
-            rows=1, cols=2, width=Inches(PAGE_WIDTH_IN - 2 * HORIZONTAL_MARGIN_IN)
-        )
-        header_table.alignment = WD_TABLE_ALIGNMENT.LEFT
-        header_table.autofit = False
-        header_widths = [8600, CONTENT_WIDTH_DXA - 8600]
-        SectionBuilder._set_table_geometry(header_table, header_widths)
-        self._remove_table_borders(header_table)
-        # Put the table before the required trailing paragraph in the header.
-        header._element.remove(header_table._tbl)
-        header._element.insert(0, header_table._tbl)
-        left_cell, right_cell = header_table.rows[0].cells
-        for cell, width in zip((left_cell, right_cell), header_widths):
-            SectionBuilder._set_cell_width(cell, width)
-            self._set_zero_cell_margins(cell)
-            cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-        left_paragraph = left_cell.paragraphs[0]
-        right_paragraph = right_cell.paragraphs[0]
-        left_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        right_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        for paragraph in (left_paragraph, right_paragraph):
-            paragraph.paragraph_format.space_before = Pt(0)
-            paragraph.paragraph_format.space_after = Pt(0)
-            paragraph.paragraph_format.line_spacing = 1.0
         header_title = metadata.get("document_header_title")
         if not header_title:
             mode_label = {
@@ -1007,34 +1094,80 @@ class DocumentBuilder:
             }.get(mode, mode)
             project = metadata.get("project_title", "Statement of Work")
             header_title = project if "sow" in project.casefold() else f"{project} – SOW ({mode_label})"
-        left = left_paragraph.add_run(str(header_title))
-        _set_font(left, size=6.5, bold=True, color=BLUE)
         logo_path = Path(self.config.ASSETS_DIR) / "ShellKode.png"
-        if logo_path.exists():
-            logo_run = right_paragraph.add_run()
-            shape = logo_run.add_picture(str(logo_path), width=Inches(0.72))
-            shape._inline.docPr.set("descr", "ShellKode")
-        else:
-            right = right_paragraph.add_run(self._get_short_company_name(metadata.get("author_org", "ShellKode")))
-            _set_font(right, size=7, bold=True, color=BLUE)
-
-        footer = section.footer
-        paragraph = footer.paragraphs[0]
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        paragraph.paragraph_format.space_before = Pt(2)
-        paragraph.paragraph_format.tab_stops.add_tab_stop(Inches(7.14), WD_TAB_ALIGNMENT.RIGHT)
-        self._set_paragraph_top_border(paragraph, BORDER)
         org = self._get_short_company_name(metadata.get("author_org", "ShellKode"))
         year_match = re.search(r"\b(20\d{2})\b", str(metadata.get("document_date", "")))
         year = year_match.group(1) if year_match else str(datetime.now().year)
-        left = paragraph.add_run(f"Confidential Copyright © {org} {year}")
-        _set_font(left, size=5.75, color=MUTED)
-        right = paragraph.add_run("\tPage ")
-        _set_font(right, size=5.75, color=MUTED)
-        _add_field(paragraph, "PAGE", "1", size=5.75)
-        of = paragraph.add_run(" of ")
-        _set_font(of, size=5.75, color=MUTED)
-        _add_field(paragraph, "NUMPAGES", "1", size=5.75)
+
+        def populate_header(header) -> None:
+            trailing_paragraph = header.paragraphs[0]
+            trailing_paragraph.paragraph_format.space_before = Pt(0)
+            trailing_paragraph.paragraph_format.space_after = Pt(0)
+            trailing_paragraph.paragraph_format.line_spacing = Pt(1)
+            header_table = header.add_table(
+                rows=1, cols=2, width=Inches(PAGE_WIDTH_IN - 2 * HORIZONTAL_MARGIN_IN)
+            )
+            header_table.alignment = WD_TABLE_ALIGNMENT.LEFT
+            header_table.autofit = False
+            header_widths = [8600, CONTENT_WIDTH_DXA - 8600]
+            SectionBuilder._set_table_geometry(header_table, header_widths)
+            self._remove_table_borders(header_table)
+            # Put the table before the required trailing paragraph in the header.
+            header._element.remove(header_table._tbl)
+            header._element.insert(0, header_table._tbl)
+            left_cell, right_cell = header_table.rows[0].cells
+            for cell, width in zip((left_cell, right_cell), header_widths):
+                SectionBuilder._set_cell_width(cell, width)
+                self._set_zero_cell_margins(cell)
+                cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+            left_paragraph = left_cell.paragraphs[0]
+            right_paragraph = right_cell.paragraphs[0]
+            left_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            right_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            for paragraph in (left_paragraph, right_paragraph):
+                paragraph.paragraph_format.space_before = Pt(0)
+                paragraph.paragraph_format.space_after = Pt(0)
+                paragraph.paragraph_format.line_spacing = 1.0
+            # Equal optical padding keeps both elements away from the page edge.
+            left_paragraph.paragraph_format.left_indent = Inches(CHROME_INSET_IN)
+            right_paragraph.paragraph_format.right_indent = Inches(CHROME_INSET_IN)
+            title_run = left_paragraph.add_run(str(header_title))
+            _set_font(title_run, size=6.5, bold=True, color=BLUE)
+            if logo_path.exists():
+                logo_run = right_paragraph.add_run()
+                shape = logo_run.add_picture(str(logo_path), width=Inches(0.72))
+                shape._inline.docPr.set("descr", "ShellKode")
+            else:
+                logo_text = right_paragraph.add_run(org)
+                _set_font(logo_text, size=7, bold=True, color=BLUE)
+
+        def populate_footer(footer) -> None:
+            copyright_paragraph = footer.paragraphs[0]
+            copyright_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            copyright_paragraph.paragraph_format.left_indent = Inches(CHROME_INSET_IN)
+            copyright_paragraph.paragraph_format.space_before = Pt(2)
+            copyright_paragraph.paragraph_format.space_after = Pt(0)
+            copyright_paragraph.paragraph_format.line_spacing = 1.0
+            self._set_paragraph_top_border(copyright_paragraph, BORDER)
+            copyright_run = copyright_paragraph.add_run(
+                f"Confidential Copyright © {org} {year}"
+            )
+            _set_font(copyright_run, size=5.75, color=MUTED)
+
+            page_paragraph = footer.add_paragraph()
+            page_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            page_paragraph.paragraph_format.space_before = Pt(0)
+            page_paragraph.paragraph_format.space_after = Pt(0)
+            page_paragraph.paragraph_format.line_spacing = 1.0
+            page_label = page_paragraph.add_run("Page ")
+            _set_font(page_label, size=5.75, color=MUTED)
+            _add_field(page_paragraph, "PAGE", "1", size=5.75)
+            of = page_paragraph.add_run(" of ")
+            _set_font(of, size=5.75, color=MUTED)
+            _add_field(page_paragraph, "NUMPAGES", "1", size=5.75)
+
+        populate_header(section.header)
+        populate_footer(section.footer)
 
     @staticmethod
     def _remove_table_borders(table) -> None:
@@ -1153,6 +1286,7 @@ class DocumentBuilder:
             "solution_architecture_aws": ("architecture_diagram", "architecture_integrations"),
             "architecture_and_integrations": ("architecture_integrations", "architecture_diagram"),
             "assumptions_and_dependencies": ("assumptions",),
+            "timeline_and_deliverables": ("timelines_and_deliverables",),
             "terms_and_conditions": ("terms_conditions",),
         }
         if key.endswith("_project_team_effort"):

@@ -37,6 +37,7 @@ Sparse input is expected. Expand it into a professional SOW by decomposing state
 
 ## C. Cross-section consistency rules
 
+- Use British Indian English throughout, not US spelling. Prefer `organisation`, `organise`, `centralised`, `analyse`, `behaviour`, `colour`, `programme`, `licence` (noun), and `fulfilment`. Preserve official product names, API fields, quoted source text, and identifiers exactly as supplied.
 - Use the same project name, customer name, module names, requirement IDs, actors, integrations, AWS services, environments, quantities, and status labels everywhere.
 - Establish one module/workstream taxonomy in Scope at a Glance and reuse it in Detailed Scope, Architecture, Open Clarifications, Out of Scope, Assumptions, Success Criteria, Pricing inputs, and Team Effort.
 - Preserve supplied requirement identifiers. When IDs are absent, create stable IDs using short module prefixes such as `EM-01`, `KB-01`, or `WF-01`; never renumber them differently in another section.
@@ -82,7 +83,7 @@ The DOCX renderer, not the LLM, enforces the visual design. Author Markdown that
 - dark gray `#434343` body text;
 - compact, left-aligned tables with purple header rows, light-gray alternating rows, thin gray borders, and repeating headers;
 - project/SOW label at left and ShellKode logo at right in the header;
-- thin gray footer rule, `Confidential Copyright © ShellKode 2026` at left, and live `Page X of Y` at right;
+- thin gray footer rule, padded `Confidential Copyright © ShellKode 2026` at left, and live `Page X of Y` centred on the line below;
 - no manual spacer pages, no explicit page-break directives in generated Markdown, and no headings consisting solely of formatting punctuation.
 
 ## G. Mandatory final self-check for every section
@@ -119,9 +120,10 @@ Document Control
 6. Open Clarifications
 7. Out of Scope
 8. Assumptions and Dependencies
-9. Success Criteria
-10. AWS Pricing
-11. {AUTHOR_ORG_SHORT} Project Team Effort
+9. Timeline and Deliverables
+10. Success Criteria
+11. AWS Pricing
+12. {AUTHOR_ORG_SHORT} Project Team Effort
 Acceptance and Signatories to Statement of Work
 
 [META_GENERATED]
@@ -552,7 +554,22 @@ STYLE
 - Do not duplicate Out of Scope verbatim.
 
 [META_GENERATED]
-## 9. Success Criteria
+## 9. Timeline and Deliverables
+
+PURPOSE
+Provide a practical delivery sequence only when the user has selected timeline content.
+
+REQUIRED OUTPUT
+
+- Use a compact table with `Phase`, `Activities and Deliverables`, `Duration`, and `Exit Evidence`.
+- Derive phases from the selected scope and preserve any source-confirmed dates, milestones, or durations exactly.
+- When dates or duration are not supplied, use `TBC` and identify the planning dependency; never invent a committed schedule.
+- Distinguish parallel and sequential work where the requirements support it.
+- Do not repeat staffing, pricing, assumptions, or acceptance boilerplate.
+- Label architect-derived sequencing as `Proposed - subject to baseline confirmation`.
+
+[META_GENERATED]
+## 10. Success Criteria
 
 PURPOSE
 Define observable, reviewable evidence that the POC has demonstrated the in-scope capabilities without manufacturing unagreed numeric commitments.
@@ -589,7 +606,7 @@ FORMAT RULES
 - Do not add a separate testing or deliverable-acceptance section.
 
 [META_TABLE]
-## 10. AWS Pricing
+## 11. AWS Pricing
 
 PURPOSE
 Reproduce source-backed cloud pricing with the restrained reference layout, or clearly show what remains pending.
@@ -626,7 +643,7 @@ PROHIBITIONS
 - Do not treat implementation fees as AWS consumption.
 
 [META_TABLE]
-## 11. {AUTHOR_ORG_SHORT} Project Team Effort
+## 12. {AUTHOR_ORG_SHORT} Project Team Effort
 
 PURPOSE
 Show the delivery roles and effort basis using the reference SOW's compact staffing table without turning an inferred team into a commitment.
@@ -663,8 +680,7 @@ AFTER THE TABLE
 
 | {AUTHOR_ORG_SHORT} | {COMPANY_NAME_SHORT} |
 |--------------------|----------------------|
-| Signature  | Signature  |
-
-| Bhuvanesh CTO | XXX |
-
+| Name: | Name: |
+| Title: | Title: |
+| Signature: | Signature: |
 | Date of acceptance: | Date of acceptance: |

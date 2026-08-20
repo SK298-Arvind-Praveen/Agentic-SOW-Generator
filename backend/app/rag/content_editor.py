@@ -22,7 +22,7 @@ class SmartContentEditor:
         self.config = Config()
         self.bedrock = boto3.client(
             service_name='bedrock-runtime',
-            region_name=self.config.AWS_REGION,
+            region_name=self.config.BEDROCK_REGION,
             config=self.config.BOTO_CONFIG
         )
         

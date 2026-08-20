@@ -1,0 +1,163 @@
+/* ============================================================
+   APP SIDEBAR — Navy (#01285e), persistent across all pages
+   ============================================================ */
+.app-sidebar {
+  width: 256px;
+  background: var(--sidebar-bg);
+  border-right: none;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+  box-shadow: 4px 0 16px rgba(1, 40, 94, 0.15);
+}
+
+.app-sidebar.collapsed { width: 68px; }
+
+/* ── Sidebar Header ── */
+.app-sidebar .sidebar-header {
+  padding: 0 16px;
+  height: 64px;
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+
+.app-sidebar .logo-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.app-sidebar.collapsed .logo-section .shellkode-logo { width: 32px; }
+
+.app-sidebar .sidebar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: rgba(255,255,255,0.6);
+  transition: all var(--transition-base);
+  flex-shrink: 0;
+}
+
+.app-sidebar .sidebar-toggle:hover {
+  background: rgba(2, 173, 239, 0.2);
+  border-color: rgba(2, 173, 239, 0.4);
+  color: #ffffff;
+}
+
+.app-sidebar .toggle-icon { width: 14px; height: 14px; transition: transform 0.3s ease; }
+.app-sidebar .toggle-icon.collapsed { transform: rotate(180deg); }
+
+/* ── Navigation ── */
+.app-sidebar .sidebar-content {
+  flex: 1;
+  padding: 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+.app-sidebar .sidebar-content::-webkit-scrollbar { display: none; }
+
+.app-sidebar .sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
+
+.app-sidebar .nav-group { display: flex; flex-direction: column; }
+
+.app-sidebar .nav-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  text-align: left;
+  color: rgba(255,255,255,0.65);
+  font-size: 13px;
+  font-weight: var(--font-medium);
+  position: relative;
+}
+
+.app-sidebar .nav-item:hover {
+  background: rgba(255,255,255,0.08);
+  color: #ffffff;
+  transform: translateX(2px);
+}
+
+.app-sidebar .nav-item.active {
+  background: rgba(2, 173, 239, 0.18);
+  color: #ffffff;
+  font-weight: var(--font-semibold);
+}
+
+.app-sidebar .nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  background: var(--accent);
+  border-radius: 0 3px 3px 0;
+}
+
+.app-sidebar .nav-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-base);
+  flex-shrink: 0;
+}
+
+.app-sidebar .nav-item.active .nav-icon-wrapper { background: rgba(2, 173, 239, 0.25); }
+
+.app-sidebar .nav-icon { width: 16px; height: 16px; flex-shrink: 0; color: inherit; }
+
+.app-sidebar .nav-content { display: flex; flex-direction: column; gap: 1px; flex: 1; overflow: hidden; }
+
+.app-sidebar .nav-title {
+  font-size: 13px;
+  font-weight: inherit;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-sidebar .nav-description {
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Collapsed ── */
+.app-sidebar.collapsed .nav-content { display: none; }
+.app-sidebar.collapsed .nav-item { padding: 10px; justify-content: center; gap: 0; }
+.app-sidebar.collapsed .nav-icon-wrapper { width: 36px; height: 36px; }
+
+@media (max-width: 1024px) { .app-sidebar { width: 220px; } }

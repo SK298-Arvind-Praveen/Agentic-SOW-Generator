@@ -753,8 +753,9 @@ class AWSEmbedder:
 class AWSSOWPipeline:
     """Complete end-to-end pipeline"""
     
-    def __init__(self, aws_region: str = "us-east-1", pinecone_api_key: str = None,
+    def __init__(self, aws_region: str = None, pinecone_api_key: str = None,
                  chunk_size: int = 500, overlap: int = 100):
+        aws_region = aws_region or os.getenv("BEDROCK_REGION", "us-east-1")
         print(f"🔗 Connecting to AWS Bedrock...\n")
         self.bedrock = boto3.client(service_name='bedrock-runtime', region_name=aws_region)
         
@@ -931,7 +932,7 @@ def main():
     """Main entry point with interactive user input"""
     load_dotenv(Path(__file__).resolve().parents[2] / "config" / ".env")
 
-    AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+    AWS_REGION = os.getenv("BEDROCK_REGION", "us-east-1")
     PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
     
     if not PINECONE_API_KEY:

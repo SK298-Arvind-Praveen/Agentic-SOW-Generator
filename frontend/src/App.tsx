@@ -11,11 +11,12 @@ import Accounts from './components/Accounts';
 import AccountDetail from './components/AccountDetail';
 import ProjectDetail from './components/ProjectDetail';
 import SOWTracker from './components/SOWTracker';
+import Layout from './components/Layout';
 import './App.css';
 
-const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const ProtectedLayout: React.FC = () => {
   const { isAuthenticated } = useAuth();
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" />;
+  return isAuthenticated ? <Layout /> : <Navigate to="/login" />;
 };
 
 const App: React.FC = () => {
@@ -38,67 +39,21 @@ const App: React.FC = () => {
           <Routes>
             <Route path="/login" element={<Login />} />
 
-            {/* SOW Tracker Route */}
-            <Route
-              path="/sow-tracker"
-              element={
-                <ProtectedRoute>
-                  <SOWTracker />
-                </ProtectedRoute>
-              }
-            />
+            {/* All protected routes share the persistent sidebar + top bar */}
+            <Route element={<ProtectedLayout />}>
+              {/* SOW Tracker Route */}
+              <Route path="/sow-tracker" element={<SOWTracker />} />
 
-            {/* Account Management Routes */}
-            <Route
-              path="/accounts"
-              element={
-                <ProtectedRoute>
-                  <Accounts />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/accounts/:accountId"
-              element={
-                <ProtectedRoute>
-                  <AccountDetail />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/projects/:projectId"
-              element={
-                <ProtectedRoute>
-                  <ProjectDetail />
-                </ProtectedRoute>
-              }
-            />
+              {/* Account Management Routes */}
+              <Route path="/accounts" element={<Accounts />} />
+              <Route path="/accounts/:accountId" element={<AccountDetail />} />
+              <Route path="/projects/:projectId" element={<ProjectDetail />} />
 
-            {/* Legacy Routes */}
-            <Route
-              path="/dashboard"
-              element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/production"
-              element={
-                <ProtectedRoute>
-                  <Production />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/documents"
-              element={
-                <ProtectedRoute>
-                  <Documents />
-                </ProtectedRoute>
-              }
-            />
+              {/* Legacy Routes */}
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/production" element={<Production />} />
+              <Route path="/documents" element={<Documents />} />
+            </Route>
 
             {/* Default Route - Redirect to Accounts */}
             <Route path="/" element={<Navigate to="/accounts" />} />

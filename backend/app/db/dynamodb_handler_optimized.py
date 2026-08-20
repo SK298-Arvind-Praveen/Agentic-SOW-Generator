@@ -46,22 +46,24 @@ load_dotenv(Path(__file__).resolve().parents[2] / "config" / ".env")
 class DynamoDBHandlerOptimized:
     """Production-optimized DynamoDB handler with VERSION MANAGEMENT"""
 
-    def __init__(self, table_name="agentic-poc", region="us-east-1"):
+    def __init__(self, table_name=None, region=None):
         """Initialize DynamoDB handler with explicit credentials from environment"""
-        self.table_name = table_name
-        self.region = region
+        self.table_name = table_name or os.getenv(
+            'DYNAMODB_TABLE_POC_DOCUMENTS', 'agentic-poc'
+        )
+        self.region = region or os.getenv('AWS_REGION', 'us-east-1')
 
         try:
             # Explicitly use environment variables
             self.dynamodb = boto3.resource(
                 'dynamodb',
-                region_name=region,
+                region_name=self.region,
                 aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
                 aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
                 aws_session_token=os.getenv('AWS_SESSION_TOKEN')
             )
-            self.table = self.dynamodb.Table(table_name)
-            print(f"✓ Connected to DynamoDB table: {table_name}")
+            self.table = self.dynamodb.Table(self.table_name)
+            print(f"✓ Configured DynamoDB table: {self.table_name} ({self.region})")
         except Exception as e:
             print(f"❌ Failed to connect to DynamoDB: {e}")
             raise
@@ -899,18 +901,20 @@ class DynamoDBHandlerOptimized:
 class RAGSchemaHandlerOptimized:
     """Optimized handler for rag-schema table"""
 
-    def __init__(self, table_name='rag-schema', region='us-east-1'):
-        self.table_name = table_name
-        self.region = region
+    def __init__(self, table_name=None, region=None):
+        self.table_name = table_name or os.getenv(
+            'DYNAMODB_TABLE_RAG_SCHEMA', 'rag-schema'
+        )
+        self.region = region or os.getenv('AWS_REGION', 'us-east-1')
         # Explicitly use environment variables
         self.dynamodb = boto3.resource(
             'dynamodb',
-            region_name=region,
+            region_name=self.region,
             aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
             aws_session_token=os.getenv('AWS_SESSION_TOKEN')
         )
-        self.table = self.dynamodb.Table(table_name)
+        self.table = self.dynamodb.Table(self.table_name)
 
     def query_by_client_and_mode(self, client_name, mode, limit=10):
         """Query by client and mode using GSI"""
@@ -986,7 +990,7 @@ class RAGSchemaHandlerOptimized:
 # ============================================================
 
 def save_to_dynamodb_optimized(metadata, s3_url, s3_result=None, drive_link=None,
-                               table_name="agentic-poc", region="us-east-1",
+                               table_name=None, region=None,
                                keep_duplicates=2, task_id=None, auto_version=True,
                                account_id=None, project_id=None):
     """

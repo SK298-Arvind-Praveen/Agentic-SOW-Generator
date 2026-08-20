@@ -21,24 +21,27 @@ import re
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[2] / "config" / ".env")
 
+AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
+BEDROCK_REGION = os.getenv('BEDROCK_REGION', 'us-east-1')
+
 # Initialize AWS clients with explicit credentials
 dynamodb = boto3.resource(
     'dynamodb', 
-    region_name='us-east-1',
+    region_name=AWS_REGION,
     aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
     aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
     aws_session_token=os.getenv('AWS_SESSION_TOKEN')
 )
 s3_client = boto3.client(
     's3', 
-    region_name='us-east-1',
+    region_name=AWS_REGION,
     aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
     aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
     aws_session_token=os.getenv('AWS_SESSION_TOKEN')
 )
 bedrock_client = boto3.client(
     'bedrock-runtime', 
-    region_name='us-east-1',
+    region_name=BEDROCK_REGION,
     aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
     aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
     aws_session_token=os.getenv('AWS_SESSION_TOKEN')
@@ -172,18 +175,21 @@ class SchemaCleaner:
 class DynamicSchemaManager:
     """Manages dynamic JSON schema for POC/PROD documents"""
     
-    def __init__(self, table_name: str = 'rag-schema'):
-        self.table_name = table_name
+    def __init__(self, table_name: str = None, region: str = None):
+        self.table_name = table_name or os.getenv(
+            'DYNAMODB_TABLE_RAG_SCHEMA', 'rag-schema'
+        )
+        self.region = region or os.getenv('AWS_REGION', 'us-east-1')
         self.dynamodb = boto3.resource(
             'dynamodb', 
-            region_name='us-east-1',
+            region_name=self.region,
             aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
             aws_session_token=os.getenv('AWS_SESSION_TOKEN')
         )
-        self.table = self.dynamodb.Table(table_name)
+        self.table = self.dynamodb.Table(self.table_name)
         self.cleaner = SchemaCleaner()  # ✅ NEW: Initialize cleaner
-        print(f"✓ Initialized Schema Manager with table: {table_name}")
+        print(f"✓ Initialized Schema Manager with table: {self.table_name} ({self.region})")
     
     def get_poc_schema_template(self) -> Dict:
         """Get the POC-specific schema template"""
@@ -637,7 +643,7 @@ class PDFToSchemaConverter:
         # Use explicit credentials for Bedrock client
         self.bedrock = boto3.client(
             'bedrock-runtime',
-            region_name='us-east-1',
+            region_name=config.BEDROCK_REGION,
             aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
             aws_session_token=os.getenv('AWS_SESSION_TOKEN')
@@ -1176,17 +1182,20 @@ JSON:"""
 class POCRetriever:
     """Retrieve schemas from rag-schema table"""
     
-    def __init__(self, table_name: str = 'rag-schema', region: str = 'us-east-1'):
-        self.table_name = table_name
+    def __init__(self, table_name: str = None, region: str = None):
+        self.table_name = table_name or os.getenv(
+            'DYNAMODB_TABLE_RAG_SCHEMA', 'rag-schema'
+        )
+        self.region = region or os.getenv('AWS_REGION', 'us-east-1')
         self.dynamodb = boto3.resource(
             'dynamodb', 
-            region_name=region,
+            region_name=self.region,
             aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
             aws_session_token=os.getenv('AWS_SESSION_TOKEN')
         )
-        self.table = self.dynamodb.Table(table_name)
-        print(f"✓ Initialized Retriever with table: {table_name}")
+        self.table = self.dynamodb.Table(self.table_name)
+        print(f"✓ Initialized Retriever with table: {self.table_name} ({self.region})")
     
     def normalize_mode(self, mode: str) -> str:
         """Normalize mode to standard format"""
@@ -1239,4 +1248,3 @@ class POCRetriever:
             import traceback
             traceback.print_exc()
             return None
-            

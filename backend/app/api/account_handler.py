@@ -46,22 +46,24 @@ load_dotenv(Path(__file__).resolve().parents[2] / "config" / ".env")
 class AccountHandler:
     """Handles account and project management in DynamoDB"""
 
-    def __init__(self, table_name="agentic-sow-v2", region="us-east-1"):
+    def __init__(self, table_name=None, region=None):
         """Initialize DynamoDB handler"""
-        self.table_name = table_name
-        self.region = region
+        self.table_name = table_name or os.getenv(
+            'DYNAMODB_TABLE_ACCOUNTS', 'agentic-sow-v2'
+        )
+        self.region = region or os.getenv('AWS_REGION', 'us-east-1')
 
         # Initialize DynamoDB client with credentials from environment
         self.dynamodb = boto3.resource(
             'dynamodb',
-            region_name=region,
+            region_name=self.region,
             aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
             aws_session_token=os.getenv('AWS_SESSION_TOKEN')
         )
 
-        self.table = self.dynamodb.Table(table_name)
-        print(f"✅ AccountHandler initialized with table: {table_name}")
+        self.table = self.dynamodb.Table(self.table_name)
+        print(f"✅ AccountHandler configured with table: {self.table_name} ({self.region})")
 
     # ========================================================================
     # ACCOUNT OPERATIONS

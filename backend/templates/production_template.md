@@ -1,3 +1,9 @@
+<!-- BEGIN_GLOBAL_TEMPLATE_CONTRACT -->
+# DOCUMENT-WIDE LANGUAGE STANDARD
+
+Use British Indian English throughout, never US spelling. Prefer forms such as `organisation`, `organise`, `centralised`, `analyse`, `behaviour`, `colour`, `programme`, `licence` (noun), and `fulfilment`. Preserve official product names, API fields, quoted source text, and identifiers exactly as supplied.
+<!-- END_GLOBAL_TEMPLATE_CONTRACT -->
+
 [META_STATIC]
 ## {PROJECT_TITLE}
 
@@ -314,7 +320,7 @@ commercial terms, and production-transition obligations, subject to the governin
 
 | For {AUTHOR_ORG_SHORT} | For {COMPANY_NAME_SHORT} |
 |---|---|
-| Name: To be nominated | Name: To be nominated |
-| Title: To be confirmed | Title: To be confirmed |
+| Name: | Name: |
+| Title: | Title: |
 | Signature: | Signature: |
 | Date: | Date: |
