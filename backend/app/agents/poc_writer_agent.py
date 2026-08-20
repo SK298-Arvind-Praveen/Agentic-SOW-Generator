@@ -236,6 +236,12 @@ class POCWriterAgent:
                 content = self._replace_placeholders(section.content, metadata, req)
             elif section.section_type == SectionType.HYBRID and not self._needs_generation(section.content):
                 content = self._replace_placeholders(section.content, metadata, req)
+                # A hybrid section backed only by an optional metadata field must
+                # not silently become an empty body section.  Empty selected
+                # sections otherwise leave a stale TOC entry with no bookmark.
+                if not content.strip():
+                    generation_jobs.append((index, section, key))
+                    continue
             else:
                 generation_jobs.append((index, section, key))
                 continue
@@ -254,7 +260,18 @@ class POCWriterAgent:
             content = self._generate_section(
                 section, req, metadata, source_context, consistency_notes
             )
-            return index, key, self._clean_content(content, section.name)
+            resolved_section_name = self._replace_placeholders(
+                section.name, metadata, req
+            )
+            cleaned = self._clean_content(content, resolved_section_name)
+            # A model can occasionally return only the requested heading.  The
+            # cleaner correctly removes that duplicate heading, but the result
+            # must still contain a body if the user selected the section.
+            if not cleaned.strip():
+                cleaned = self._clean_content(
+                    self._deterministic_fallback(section, req), resolved_section_name
+                )
+            return index, key, cleaned
 
         if worker_count == 1:
             for job in generation_jobs:
@@ -328,7 +345,7 @@ class POCWriterAgent:
             "The authoritative requirements baseline overrides any generic recommendation.",
         ]
         duration = None
-        if selected_sections is None or "timeline" in selected_sections:
+        if selected_sections is None or "timelines_deliverables" in selected_sections:
             duration = requirements.get("duration_weeks") or requirements.get("planning_duration_weeks")
         if duration:
             label = "confirmed" if requirements.get("duration_weeks") else "planning assumption"
@@ -390,9 +407,20 @@ ORIGINAL AUTHORING BRIEF:
 PREVIOUS DRAFT:
 {content[:8000]}"""
             revised = self._call_bedrock(retry, max_tokens=self._section_token_budget(section))
-            if not self._authoring_issues(revised, section):
+            revised_issues = self._authoring_issues(revised, section)
+            if not revised_issues:
                 content = revised
             elif not content.strip():
+                content = revised
+            elif (
+                revised.strip()
+                and any("word section limit" in issue for issue in issues)
+                and len(re.findall(r"\b\w+\b", revised))
+                < len(re.findall(r"\b\w+\b", content))
+            ):
+                # Keep a materially shorter revision even when it still carries
+                # a separate review flag; this prevents a verbose first draft
+                # from winning merely because neither draft is perfect.
                 content = revised
         if not content.strip():
             content = self._deterministic_fallback(section, requirements)
@@ -402,10 +430,12 @@ PREVIOUS DRAFT:
     def _authoring_issues(content: str, section: TemplateSection) -> List[str]:
         issues = section_quality_issues(content, section.name)
         name = re.sub(r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", section.name).casefold()
-        if name.startswith("document control"):
-            word_count = len(re.findall(r"\b\w+\b", content or ""))
-            if word_count > 500:
-                issues.append("Document Control exceeds the 500-word one-page limit")
+        word_count = len(re.findall(r"\b\w+\b", content or ""))
+        word_limit = POCWriterAgent._section_word_limit(section)
+        if word_count > word_limit:
+            issues.append(
+                f"exceeds the {word_limit}-word section limit; remove repetition and non-essential detail"
+            )
         for line in (content or "").splitlines():
             if re.match(r"^\s*\|.+\|\s*$", line):
                 columns = len(line.strip().strip("|").split("|"))
@@ -468,6 +498,24 @@ PREVIOUS DRAFT:
                 issues.append("Project Team Effort is missing the required staffing table")
         return issues
 
+    @staticmethod
+    def _section_word_limit(section: TemplateSection) -> int:
+        """Return a compact but workable maximum for one generated section."""
+        name = re.sub(
+            r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", section.name
+        ).casefold()
+        if name.startswith("document control"):
+            return 350
+        if name.startswith("about "):
+            return 220
+        if any(term in name for term in ("detailed scope", "technical specification")):
+            return 1200
+        if "architecture" in name:
+            return 800
+        if any(term in name for term in ("terms and conditions", "testing and acceptance")):
+            return 650
+        return 450
+
     def _build_individual_prompt(
         self,
         section: TemplateSection,
@@ -500,12 +548,12 @@ DOCUMENT CONSISTENCY NOTES
 {prior_context or '(none)'}
 
 USER-SELECTED DOCUMENT CUSTOMISATION
-- Optional topics to include: {', '.join(SECTION_LABELS.get(item, item) for item in getattr(self, 'selected_section_preferences', [])) or '(none)'}
-- Optional topics to exclude: {', '.join(getattr(self, 'excluded_section_preferences', [])) or '(none)'}
+- Topics to include: {', '.join(SECTION_LABELS.get(item, item) for item in getattr(self, 'selected_section_preferences', [])) or '(none)'}
+- Topics to exclude: {', '.join(getattr(self, 'excluded_section_preferences', [])) or '(none)'}
 - Author only the selected document structure. Do not introduce a section, table,
   schedule, cost estimate, signature block, or substantive discussion for an excluded
-  optional topic elsewhere in the document. A brief source-grounded reference is allowed
-  only when it is necessary to define the mandatory project-scope overview.
+  topic elsewhere in the document. A brief source-grounded cross-reference is allowed
+  only when it is necessary to keep a selected section internally coherent.
 
 GLOBAL TEMPLATE AND REFERENCE-BENCHMARK CONTRACT
 {self.global_template_contract or '(no global contract supplied)'}
@@ -513,6 +561,12 @@ GLOBAL TEMPLATE AND REFERENCE-BENCHMARK CONTRACT
 SECTION TO WRITE: {section.name}
 TEMPLATE AUTHORING INSTRUCTIONS:
 {self._replace_placeholders(section.content, metadata, requirements)}
+
+SECTION LENGTH BUDGET
+- Hard maximum: {self._section_word_limit(section)} words, including tables and lists.
+- Use fewer words when the source is sparse. Completeness means covering the necessary
+  decision, scope, dependency, responsibility, and validation information once; it does
+  not mean expanding every possible implementation detail.
 
 NON-NEGOTIABLE AUTHORING STANDARD
 - Return only the Markdown body. Do not repeat the top-level section heading and do not use code fences.
@@ -531,8 +585,14 @@ NON-NEGOTIABLE AUTHORING STANDARD
 - Preserve supplied compliance and regulatory wording exactly, including regulator names,
   disclaimer language, residency constraints, qualifications, and human-review boundaries.
   Never turn an expectation, design intent, or pending confirmation into a compliance claim.
-- Prefer concise prose for rationale and Markdown tables for genuinely comparable records.
+- Prefer one short orienting paragraph followed by the lightest useful structure. Do not
+  restate the project objective, customer context, or the same requirement in multiple forms.
+- Avoid more than two consecutive prose paragraphs. Use concise bullets for three or more
+  non-comparable items and Markdown tables only for genuinely comparable records.
 - Use ### and #### for real subsection headings, standard '-' bullets, and '1.' numbered steps.
+- Put every bullet on its own Markdown line. Use one idea per bullet, normally one sentence,
+  and keep lists to three-to-seven items unless the source requires more. Use two leading
+  spaces for a nested bullet and never embed bullet symbols inside a prose paragraph.
 - Keep heading hierarchy complete and consistent. The DOCX renderer normalizes every
   generated heading to 1.1 / 1.2 / 4.1 / 4.1.1 form; never use a bold Normal paragraph
   as a substitute for a heading and never skip from a module heading to an unstructured label.
@@ -543,8 +603,11 @@ NON-NEGOTIABLE AUTHORING STANDARD
   the table or split it into sequential compact tables instead of creating narrow columns.
 - Do not create a new top-level section. Keep every requested detail within this section's
   benchmark-defined boundary and do not append generic SOW boilerplate.
-- No diagrams are required in this probe. Architecture sections must provide a component map,
-  data flow, trust boundaries, design decisions, and a service-purpose table in text/table form.
+- Omit generic background, textbook explanations, marketing language, and implementation
+  possibilities that do not change scope, ownership, dependency, acceptance, or a decision.
+- When Architecture Diagram is selected, provide the component map, data flow, trust boundaries,
+  design decisions, and service-purpose details required for deterministic diagram rendering or
+  later visual design. Never claim an image was supplied when the source contains none.
 - The section should be complete enough for commercial and technical review, without filler or repetition.
 """
 
@@ -596,14 +659,10 @@ NON-NEGOTIABLE AUTHORING STANDARD
 
     @staticmethod
     def _section_token_budget(section: TemplateSection) -> int:
-        name = section.name.lower()
-        if "detailed scope" in name:
-            return 8192
-        if any(word in name for word in ("scope", "technical", "architecture", "timeline", "testing")):
-            return 7600
-        if any(word in name for word in ("overview", "summary", "duration")):
-            return 2800
-        return 4500
+        # Give the model enough room for Markdown structure without allowing a
+        # multi-thousand-word section that later has to be cut down.
+        word_limit = POCWriterAgent._section_word_limit(section)
+        return max(900, min(3200, word_limit * 2))
 
     @staticmethod
     def _context_excerpt(

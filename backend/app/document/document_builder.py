@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 import uuid
 import zipfile
@@ -97,8 +99,13 @@ def _add_field(paragraph, instruction: str, cached_text: str = "", size: float =
 
 
 def _bookmark_name(title: str, index: int = 0) -> str:
-    slug = re.sub(r"[^A-Za-z0-9_]", "", title.replace(" ", "_"))[:32]
-    return f"SOW_{index}_{slug}" if slug else f"SOW_{index}"
+    prefix = f"SOW_{index}_"
+    # Word bookmark names are limited to 40 characters. Keeping the stable,
+    # unique numeric prefix and trimming only the descriptive slug prevents
+    # LibreOffice from silently renaming the bookmark during pagination.
+    slug_limit = max(0, 40 - len(prefix))
+    slug = re.sub(r"[^A-Za-z0-9_]", "", title.replace(" ", "_"))[:slug_limit]
+    return f"{prefix}{slug}" if slug else prefix.rstrip("_")
 
 
 def _add_hyperlink(paragraph, text: str, anchor: str):
@@ -239,6 +246,199 @@ def _embed_dm_sans(document_path: Path, config) -> None:
             temporary_path.unlink()
 
 
+def _normalise_field_instruction(value: str) -> str:
+    return re.sub(r"\s+", " ", value or "").strip()
+
+
+def _pageref_results_from_xml(document_xml: bytes) -> Dict[str, str]:
+    """Return cached PAGEREF results keyed by their normalised instruction."""
+    root = parse_xml(document_xml)
+    results: Dict[str, str] = {}
+    selector = ".//*[self::w:fldChar or self::w:instrText or self::w:t]"
+    for paragraph in root.findall(".//" + qn("w:p")):
+        instruction_parts: List[str] = []
+        result_parts: List[str] = []
+        in_field = False
+        after_separator = False
+        for node in paragraph.xpath(selector):
+            if node.tag == qn("w:fldChar"):
+                field_type = node.get(qn("w:fldCharType"))
+                if field_type == "begin":
+                    in_field = True
+                    after_separator = False
+                    instruction_parts = []
+                    result_parts = []
+                elif in_field and field_type == "separate":
+                    after_separator = True
+                elif in_field and field_type == "end":
+                    instruction = _normalise_field_instruction("".join(instruction_parts))
+                    if instruction.startswith("PAGEREF "):
+                        results[instruction] = "".join(result_parts).strip()
+                    in_field = False
+                    after_separator = False
+            elif in_field and node.tag == qn("w:instrText"):
+                instruction_parts.append(node.text or "")
+            elif in_field and after_separator and node.tag == qn("w:t"):
+                result_parts.append(node.text or "")
+    return results
+
+
+def _patch_pageref_results(document_xml: bytes, results: Dict[str, str]) -> bytes:
+    """Write computed PAGEREF values into the original OOXML without reflowing it."""
+    root = parse_xml(document_xml)
+    selector = ".//*[self::w:fldChar or self::w:instrText or self::w:t]"
+    patched: set[str] = set()
+    for paragraph in root.findall(".//" + qn("w:p")):
+        nodes = paragraph.xpath(selector)
+        instruction_parts: List[str] = []
+        result_nodes: List[Any] = []
+        begin_node = None
+        in_field = False
+        after_separator = False
+        for node in nodes:
+            if node.tag == qn("w:fldChar"):
+                field_type = node.get(qn("w:fldCharType"))
+                if field_type == "begin":
+                    begin_node = node
+                    in_field = True
+                    after_separator = False
+                    instruction_parts = []
+                    result_nodes = []
+                elif in_field and field_type == "separate":
+                    after_separator = True
+                elif in_field and field_type == "end":
+                    instruction = _normalise_field_instruction("".join(instruction_parts))
+                    if instruction in results and result_nodes:
+                        result_nodes[0].text = results[instruction]
+                        for extra in result_nodes[1:]:
+                            extra.text = ""
+                        if begin_node is not None:
+                            begin_node.set(qn("w:dirty"), "false")
+                        patched.add(instruction)
+                    in_field = False
+                    after_separator = False
+            elif in_field and node.tag == qn("w:instrText"):
+                instruction_parts.append(node.text or "")
+            elif in_field and after_separator and node.tag == qn("w:t"):
+                result_nodes.append(node)
+
+    missing = set(results) - patched
+    if missing:
+        raise RuntimeError(
+            "Could not cache page numbers for PAGEREF field(s): "
+            + ", ".join(sorted(missing))
+        )
+    return etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def _find_libreoffice_binary(config) -> Optional[str]:
+    """Locate LibreOffice even when the backend was started with a minimal PATH."""
+    configured = getattr(config, "LIBREOFFICE_BINARY", None) or os.getenv(
+        "LIBREOFFICE_BINARY"
+    )
+    candidates = [
+        Path(str(configured)).expanduser() if configured else None,
+        Path(shutil.which("soffice")) if shutil.which("soffice") else None,
+        Path(shutil.which("libreoffice")) if shutil.which("libreoffice") else None,
+        Path.home()
+        / ".cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
+        Path("/Applications/LibreOffice.app/Contents/MacOS/soffice"),
+        Path("/opt/homebrew/bin/soffice"),
+        Path("/usr/local/bin/soffice"),
+        Path("/usr/bin/soffice"),
+    ]
+    for candidate in candidates:
+        if candidate and candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
+def _refresh_pageref_cached_results(document_path: Path, config) -> None:
+    """Calculate TOC page numbers with LibreOffice and cache them in the DOCX.
+
+    LibreOffice is used only as a pagination engine. Its converted document is
+    never shipped: computed field results are copied back into the original
+    OOXML so the existing layout, relationships, and embedded DM Sans fonts stay
+    untouched.
+    """
+    office_binary = _find_libreoffice_binary(config)
+    if not office_binary:
+        raise RuntimeError(
+            "LibreOffice is required to calculate and cache accurate TOC page numbers. "
+            "Install LibreOffice or set LIBREOFFICE_BINARY to the soffice executable."
+        )
+
+    with tempfile.TemporaryDirectory(
+        prefix=f".{document_path.stem}-fields-", dir=document_path.parent
+    ) as temp_name:
+        temp_root = Path(temp_name)
+        input_dir = temp_root / "input"
+        output_dir = temp_root / "output"
+        profile_dir = temp_root / "profile"
+        input_dir.mkdir()
+        output_dir.mkdir()
+        profile_dir.mkdir()
+        source_copy = input_dir / document_path.name
+        shutil.copy2(document_path, source_copy)
+        command = [
+            str(office_binary),
+            "--headless",
+            f"-env:UserInstallation={profile_dir.as_uri()}",
+            "--convert-to",
+            "docx:Office Open XML Text",
+            "--outdir",
+            str(output_dir),
+            str(source_copy),
+        ]
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        refreshed_path = output_dir / document_path.name
+        if completed.returncode != 0 or not refreshed_path.exists():
+            details = (completed.stderr or completed.stdout or "unknown error").strip()
+            raise RuntimeError(f"Failed to calculate TOC page numbers: {details}")
+
+        with zipfile.ZipFile(refreshed_path, "r") as refreshed_package:
+            refreshed_results = _pageref_results_from_xml(
+                refreshed_package.read("word/document.xml")
+            )
+        if not refreshed_results or any(not value.isdigit() for value in refreshed_results.values()):
+            raise RuntimeError("LibreOffice did not return numeric TOC page references")
+
+        with zipfile.ZipFile(document_path, "r") as source_package:
+            files = {name: source_package.read(name) for name in source_package.namelist()}
+        original_results = _pageref_results_from_xml(files["word/document.xml"])
+        missing_results = set(original_results) - set(refreshed_results)
+        if missing_results:
+            raise RuntimeError(
+                "Pagination did not resolve every TOC entry: "
+                + ", ".join(sorted(missing_results))
+            )
+        files["word/document.xml"] = _patch_pageref_results(
+            files["word/document.xml"], refreshed_results
+        )
+
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{document_path.stem}-cached-",
+            suffix=".docx",
+            dir=document_path.parent,
+        )
+        os.close(descriptor)
+        temporary_path = Path(temporary_name)
+        try:
+            with zipfile.ZipFile(temporary_path, "w", zipfile.ZIP_DEFLATED) as destination:
+                for name, payload in files.items():
+                    destination.writestr(name, payload)
+            os.replace(temporary_path, document_path)
+        finally:
+            if temporary_path.exists():
+                temporary_path.unlink()
+
+
 def _load_cover_font(config, bold: bool, size: int):
     filename = "DMSans-Bold.ttf" if bold else "DMSans-Regular.ttf"
     path = Path(config.ASSETS_DIR) / "fonts" / filename
@@ -360,6 +560,7 @@ class SectionBuilder:
                 paragraph = self.doc.add_paragraph()
                 self._add_rich_runs(paragraph, text)
                 self._apply_numbering(paragraph, self.bullet_num_id, level)
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 added.append(paragraph)
             elif kind == "number":
                 level, text = payload
@@ -368,6 +569,7 @@ class SectionBuilder:
                 if active_number_num_id is None:
                     active_number_num_id = self._new_numbering_instance(self.number_num_id)
                 self._apply_numbering(paragraph, active_number_num_id, level)
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 added.append(paragraph)
             elif kind == "caption":
                 paragraph = self.doc.add_paragraph(style="Caption")
@@ -972,6 +1174,14 @@ class DocumentBuilder:
         self.section_builder = SectionBuilder(self.doc, self.config)
         _mark_update_fields(self.doc)
         self.toc_entries = [self._resolve_title(entry, metadata) for entry in self.toc_entries]
+        # The TOC is generated from the requested template before section text is
+        # rendered.  If an upstream generator returns an empty optional section,
+        # do not leave a PAGEREF pointing at a bookmark that cannot exist.
+        self.toc_entries = [
+            entry
+            for entry in self.toc_entries
+            if self._resolve_section_content(entry, sections, metadata).strip()
+        ]
 
         cover_section = self.doc.sections[0]
         cover_section.page_width = Inches(PAGE_WIDTH_IN)
@@ -1011,7 +1221,7 @@ class DocumentBuilder:
         content_section.header.is_linked_to_previous = False
         content_section.footer.is_linked_to_previous = False
         self._add_header_footer(content_section, metadata, mode)
-        self._prepare_expanded_toc(sections)
+        self._prepare_expanded_toc(sections, metadata)
 
         # The benchmark places Document Control immediately after the cover,
         # then the TOC, then the substantive body. Keep that ordering while
@@ -1043,6 +1253,7 @@ class DocumentBuilder:
         props.comments = "Generated from source-grounded requirements; proposals and open clarifications are labelled."
         self.doc.save(str(output_path))
         _embed_dm_sans(output_path, self.config)
+        _refresh_pageref_cached_results(output_path, self.config)
         if cover_path:
             try:
                 cover_path.unlink()
@@ -1105,30 +1316,32 @@ class DocumentBuilder:
             trailing_paragraph.paragraph_format.space_after = Pt(0)
             trailing_paragraph.paragraph_format.line_spacing = Pt(1)
             header_table = header.add_table(
-                rows=1, cols=2, width=Inches(PAGE_WIDTH_IN - 2 * HORIZONTAL_MARGIN_IN)
+                rows=1, cols=3, width=Inches(PAGE_WIDTH_IN - 2 * HORIZONTAL_MARGIN_IN)
             )
             header_table.alignment = WD_TABLE_ALIGNMENT.LEFT
             header_table.autofit = False
-            header_widths = [8600, CONTENT_WIDTH_DXA - 8600]
+            header_widths = [7200, 1400, CONTENT_WIDTH_DXA - 8600]
             SectionBuilder._set_table_geometry(header_table, header_widths)
             self._remove_table_borders(header_table)
-            # Put the table before the required trailing paragraph in the header.
             header._element.remove(header_table._tbl)
             header._element.insert(0, header_table._tbl)
-            left_cell, right_cell = header_table.rows[0].cells
-            for cell, width in zip((left_cell, right_cell), header_widths):
+            left_cell, spacer_cell, right_cell = header_table.rows[0].cells
+            for cell, width in zip(
+                (left_cell, spacer_cell, right_cell), header_widths
+            ):
                 SectionBuilder._set_cell_width(cell, width)
                 self._set_zero_cell_margins(cell)
                 cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
             left_paragraph = left_cell.paragraphs[0]
+            spacer_paragraph = spacer_cell.paragraphs[0]
             right_paragraph = right_cell.paragraphs[0]
             left_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            spacer_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             right_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            for paragraph in (left_paragraph, right_paragraph):
+            for paragraph in (left_paragraph, spacer_paragraph, right_paragraph):
                 paragraph.paragraph_format.space_before = Pt(0)
                 paragraph.paragraph_format.space_after = Pt(0)
                 paragraph.paragraph_format.line_spacing = 1.0
-            # Equal optical padding keeps both elements away from the page edge.
             left_paragraph.paragraph_format.left_indent = Inches(CHROME_INSET_IN)
             right_paragraph.paragraph_format.right_indent = Inches(CHROME_INSET_IN)
             title_run = left_paragraph.add_run(str(header_title))
@@ -1198,26 +1411,25 @@ class DocumentBuilder:
             element.set(qn("w:w"), "0")
             element.set(qn("w:type"), "dxa")
 
-    def _prepare_expanded_toc(self, sections: Dict[str, Any]) -> None:
-        """Build a benchmark-like TOC containing top-level and H2 entries."""
+    def _prepare_expanded_toc(
+        self, sections: Dict[str, Any], metadata: Dict[str, Any]
+    ) -> None:
+        """Build a TOC with page fields only for main document topics."""
         self.expanded_toc_entries = []
         self.subheading_anchor_maps = {}
-        subheading_index = 1000
         for position, entry in enumerate(self.toc_entries, 1):
             top_anchor = _bookmark_name(entry, position)
             self.expanded_toc_entries.append((entry, top_anchor, 1))
-            content = self._resolve_content(entry, sections)
+            content = self._resolve_section_content(entry, sections, metadata)
             major_match = re.match(r"^\s*(\d+)[.)]?\s+", entry)
             major = major_match.group(1) if major_match else None
-            anchor_map: Dict[str, str] = {}
             for label, level in SectionBuilder.enumerate_headings(content, major):
-                if level != 2:
-                    continue
-                subheading_index += 1
-                anchor = _bookmark_name(label, subheading_index)
-                anchor_map[label] = anchor
-                self.expanded_toc_entries.append((label, anchor, 2))
-            self.subheading_anchor_maps[entry] = anchor_map
+                if level == 2:
+                    # Subtopics navigate to their parent and intentionally have
+                    # no independent PAGEREF.  This keeps the parent's accurate
+                    # page number while retaining the useful topic outline.
+                    self.expanded_toc_entries.append((label, top_anchor, 2))
+            self.subheading_anchor_maps[entry] = {}
 
     @staticmethod
     def _set_paragraph_top_border(paragraph, color: str) -> None:
@@ -1270,7 +1482,8 @@ class DocumentBuilder:
             tab = paragraph.add_run("\t")
             toc_size = 7.5 if level == 1 else 6.75
             _set_font(tab, size=toc_size)
-            _add_field(paragraph, f"PAGEREF {anchor} \\h", "", size=toc_size)
+            if level == 1:
+                _add_field(paragraph, f"PAGEREF {anchor} \\h", "", size=toc_size)
 
     def _resolve_content(self, section_name: str, sections: Dict[str, Any]) -> str:
         key = self._name_to_key(section_name)
@@ -1299,6 +1512,28 @@ class DocumentBuilder:
                 return str(content)
         return ""
 
+    def _resolve_section_content(
+        self,
+        section_name: str,
+        sections: Dict[str, Any],
+        metadata: Dict[str, Any],
+    ) -> str:
+        """Resolve dynamic About headings as well as ordinary section aliases."""
+        unnumbered_name = re.sub(
+            r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", section_name
+        ).strip()
+        author_about = f"About {self._get_short_company_name(metadata.get('author_org', 'ShellKode'))}"
+        customer_about = f"About {metadata.get('company_name', 'Customer')}"
+        if unnumbered_name.casefold() == author_about.casefold():
+            return str(sections.get("about_shellkode", ""))
+        if unnumbered_name.casefold() == customer_about.casefold():
+            return str(
+                sections.get("about_company")
+                or sections.get("about_client")
+                or ""
+            )
+        return self._resolve_content(section_name, sections)
+
     @staticmethod
     def _resolve_title(title: str, metadata: Dict[str, Any]) -> str:
         replacements = {
@@ -1314,14 +1549,7 @@ class DocumentBuilder:
 
     def _build_section(self, section_name: str, sections: Dict[str, Any], metadata: Dict[str, Any], position: int) -> None:
         assert self.doc is not None and self.section_builder is not None
-        author_about = f"About {self._get_short_company_name(metadata.get('author_org', 'ShellKode'))}"
-        customer_about = f"About {metadata.get('company_name', 'Customer')}"
-        if section_name.casefold() == author_about.casefold():
-            content = str(sections.get("about_shellkode", ""))
-        elif section_name.casefold() == customer_about.casefold():
-            content = str(sections.get("about_company", ""))
-        else:
-            content = self._resolve_content(section_name, sections)
+        content = self._resolve_section_content(section_name, sections, metadata)
         if not content:
             print(f"⚠ No content for {section_name!r}; omitted from body")
             return

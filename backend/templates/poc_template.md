@@ -5,24 +5,15 @@ This contract is part of the runtime prompt for every generated section. It enco
 
 ## A. Reference-derived document model
 
-The finished POC SOW must read like a detailed implementation baseline, not a generic proposal. Its substantive flow is:
+The finished POC SOW must read like a detailed implementation baseline, not a generic proposal. Its substantive flow is controlled by the user's section selections. The cover, Document Control, and Table of Contents remain structural document elements; every other top-level topic is included only when selected.
 
 1. cover page;
 2. Document Control before the Table of Contents;
-3. Purpose and Scope;
-4. Scope at a Glance;
-5. Current State;
-6. detailed, module-by-module scope;
-7. AWS solution architecture;
-8. Open Clarifications;
-9. Out of Scope;
-10. Assumptions and Dependencies;
-11. Success Criteria;
-12. AWS Pricing;
-13. project team effort; and
-14. the preserved signature block required by the ShellKode template.
+3. only the user-selected company, client, overview, scope, architecture, dependency,
+   assumption, exclusion, timeline, pricing, responsibility, team, clarification,
+   success, termination, contact, terms, and acceptance topics, in template order.
 
-Do not add standalone top-level sections for company profiles, executive summary, timeline, testing, risks, customer responsibilities, support, deliverable acceptance, change order, termination, contacts, marketing authorization, general terms and conditions, or other generic boilerplate. When a relevant fact belongs to one of those topics, place it inside the applicable permitted section without creating a new top-level heading.
+Never introduce an unselected top-level topic or re-create an excluded topic as a subsection.
 
 ## B. Evidence and inference policy
 
@@ -55,14 +46,16 @@ Sparse input is expected. Expand it into a professional SOW by decomposing state
 
 ## E. Content density and form
 
-- Write implementation-grade detail: capability, actor, trigger/input, processing or rule, output, dependency, exception/boundary, and validation evidence.
+- Write only the implementation detail needed to define scope, ownership, dependency, boundary, decision, or validation. Do not expand every category when it adds no decision value.
 - Prefer concise prose for rationale and bullets for non-comparable items. Use tables only for genuinely comparable records.
+- Start a section with no more than one short orienting paragraph. Avoid more than two consecutive prose paragraphs, repeated summaries, and background explanations already established elsewhere.
+- Put each bullet on its own Markdown line, keep it to one main idea, and use a real nested Markdown bullet only when the hierarchy is necessary.
 - Tables should normally contain two to four columns and must never exceed five. If detail will create narrow prose-heavy cells, split the table or put explanatory prose beneath it.
 - Each detailed module should normally contain: objective/boundary, workflow, functional requirements, roles and permissions, data, integrations, business rules and exceptions, AI/human review where relevant, security/compliance where relevant, dependencies, and validation notes. Omit a category only when genuinely inapplicable.
 - Use a sequential `Workflow` only where sequence materially aids understanding. A data store, reporting capability, integration layer, or governance capability does not automatically need its own numbered workflow.
 - A numbered workflow must contain four to eight meaningful end-to-end steps. Consolidate low-value micro-actions into phases or capability bullets; never create a document-spanning sequence of dozens of sparse items.
 - Avoid filler, marketing claims, repeated project summaries, vague bullets, and generic AWS catalogues.
-- Do not create diagrams in this phase. Provide sufficiently precise written architecture so diagrams can be added later without changing the scope baseline.
+- When Architecture Diagram is selected, provide a diagram-ready logical component and data-flow specification using concise tables and ordered flows. Do not fabricate an image or claim that a diagram was supplied when no source-backed diagram exists.
 
 ## F.1 Heading hierarchy and numbering
 
@@ -160,6 +153,23 @@ QUALITY RULES
 - Make the relationship between sources and scope explicit.
 - Do not summarize the entire solution here.
 - Do not add assumptions, open questions, signatures, or commercial terms here.
+
+[META_GENERATED]
+## About {AUTHOR_ORG_SHORT}
+
+Write a concise, factual profile of {AUTHOR_ORG_SHORT} as the delivery partner. Use supplied
+organisation information and project-relevant capabilities only. Do not invent certifications,
+partner tiers, awards, customer counts, locations, or delivery claims. If no corporate profile is
+supplied, state only the organisation's role in this engagement and the capabilities evidenced by
+the selected scope.
+
+[META_GENERATED]
+## About {COMPANY_NAME}
+
+Write a concise, source-grounded client profile covering the business context relevant to this
+engagement. Do not invent industry position, scale, revenue, locations, products, regulations, or
+achievements. When the source provides limited client information, explicitly keep the profile to
+the known project context.
 
 [META_GENERATED]
 ## 1. Purpose and Scope of This Deliverable
@@ -512,10 +522,20 @@ RULES
 - Do not exclude testing needed to demonstrate the POC's Success Criteria.
 
 [META_GENERATED]
-## 8. Assumptions and Dependencies
+## Customer Dependencies
+
+Create a concise dependency register using `ID`, `Customer Dependency`, `Owner Role`, `Needed By`,
+`Impact if Delayed`, and `Status`. Include only dependencies that follow from the selected scope,
+such as AWS account access, representative data, integration access, subject-matter experts,
+security decisions, reviews, test participants, licences, and approvals. Preserve confirmed dates
+and owners; otherwise use `To be confirmed`. Do not convert planning assumptions into confirmed
+customer commitments.
+
+[META_GENERATED]
+## 8. Assumptions
 
 PURPOSE
-State the specific conditions required for delivery and the consequences of missing them, separated from unresolved questions.
+State the planning conditions used to establish the delivery baseline and the consequences when they do not hold, separated from customer dependencies and unresolved questions.
 
 REQUIRED STRUCTURE
 
@@ -542,8 +562,8 @@ CONTENT RULES
 
 DISTINCTION RULES
 
-- A dependency is a required external input, access, approval, preceding capability, or environment.
 - An assumption is a planning condition used to draft the SOW.
+- Do not repeat the Customer Dependencies register in this section.
 - An open clarification is a question whose answer is not known. Do not disguise an open question as an assumption.
 - Do not invent feedback SLAs, access-provision periods, dates, or durations.
 
@@ -642,6 +662,16 @@ PROHIBITIONS
 - Do not invent a single "realistic" number, AWS funding status, discount, approval, service-level cost breakdown, or false precision.
 - Do not treat implementation fees as AWS consumption.
 
+[META_GENERATED]
+## Customer Responsibilities
+
+List only the customer-owned activities needed for the selected POC scope. Cover applicable
+account and environment access, representative data, source-system support, business and technical
+decisions, security/privacy review, user participation, validation, approvals, licences, and
+acceptance evidence. State the responsible customer role where known and use `To be confirmed`
+otherwise. Do not invent response times, named people, procurement commitments, or production
+operating obligations.
+
 [META_TABLE]
 ## 12. {AUTHOR_ORG_SHORT} Project Team Effort
 
@@ -672,6 +702,36 @@ AFTER THE TABLE
 
 - Add one short paragraph explaining the effort basis and identifying any open assumptions affecting staffing.
 - Do not add implementation cost, rate card, timeline, or commercial-commitment language.
+
+[META_STATIC]
+## Project Plan Termination
+
+Termination rights and notice periods are governed by the applicable master agreement. On
+termination, the parties will agree an orderly handover of completed work, approved deliverables,
+data, access, environments, and outstanding obligations. Any fees or expenses remain subject to
+the governing agreement and an approved commercial schedule.
+
+[META_STATIC_TABLE]
+## Contacts and Reporting
+
+| Organisation | Role | Name | Email | Responsibilities |
+|---|---|---|---|---|
+| {COMPANY_NAME_SHORT} | Project Sponsor | To be nominated | To be confirmed | Direction, decisions and escalation |
+| {COMPANY_NAME_SHORT} | Product/Acceptance Owner | To be nominated | To be confirmed | Requirements, validation and acceptance |
+| {AUTHOR_ORG_SHORT} | Engagement Lead | To be nominated | To be confirmed | Delivery coordination and reporting |
+| {AUTHOR_ORG_SHORT} | Solution Architect | To be nominated | To be confirmed | Design authority and technical assurance |
+
+The project kickoff will confirm the reporting cadence, governance forums, escalation path, and
+distribution list. No reporting interval is committed unless supplied in the approved baseline.
+
+[META_STATIC]
+## Terms and Conditions
+
+- This SOW is governed by the applicable master agreement or other agreement executed by the parties.
+- Commercials, invoicing, taxes, expenses, travel, working location, and working hours remain subject to that agreement or an approved commercial schedule.
+- AWS and third-party availability, pricing, licensing, and service levels are governed by their providers.
+- Customer data will be handled under the agreed confidentiality, privacy, security, residency, retention, and deletion obligations.
+- Intellectual property, warranties, liability, indemnities, and order of precedence are governed by the applicable agreement.
 
 [META_STATIC_TABLE]
 ## Acceptance and Signatories to Statement of Work

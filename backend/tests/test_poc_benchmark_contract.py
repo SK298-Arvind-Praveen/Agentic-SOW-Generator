@@ -26,13 +26,15 @@ class PocBenchmarkContractTests(unittest.TestCase):
         )
         self.headings = re.findall(r"(?m)^## (.+)$", render_template)
 
-    def test_only_benchmark_sections_plus_preserved_signature_block(self):
+    def test_template_exposes_the_customisable_section_catalogue(self):
         self.assertEqual(
             self.headings,
             [
                 "{PROJECT_TITLE}",
                 "Table_of_contents",
                 "Document Control",
+                "About {AUTHOR_ORG_SHORT}",
+                "About {COMPANY_NAME}",
                 "1. Purpose and Scope of This Deliverable",
                 "2. Deliverable Scope at a Glance",
                 "3. Current State",
@@ -40,11 +42,16 @@ class PocBenchmarkContractTests(unittest.TestCase):
                 "5. Solution Architecture — AWS",
                 "6. Open Clarifications",
                 "7. Out of Scope",
-                "8. Assumptions and Dependencies",
+                "Customer Dependencies",
+                "8. Assumptions",
                 "9. Timeline and Deliverables",
                 "10. Success Criteria",
                 "11. AWS Pricing",
+                "Customer Responsibilities",
                 "12. {AUTHOR_ORG_SHORT} Project Team Effort",
+                "Project Plan Termination",
+                "Contacts and Reporting",
+                "Terms and Conditions",
                 "Acceptance and Signatories to Statement of Work",
             ],
         )
@@ -53,14 +60,10 @@ class PocBenchmarkContractTests(unittest.TestCase):
         for heading in (
             "Testing and Acceptance Plan",
             "Risks and Mitigations",
-            "Customer Responsibilities",
             "Duration of Work",
             "Deliverable Acceptance",
             "Change Order",
-            "Project Plan Termination",
-            "Contacts and Reporting",
             "Marketing Authorization",
-            "Terms and Conditions",
         ):
             self.assertNotIn(f"## {heading}", self.template)
 
@@ -115,7 +118,7 @@ class PocBenchmarkContractTests(unittest.TestCase):
             ("## 5. Solution Architecture — AWS", "ARCHITECTURE EVIDENCE RULE"),
             ("## 6. Open Clarifications", "INCLUSION RULES"),
             ("## 7. Out of Scope", "CONDITIONAL COVERAGE"),
-            ("## 8. Assumptions and Dependencies", "DISTINCTION RULES"),
+            ("## 8. Assumptions", "DISTINCTION RULES"),
             ("## 9. Timeline and Deliverables", "REQUIRED OUTPUT"),
             ("## 10. Success Criteria", "METRIC RULES"),
             ("## 11. AWS Pricing", "PROHIBITIONS"),

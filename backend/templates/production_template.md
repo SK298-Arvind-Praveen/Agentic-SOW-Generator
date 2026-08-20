@@ -2,6 +2,11 @@
 # DOCUMENT-WIDE LANGUAGE STANDARD
 
 Use British Indian English throughout, never US spelling. Prefer forms such as `organisation`, `organise`, `centralised`, `analyse`, `behaviour`, `colour`, `programme`, `licence` (noun), and `fulfilment`. Preserve official product names, API fields, quoted source text, and identifiers exactly as supplied.
+
+Write only content needed to define scope, ownership, dependency, boundary, decision, or
+validation. Avoid repeated summaries and generic background. Use no more than one short opening
+paragraph per section, then concise bullets for non-comparable items or compact tables for genuinely
+comparable records. Put each bullet on its own Markdown line and keep it to one main idea.
 <!-- END_GLOBAL_TEMPLATE_CONTRACT -->
 
 [META_STATIC]
@@ -57,15 +62,22 @@ Date, Engagement Type, Planning Horizon, and Governing Source. Add Purpose and I
 Source Basis, Requirements Classification, and Approval Basis. Define Confirmed, Proposed,
 Planning Assumption, and Open Clarification. Do not invent approval or source documents.
 
-[META_HYBRID]
+[META_GENERATED]
 ## About {AUTHOR_ORG_SHORT}
 
-{AUTHOR_ORG_DESCRIPTION}
+Write a concise, factual profile of {AUTHOR_ORG_SHORT} as the delivery partner. Use supplied
+organisation information and project-relevant capabilities only. Do not invent certifications,
+partner tiers, awards, customer counts, locations, or delivery claims. If no corporate profile is
+supplied, state only the organisation's role in this engagement and the capabilities evidenced by
+the selected scope.
 
-[META_HYBRID]
+[META_GENERATED]
 ## About {COMPANY_NAME}
 
-{COMPANY_DESCRIPTION}
+Write a concise, source-grounded client profile covering the business context relevant to this
+engagement. Do not invent industry position, scale, revenue, locations, products, regulations, or
+achievements. When the source provides limited client information, explicitly keep the profile to
+the confirmed project context and avoid unsupported corporate claims.
 
 [META_GENERATED]
 ## Executive Summary and Project Overview
