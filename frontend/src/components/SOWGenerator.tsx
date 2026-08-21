@@ -6,7 +6,7 @@ import { toast } from 'react-toastify';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import apiService from '../services/apiService';
-import SOWSectionChecklist, { availableSowSectionIds } from './SOWSectionChecklist';
+import SOWSectionChecklist from './SOWSectionChecklist';
 import DiagramEditorModal, { ArchitectureDiagramAsset } from './DiagramEditorModal';
 import './SOWGenerator.css';
 
@@ -78,9 +78,9 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
     projectObjective: '',
     uploadedFiles: []
   });
-  const [selectedSowSections, setSelectedSowSections] = useState<string[]>(
-    availableSowSectionIds(selectedMode || 'poc')
-  );
+  // Starts empty — the user builds up the SOW section order deliberately
+  // rather than starting from an implicit "everything included" state.
+  const [selectedSowSections, setSelectedSowSections] = useState<string[]>([]);
 
   // Track if initial auto-population has been done
   const [initialPopulationDone, setInitialPopulationDone] = useState(false);
@@ -398,7 +398,7 @@ Date                                         Date`
       uploadedFiles: []
     });
     setFileUploadError('');
-    setSelectedSowSections(availableSowSectionIds(selectedMode || 'poc'));
+    setSelectedSowSections([]);
     setHasPreviewGenerated(false);
     setInitialPopulationDone(false); // Reset auto-population flag
   }, [selectedMode]);
@@ -421,15 +421,17 @@ Date                                         Date`
   }, [isPreviewLoading, targetProgress]);
 
   const isFormValid = useCallback((): boolean => {
+    if (selectedSowSections.length === 0) return false;
+
     if (formData.generationMode === 'poc-to-production') {
       // For poc-to-production mode, only require uploaded files
       return formData.uploadedFiles !== undefined && formData.uploadedFiles.length > 0;
     } else {
       // For POC and Production modes, require all fields
-      const companyNameValid = formData.companyName.trim() !== '' && 
+      const companyNameValid = formData.companyName.trim() !== '' &&
                               formData.companyName.trim() !== 'Loading...' &&
                               formData.companyName.trim() !== 'Auto-populated from project context';
-      
+
       return (
         companyNameValid &&
         formData.authorName.trim() !== '' &&
@@ -438,7 +440,7 @@ Date                                         Date`
         formData.projectObjective.trim().length >= MIN_OBJECTIVE_LENGTH
       );
     }
-  }, [formData]);
+  }, [formData, selectedSowSections]);
 
   const validateFile = (file: File): string | null => {
     if (file.size > MAX_FILE_SIZE) {
