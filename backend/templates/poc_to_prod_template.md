@@ -133,9 +133,10 @@ availability/scaling, and design decisions. Number NFRs and label unsupplied tar
 [META_GENERATED]
 ## Architecture and Integrations
 
-Do not create a diagram. Describe target logical architecture, POC-to-production component
-disposition, data flow, account/network/environment boundaries, trust boundaries, integration
-contracts, availability/scaling, observability, and design trade-offs. Distinguish confirmed and proposed AWS services.
+Provide concise context for the generated target-architecture visual: POC-to-production component
+disposition, data flow, environment and trust boundaries, integration contracts, resilience,
+observability, and significant trade-offs. Do not duplicate every visual node in prose. Distinguish
+confirmed and proposed AWS services.
 
 [META_GENERATED]
 ## Data Migration and Readiness

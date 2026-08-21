@@ -214,6 +214,9 @@ DYNAMODB_TABLE_ACCOUNTS=agentic-sow-v2
 DYNAMODB_TABLE_POC_DOCUMENTS=agentic-poc
 DYNAMODB_TABLE_RAG_SCHEMA=rag-schema
 S3_BUCKET_NAME=your-globally-unique-sow-bucket
+
+# Optional: point generated edit links at a self-hosted draw.io instance.
+DRAWIO_EDITOR_URL=https://app.diagrams.net
 ```
 
 Changing accounts only requires changing these values and running the AWS
@@ -223,9 +226,18 @@ acceptable, only the credentials, region, and S3 bucket name need to change.
 ### Frontend — `frontend/.env`
 
 ```env
-REACT_APP_API_URL=http://localhost:5000
+REACT_APP_API_URL=http://localhost:9000
 REACT_APP_ENV=development
+# Optional: self-hosted draw.io embed endpoint.
+REACT_APP_DRAWIO_EMBED_URL=https://embed.diagrams.net
 ```
+
+When Architecture Diagram is selected, the backend makes one additional
+Bedrock call to create a small validated diagram model. It deterministically
+renders the image and draw.io XML; if that call or rendering fails, SOW content
+generation and finalisation continue without a diagram. The default editor
+requires internet access. Set both draw.io variables when using a self-hosted
+instance.
 
 ### Google Drive (optional)
 

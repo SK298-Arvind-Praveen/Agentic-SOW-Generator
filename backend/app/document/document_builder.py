@@ -7,6 +7,8 @@ First page pattern: ``proposal_centerpiece`` over the existing brand artwork.
 
 from __future__ import annotations
 
+import base64
+import io
 import os
 import re
 import shutil
@@ -33,6 +35,11 @@ from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import nsdecls, qn
 from docx.shared import Inches, Pt, RGBColor
 from lxml import etree
+
+from app.diagram.service import (
+    ASSET_KEY as ARCHITECTURE_ASSETS_KEY,
+    LEGACY_ASSET_KEY as ARCHITECTURE_ASSET_KEY,
+)
 
 
 PAGE_WIDTH_IN = 8.5
@@ -121,6 +128,34 @@ def _add_hyperlink(paragraph, text: str, anchor: str):
     fonts = OxmlElement("w:rFonts")
     for attr in ("ascii", "hAnsi", "eastAsia", "cs"):
         fonts.set(qn(f"w:{attr}"), FONT_NAME)
+    size = OxmlElement("w:sz")
+    size.set(qn("w:val"), "15")
+    rpr.extend([fonts, color, underline, size])
+    text_node = OxmlElement("w:t")
+    text_node.text = text
+    run.extend([rpr, text_node])
+    hyperlink.append(run)
+    paragraph._p.append(hyperlink)
+
+
+def _add_external_hyperlink(paragraph, text: str, url: str):
+    relationship_id = paragraph.part.relate_to(
+        url,
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+        is_external=True,
+    )
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("r:id"), relationship_id)
+    hyperlink.set(qn("w:history"), "1")
+    run = OxmlElement("w:r")
+    rpr = OxmlElement("w:rPr")
+    fonts = OxmlElement("w:rFonts")
+    for attr in ("ascii", "hAnsi", "eastAsia", "cs"):
+        fonts.set(qn(f"w:{attr}"), FONT_NAME)
+    color = OxmlElement("w:color")
+    color.set(qn("w:val"), BLUE)
+    underline = OxmlElement("w:u")
+    underline.set(qn("w:val"), "single")
     size = OxmlElement("w:sz")
     size.set(qn("w:val"), "15")
     rpr.extend([fonts, color, underline, size])
@@ -530,8 +565,13 @@ class SectionBuilder:
         heading_prefix: Optional[str] = None,
         heading_anchor_map: Optional[Dict[str, str]] = None,
         bookmark_callback: Optional[Any] = None,
+        section_title: Optional[str] = None,
+        table_caption_callback: Optional[Any] = None,
+        heading_callback: Optional[Any] = None,
     ) -> List[Any]:
         added: List[Any] = []
+        caption_context = section_title or "Statement of Work"
+        active_heading: Optional[Tuple[str, int]] = None
         heading_counters = {2: 0, 3: 0, 4: 0}
         active_number_num_id: Optional[int] = None
         for kind, payload in self._iter_blocks(content or ""):
@@ -540,11 +580,25 @@ class SectionBuilder:
             if kind == "table":
                 tables = self.build_table(payload)
                 if tables is not None:
-                    if isinstance(tables, list):
-                        added.extend(tables)
-                    else:
-                        added.append(tables)
+                    table_items = tables if isinstance(tables, list) else [tables]
+                    for table_index, table in enumerate(table_items, 1):
+                        added.append(table)
+                        if table_caption_callback:
+                            context = caption_context
+                            if len(table_items) > 1:
+                                context = f"{context} (continued {table_index})"
+                            caption = table_caption_callback(table, context)
+                            if caption is not None:
+                                # build_table may create continuation tables in
+                                # one pass. Re-anchor each caption immediately
+                                # after the table it describes.
+                                table._tbl.addnext(caption._p)
+                                added.append(caption)
             elif kind == "heading":
+                if active_heading and heading_callback:
+                    inserted = heading_callback(*active_heading)
+                    if inserted:
+                        added.extend(inserted if isinstance(inserted, list) else [inserted])
                 level, text = payload
                 text = self._numbered_heading_text(
                     text, level, heading_prefix, heading_counters
@@ -555,6 +609,8 @@ class SectionBuilder:
                 if anchor and bookmark_callback:
                     bookmark_callback(paragraph, anchor)
                 added.append(paragraph)
+                caption_context = re.sub(r"^\d+(?:\.\d+)*\s+", "", text).strip() or caption_context
+                active_heading = (text, level)
             elif kind == "bullet":
                 level, text = payload
                 paragraph = self.doc.add_paragraph()
@@ -579,6 +635,10 @@ class SectionBuilder:
                 paragraph = self.doc.add_paragraph()
                 self._add_rich_runs(paragraph, payload)
                 added.append(paragraph)
+        if active_heading and heading_callback:
+            inserted = heading_callback(*active_heading)
+            if inserted:
+                added.extend(inserted if isinstance(inserted, list) else [inserted])
         return added
 
     @classmethod
@@ -874,10 +934,7 @@ class SectionBuilder:
                 paragraph.paragraph_format.space_before = Pt(1)
                 paragraph.paragraph_format.space_after = Pt(1)
                 paragraph.paragraph_format.line_spacing = 1.0
-                align_center = row_index > 0 and (
-                    len(value) < 28 or any(token in rows[0][col_index].lower() for token in ("id", "status", "date", "week", "priority"))
-                )
-                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER if align_center else WD_ALIGN_PARAGRAPH.LEFT
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 pieces = re.split(r"<br\s*/?>", value, flags=re.I)
                 for piece_index, piece in enumerate(pieces):
                     if piece_index:
@@ -891,9 +948,6 @@ class SectionBuilder:
                 for run in paragraph.runs:
                     if has_header and row_index == 0:
                         run.bold = True
-        spacer = self.doc.add_paragraph()
-        spacer.paragraph_format.space_after = Pt(0)
-        spacer.paragraph_format.line_spacing = 0.5
         return table
 
     @staticmethod
@@ -1011,7 +1065,8 @@ class DocumentBuilder:
 
     RESERVED_KEYS = {
         "cover_page", "toc_structure", "table_of_contents", "tableofcontents",
-        "table_contents", "generation_quality_summary",
+        "table_contents", "generation_quality_summary", ARCHITECTURE_ASSET_KEY,
+        ARCHITECTURE_ASSETS_KEY,
     }
 
     def __init__(self, config):
@@ -1022,6 +1077,8 @@ class DocumentBuilder:
         self.expanded_toc_entries: List[Tuple[str, str, int]] = []
         self.subheading_anchor_maps: Dict[str, Dict[str, str]] = {}
         self._bookmark_ids = 0
+        self._figure_counter = 0
+        self._table_counter = 0
 
     @staticmethod
     def _get_short_company_name(company_name: str) -> str:
@@ -1169,6 +1226,8 @@ class DocumentBuilder:
 
     def _build_docx(self, output_path: Path, sections: Dict[str, Any], metadata: Dict[str, Any], mode: str) -> None:
         self.doc = Document()
+        self._figure_counter = 0
+        self._table_counter = 0
         self._configure_styles()
         self._add_numbering()
         self.section_builder = SectionBuilder(self.doc, self.config)
@@ -1476,13 +1535,15 @@ class DocumentBuilder:
             paragraph.paragraph_format.left_indent = Inches(0.02 if level == 1 else 0.22)
             paragraph.paragraph_format.space_after = Pt(1.3 if level == 1 else 0.5)
             paragraph.paragraph_format.line_spacing = 1.0
-            paragraph.paragraph_format.tab_stops.add_tab_stop(Inches(7.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
             display = entry if entries_are_numbered or level > 1 else f"{index}. {entry}"
             _add_hyperlink(paragraph, display, anchor)
-            tab = paragraph.add_run("\t")
             toc_size = 7.5 if level == 1 else 6.75
-            _set_font(tab, size=toc_size)
             if level == 1:
+                paragraph.paragraph_format.tab_stops.add_tab_stop(
+                    Inches(7.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS
+                )
+                tab = paragraph.add_run("\t")
+                _set_font(tab, size=toc_size)
                 _add_field(paragraph, f"PAGEREF {anchor} \\h", "", size=toc_size)
 
     def _resolve_content(self, section_name: str, sections: Dict[str, Any]) -> str:
@@ -1557,6 +1618,30 @@ class DocumentBuilder:
         heading.add_run(section_name)
         self._set_paragraph_bottom_border(heading, PURPLE)
         self._add_bookmark_to_heading(heading, section_name, position + 1)
+        architecture_assets = self._architecture_assets(sections) if "architecture" in self._name_to_key(section_name) else []
+        inserted_asset_ids: set[int] = set()
+
+        def insert_for_heading(heading_text: str, _level: int):
+            heading_key = self._name_to_key(heading_text)
+            inserted = []
+            for asset in architecture_assets:
+                if id(asset) in inserted_asset_ids:
+                    continue
+                placement_key = self._name_to_key(str(asset.get("placement_heading") or ""))
+                type_key = self._name_to_key(str(asset.get("diagram_type") or ""))
+                placement_tokens = set(placement_key.split("_")) - {"and", "the", "of"}
+                heading_tokens = set(heading_key.split("_")) - {"and", "the", "of"}
+                matches = bool(placement_tokens & heading_tokens) or (
+                    type_key == "data_flow" and "flow" in heading_tokens
+                ) or (
+                    type_key == "integration_context" and "integration" in heading_tokens
+                ) or (
+                    type_key == "deployment_topology" and "deployment" in heading_tokens
+                )
+                if matches:
+                    inserted.append(self._add_architecture_diagram(asset))
+                    inserted_asset_ids.add(id(asset))
+            return [item for item in inserted if item is not None]
         major_match = re.match(r"^\s*(\d+)[.)]?\s+", section_name)
         major = major_match.group(1) if major_match else None
         self.section_builder.parse_content(
@@ -1564,7 +1649,75 @@ class DocumentBuilder:
             heading_prefix=major,
             heading_anchor_map=self.subheading_anchor_maps.get(section_name, {}),
             bookmark_callback=self._add_bookmark_with_anchor,
+            section_title=section_name,
+            table_caption_callback=self._add_table_caption,
+            heading_callback=insert_for_heading,
         )
+        for asset in architecture_assets:
+            if id(asset) not in inserted_asset_ids:
+                self._add_architecture_diagram(asset)
+
+    @staticmethod
+    def _architecture_assets(sections: Dict[str, Any]) -> List[Dict[str, Any]]:
+        assets = sections.get(ARCHITECTURE_ASSETS_KEY)
+        if isinstance(assets, list):
+            return [asset for asset in assets if isinstance(asset, dict)]
+        legacy = sections.get(ARCHITECTURE_ASSET_KEY)
+        return [legacy] if isinstance(legacy, dict) else []
+
+    def _add_table_caption(self, _table: Any, context: str):
+        assert self.doc is not None
+        self._table_counter += 1
+        caption = self.doc.add_paragraph(style="Caption")
+        caption.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        caption.add_run(f"Table {self._table_counter}: {context}")
+        return caption
+
+    def _add_architecture_diagram(self, asset: Any):
+        """Insert a generated architecture image and durable edit link."""
+        if not isinstance(asset, dict) or not asset.get("image_base64"):
+            return None
+        assert self.doc is not None
+        try:
+            image_bytes = base64.b64decode(asset["image_base64"], validate=True)
+            with PILImage.open(io.BytesIO(image_bytes)) as image:
+                pixel_width, pixel_height = image.size
+            aspect = pixel_width / max(pixel_height, 1)
+            width = min(6.95, 4.75 * aspect)
+            height = width / max(aspect, 0.1)
+            if height > 4.75:
+                height = 4.75
+                width = height * aspect
+
+            paragraph = self.doc.add_paragraph()
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            paragraph.paragraph_format.space_before = Pt(5)
+            paragraph.paragraph_format.space_after = Pt(2)
+            shape = paragraph.add_run().add_picture(
+                io.BytesIO(image_bytes),
+                width=Inches(width),
+                height=Inches(height),
+            )
+            shape._inline.docPr.set(
+                "descr",
+                str(asset.get("alt_text") or "Proposed logical architecture diagram"),
+            )
+
+            caption = self.doc.add_paragraph(style="Caption")
+            caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            self._figure_counter += 1
+            caption.add_run(
+                f"Figure {self._figure_counter}: "
+                f"{str(asset.get('caption') or asset.get('title') or 'Proposed logical architecture').rstrip('.')}"
+            )
+            edit_link = str(asset.get("edit_url") or "")
+            if edit_link:
+                caption.add_run("  ")
+                _add_external_hyperlink(caption, "Edit this diagram in draw.io", edit_link)
+            return paragraph
+        except Exception as exc:
+            print(f"   ⚠ Architecture image could not be embedded; continuing without it: {exc}")
+            return None
 
     def _add_bookmark_with_anchor(self, paragraph, anchor: str) -> None:
         self._bookmark_ids += 1

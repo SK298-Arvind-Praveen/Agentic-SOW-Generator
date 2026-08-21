@@ -7,6 +7,7 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import apiService from '../services/apiService';
 import SOWSectionChecklist, { availableSowSectionIds } from './SOWSectionChecklist';
+import DiagramEditorModal, { ArchitectureDiagramAsset } from './DiagramEditorModal';
 import './SOWGenerator.css';
 
 interface SOWGeneratorData {
@@ -176,6 +177,7 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
   const [showModal, setShowModal] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
+  const [diagramEditorAsset, setDiagramEditorAsset] = useState<{asset: ArchitectureDiagramAsset; index: number} | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editData, setEditData] = useState<any>(null);
   const [selectedSections, setSelectedSections] = useState<string[]>([]);
@@ -1114,6 +1116,52 @@ Date                                         Date`
     }
   };
 
+  const renderPreviewSection = (section: string, content: unknown) => {
+    const isEdited = previewData.edited_sections && previewData.edited_sections.includes(section);
+    if (
+      (section === 'architecture_diagram_assets' && Array.isArray(content)) ||
+      (section === 'architecture_diagram_asset' && content && typeof content === 'object')
+    ) {
+      const assets = Array.isArray(content)
+        ? content as ArchitectureDiagramAsset[]
+        : [content as ArchitectureDiagramAsset];
+      return (
+        <div key={section} className="preview-content-section architecture-diagram-preview">
+          <div className="preview-content-section-title">
+            <h4>Architecture Diagrams</h4>
+          </div>
+          {assets.map((asset, index) => (
+            <div className="architecture-diagram-item" key={`${asset.diagram_type || asset.title}-${index}`}>
+              <img src={`data:image/png;base64,${asset.image_base64}`} alt={asset.alt_text || asset.title} />
+              {asset.caption && <p className="architecture-diagram-caption">Figure {index + 1}: {asset.caption}</p>}
+              <div className="architecture-diagram-actions">
+                <button className="modal-btn modal-btn-primary" onClick={() => setDiagramEditorAsset({ asset, index })}>
+                  <Edit size={15} /> Edit Diagram
+                </button>
+                <a className="modal-btn modal-btn-secondary" href={asset.edit_url} target="_blank" rel="noreferrer">
+                  Open in draw.io
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return (
+      <div
+        key={section}
+        id={`section-${section}`}
+        className={`preview-content-section ${isEdited ? 'edited-section' : ''}`}
+      >
+        <div className="preview-content-section-title">
+          <h4>{section.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</h4>
+          {isEdited && <span className="edited-badge">Edited</span>}
+        </div>
+        <p className="preview-content-section-text">{String(content)}</p>
+      </div>
+    );
+  };
+
   const handleSectionToggle = (section: string) => {
     setSelectedSections(prev => {
       if (prev.includes(section)) {
@@ -1849,22 +1897,7 @@ Date                                         Date`
                       <pre className="preview-content-text">{previewData.content}</pre>
                     ) : (
                       <div className="preview-content-sections">
-                        {Object.entries(previewData.content).map(([section, content]) => {
-                          const isEdited = previewData.edited_sections && previewData.edited_sections.includes(section);
-                          return (
-                            <div
-                              key={section}
-                              id={`section-${section}`}
-                              className={`preview-content-section ${isEdited ? 'edited-section' : ''}`}
-                            >
-                              <div className="preview-content-section-title">
-                                <h4>{section.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</h4>
-                                {isEdited && <span className="edited-badge">Edited</span>}
-                              </div>
-                              <p className="preview-content-section-text">{String(content)}</p>
-                            </div>
-                          );
-                        })}
+                        {Object.entries(previewData.content).map(([section, content]) => renderPreviewSection(section, content))}
                       </div>
                     )}
                   </div>
@@ -1877,22 +1910,7 @@ Date                                         Date`
                   <h3 className="preview-section-title">Document Sections</h3>
                   <div className="preview-content-display">
                     <div className="preview-content-sections">
-                      {Object.entries(previewData.updated_content).map(([section, content]) => {
-                        const isEdited = previewData.edited_sections && previewData.edited_sections.includes(section);
-                        return (
-                          <div
-                            key={section}
-                            id={`section-${section}`}
-                            className={`preview-content-section ${isEdited ? 'edited-section' : ''}`}
-                          >
-                            <div className="preview-content-section-title">
-                              <h4>{section.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</h4>
-                              {isEdited && <span className="edited-badge">Edited</span>}
-                            </div>
-                            <p className="preview-content-section-text">{String(content)}</p>
-                          </div>
-                        );
-                      })}
+                      {Object.entries(previewData.updated_content).map(([section, content]) => renderPreviewSection(section, content))}
                     </div>
                   </div>
                 </>
@@ -1940,6 +1958,37 @@ Date                                         Date`
           </div>
         </div>
       , document.body)}
+
+      {diagramEditorAsset && previewData?.preview_id && (
+        <DiagramEditorModal
+          previewId={previewData.preview_id}
+          asset={diagramEditorAsset.asset}
+          diagramIndex={diagramEditorAsset.index}
+          onClose={() => setDiagramEditorAsset(null)}
+          onSaved={(asset) => {
+            const savedIndex = diagramEditorAsset.index;
+            setDiagramEditorAsset({ asset, index: savedIndex });
+            const updateDiagramContent = (content: any) => {
+              if (!content) return content;
+              if (Array.isArray(content.architecture_diagram_assets)) {
+                const assets = [...content.architecture_diagram_assets];
+                assets[savedIndex] = asset;
+                return { ...content, architecture_diagram_assets: assets };
+              }
+              if (content.architecture_diagram_asset) {
+                return { ...content, architecture_diagram_asset: asset };
+              }
+              return content;
+            };
+            setPreviewData((current: any) => ({
+              ...current,
+              content: updateDiagramContent(current?.content),
+              updated_content: updateDiagramContent(current?.updated_content),
+            }));
+            toast.success('Architecture diagram saved to the preview.');
+          }}
+        />
+      )}
 
       {/* Edit Modal — portal */}
       {showEditModal && editData && ReactDOM.createPortal(

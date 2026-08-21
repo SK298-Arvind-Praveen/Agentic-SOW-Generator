@@ -55,7 +55,7 @@ Sparse input is expected. Expand it into a professional SOW by decomposing state
 - Use a sequential `Workflow` only where sequence materially aids understanding. A data store, reporting capability, integration layer, or governance capability does not automatically need its own numbered workflow.
 - A numbered workflow must contain four to eight meaningful end-to-end steps. Consolidate low-value micro-actions into phases or capability bullets; never create a document-spanning sequence of dozens of sparse items.
 - Avoid filler, marketing claims, repeated project summaries, vague bullets, and generic AWS catalogues.
-- When Architecture Diagram is selected, provide a diagram-ready logical component and data-flow specification using concise tables and ordered flows. Do not fabricate an image or claim that a diagram was supplied when no source-backed diagram exists.
+- When Architecture Diagram is selected, provide only the concise decisions, constraints, flow and unresolved boundaries needed to interpret the generated visual. Do not duplicate the diagram as a prose-heavy component catalogue.
 
 ## F.1 Heading hierarchy and numbering
 
@@ -387,7 +387,7 @@ EXCLUSIONS
 ## 5. Solution Architecture — AWS
 
 PURPOSE
-Provide the two-view written architecture treatment used by the reference SOW, with enough specificity for engineering review and later diagram production.
+Provide concise engineering context for the generated logical architecture visual.
 
 ARCHITECTURE EVIDENCE RULE
 
@@ -400,52 +400,23 @@ REQUIRED STRUCTURE
 
 ### 5.1 Architecture Drivers and Constraints
 
-Cover workload shape, personas/channels, data sensitivity/volume, integration boundaries, performance/resilience requirements, compliance constraints, and cost/POC constraints. State unknown material drivers as open items.
+Use three to six bullets for only the material workload, data, integration, compliance and POC constraints. State material unknowns as open items.
 
 ### 5.2 High-Level Architecture
 
-Write two to four paragraphs plus concise bullets covering:
-
-- users and channels;
-- edge and ingress;
-- application/API layer;
-- module services/workers;
-- shared data and search layer;
-- AI/ML layer;
-- external integrations;
-- security, governance, and observability.
-
-Then provide a compact component map:
-
-| Layer/Component | Purpose | Status |
-|---|---|---|
-
-`Status` must be `Confirmed`, `Proposed`, or `Open`. Do not create more than five columns.
+Write one short paragraph explaining the principal boundaries and status of the visual. Do not repeat every visual node in prose or add a second component map.
 
 ### 5.3 End-to-End Data Flow
 
-Use a numbered sequence from user/system trigger through validation, processing, persistence, AI invocation where relevant, human review, downstream action, and audit/monitoring. Include error/fallback handling and asynchronous processing only when relevant. Do not invent protocols or payload fields.
+Use five to eight numbered steps covering the primary path and material fallback. Include human review, asynchronous processing and audit only when relevant. Do not invent protocols or payload fields.
 
-### 5.4 Low-Level Architecture
+### 5.4 Design Decisions and Open Boundaries
 
-#### 5.4.1 Network and Compute
-Cover VPC/subnet exposure, ingress, compute/runtime, scaling, private connectivity, administrative access, and environment separation as confirmed or proposed.
-
-#### 5.4.2 Data, Search, and AI Services
-Cover systems of record, object storage, cache/queue/search/vector needs, model access, grounding, lifecycle, backup/recovery, and data movement as applicable.
-
-#### 5.4.3 Security and Observability
-Cover identity, least privilege, secrets, encryption, network controls, logs, metrics, alarms, audit trail, threat detection, and evidence retention as applicable.
-
-#### 5.4.4 Integration Boundaries
-List each external system, direction, business event/data exchanged, expected interface, authentication owner, and unresolved dependency. Keep unknown protocol/authentication facts open.
-
-#### 5.4.5 Design Principles and Decisions
-State four to eight concise decisions with rationale and status. Include rejected alternatives only when supported by requirements or when explicitly labelled proposed; do not fabricate a decision history.
+Use a compact table with `Decision/Boundary`, `Rationale`, and `Status`. Include three to six items only. `Status` must be `Confirmed`, `Proposed`, or `Open`; do not fabricate a decision history.
 
 ### 5.5 Non-Functional Design Alignment
 
-Map confirmed performance, availability, security, audit, residency, retention, RTO/RPO, and scalability requirements to design responses. When a target is absent, do not invent one; identify the confirmation needed.
+List only confirmed or decision-driving performance, availability, security, audit, residency, retention and recovery requirements. When a target is absent, identify the confirmation needed instead of inventing one.
 
 COMPLIANCE BOUNDARY
 
@@ -453,7 +424,7 @@ Repeat the exact source qualification for residency/regulatory expectations when
 
 OUTPUT RULES
 
-- No diagram in this phase and no placeholder image box.
+- Do not emit diagram syntax, a placeholder image box, or a prose duplicate of the generated diagram.
 - Do not list unrelated AWS services.
 - Every named service needs a purpose and Confirmed/Proposed status.
 - Do not state a multi-AZ, serverless, container, microservices, or managed-service pattern as decided unless the evidence supports it or it is explicitly labelled Proposed.

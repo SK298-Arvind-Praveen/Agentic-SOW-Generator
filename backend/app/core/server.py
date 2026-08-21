@@ -61,6 +61,11 @@ from app.rag.rag_diagnostic import EnhancedPOCRetriever
 from app.rag.ingest import PDFToSchemaConverter, SchemaCleaner
 from app.document.document_builder import DocumentBuilder
 from app.document.doc_reader import read_document
+from app.diagram.service import (
+    ASSET_KEY as ARCHITECTURE_ASSETS_KEY,
+    LEGACY_ASSET_KEY as ARCHITECTURE_ASSET_KEY,
+    update_asset as update_architecture_asset,
+)
 from app.preview.preview_handler import (
     create_preview_id, store_preview_data, get_preview_data,
     update_preview_data, delete_preview_data, extract_content_structure,
@@ -2584,6 +2589,56 @@ def get_preview_status_api(preview_id):
             "success": False,
             "error": str(e)
         }), 500
+
+
+@app.route('/api/preview/<preview_id>/architecture-diagram', methods=['PUT'])
+def update_preview_architecture_diagram(preview_id):
+    """Persist draw.io XML and its exported PNG into an active preview."""
+    data = request.get_json(silent=True) or {}
+    xml = data.get("drawio_xml")
+    image_data = data.get("image_data")
+    diagram_index = data.get("diagram_index", 0)
+    try:
+        with preview_lock:
+            preview_data = preview_storage.get(preview_id)
+            if not preview_data:
+                return jsonify({"success": False, "error": "Preview not found"}), 404
+            if preview_data.get("status") != "ready":
+                return jsonify({"success": False, "error": "Preview is not ready"}), 409
+            content = preview_data.get("content")
+            if not isinstance(content, dict):
+                return jsonify({"success": False, "error": "Preview has no structured content"}), 409
+            assets = content.get(ARCHITECTURE_ASSETS_KEY)
+            if isinstance(assets, list):
+                try:
+                    diagram_index = int(diagram_index)
+                except (TypeError, ValueError):
+                    return jsonify({"success": False, "error": "Invalid diagram index"}), 400
+                if diagram_index < 0 or diagram_index >= len(assets) or not isinstance(assets[diagram_index], dict):
+                    return jsonify({"success": False, "error": "Architecture diagram not found"}), 404
+                existing = assets[diagram_index]
+            else:
+                existing = content.get(ARCHITECTURE_ASSET_KEY)
+                if not isinstance(existing, dict):
+                    return jsonify({"success": False, "error": "Preview has no architecture diagram"}), 404
+            asset = update_architecture_asset(
+                xml,
+                image_data,
+                existing,
+            )
+            if isinstance(assets, list):
+                assets[diagram_index] = asset
+                content[ARCHITECTURE_ASSETS_KEY] = assets
+            else:
+                content[ARCHITECTURE_ASSET_KEY] = asset
+            preview_data["last_modified"] = datetime.now().isoformat()
+            preview_data["edit_count"] = preview_data.get("edit_count", 0) + 1
+        return jsonify({"success": True, "asset": asset}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        print(f"❌ Architecture diagram update failed: {exc}")
+        return jsonify({"success": False, "error": "Unable to save architecture diagram"}), 500
 
 
 @app.route('/api/sections/poc', methods=['GET'])

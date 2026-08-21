@@ -605,9 +605,9 @@ NON-NEGOTIABLE AUTHORING STANDARD
   benchmark-defined boundary and do not append generic SOW boilerplate.
 - Omit generic background, textbook explanations, marketing language, and implementation
   possibilities that do not change scope, ownership, dependency, acceptance, or a decision.
-- When Architecture Diagram is selected, provide the component map, data flow, trust boundaries,
-  design decisions, and service-purpose details required for deterministic diagram rendering or
-  later visual design. Never claim an image was supplied when the source contains none.
+- When Architecture Diagram is selected, write only the decisions, constraints, flows and unresolved
+  boundaries needed to interpret the generated visual. Do not duplicate the visual as a long component
+  catalogue, and never claim that a source-supplied diagram exists when it does not.
 - The section should be complete enough for commercial and technical review, without filler or repetition.
 """
 

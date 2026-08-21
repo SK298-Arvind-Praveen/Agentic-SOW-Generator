@@ -139,10 +139,10 @@ Use NFR-01 onward with Quality Attribute, Target/Proposed Target, Measurement, E
 [META_GENERATED]
 ## Architecture and Integrations
 
-Do not create a diagram. Provide Architecture Principles, Logical Component Map, End-to-End Data
-Flow, Network/Account/Environment Boundaries, Integration Contract Matrix, Security Trust
-Boundaries, High Availability and Scaling, Observability, and Alternatives/Trade-offs. Tables must
-distinguish confirmed components from proposals and state purpose, data, control, owner, and status.
+Provide concise context for the generated architecture visual: material principles and constraints,
+the end-to-end flow, trust and environment boundaries, integration contracts, resilience,
+observability, and significant trade-offs. Do not duplicate every visual component in prose. Use
+compact tables only where comparison is necessary and distinguish confirmed facts from proposals.
 
 [META_GENERATED]
 ## Data Migration and Readiness

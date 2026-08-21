@@ -103,7 +103,27 @@ class DocumentBuilderTests(unittest.TestCase):
             self.assertIn("Module A", toc_text)
             self.assertIn("Module B", toc_text)
             self.assertNotIn("About Example Customer", toc_text)
+            toc_paragraphs = document.paragraphs[toc_index + 1:first_body_index]
+            subtopic_rows = [
+                paragraph for paragraph in toc_paragraphs
+                if any(label in paragraph.text for label in ("Business Need", "Module A", "Module B"))
+            ]
+            self.assertTrue(subtopic_rows)
+            self.assertTrue(all("\t" not in paragraph.text for paragraph in subtopic_rows))
             self.assertGreaterEqual(len(document.tables), 2)
+            self.assertTrue(all(
+                paragraph.alignment == 0
+                for table in document.tables
+                for row in table.rows
+                for cell in row.cells
+                for paragraph in cell.paragraphs
+            ))
+            table_captions = [
+                paragraph for paragraph in document.paragraphs
+                if re.match(r"^Table \d+:", paragraph.text)
+            ]
+            self.assertEqual(len(table_captions), len(document.tables))
+            self.assertTrue(all(paragraph.style.font.italic for paragraph in table_captions))
             self.assertTrue(any(p.style.name == "Heading 2" and p.text == "1.1 Business Need" for p in document.paragraphs))
             self.assertTrue(any(p.style.name == "Heading 2" and p.text == "2.1 Module A" for p in document.paragraphs))
             self.assertTrue(any(p.style.name == "Heading 3" and p.text == "2.1.1 Workflow" for p in document.paragraphs))

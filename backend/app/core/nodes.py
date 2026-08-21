@@ -20,6 +20,11 @@ from app.agents.company_research_agent import CompanyResearchAgent
 from app.agents.objective_agent import ObjectiveAgent
 from app.agents.rule_engine_agent import RuleEngineAgent
 from app.agents.poc_writer_agent import POCWriterAgent
+from app.diagram import DiagramService
+from app.diagram.service import (
+    ASSET_KEY as ARCHITECTURE_ASSETS_KEY,
+    LEGACY_ASSET_KEY as ARCHITECTURE_ASSET_KEY,
+)
 from app.document.document_builder import DocumentBuilder
 from app.document.doc_reader import read_document, extract_metadata_from_content, validate_extraction
 from app.core.sow_quality import (
@@ -1322,6 +1327,28 @@ def content_generation_node(state: AgentState) -> AgentState:
         selected_sow_sections=state.get('selected_sow_sections'),
     )
 
+    selected_sections = state.get('selected_sow_sections')
+    architecture_selected = selected_sections is None or 'architecture_diagram' in selected_sections
+    if architecture_selected:
+        architecture_narrative = (
+            poc_content.get('architecture_diagram')
+            or poc_content.get('architecture_integrations')
+            or ''
+        )
+        if architecture_narrative:
+            try:
+                print("   🎨 Generating editable architecture diagram...")
+                diagram_assets = DiagramService(config).generate_assets(
+                    final_requirements,
+                    metadata,
+                    str(architecture_narrative),
+                )
+                poc_content[ARCHITECTURE_ASSETS_KEY] = diagram_assets
+                print(f"   ✅ {len(diagram_assets)} architecture diagram(s) generated")
+            except Exception as exc:
+                # A visual is an enhancement, not a document-generation gate.
+                print(f"   ⚠ Architecture diagram omitted without blocking the SOW: {exc}")
+
     print(f"✅ Content generation completed")
     
     return {"poc_content": poc_content, "current_step": "generate"}
@@ -1343,6 +1370,13 @@ def pdf_build_node(state: AgentState) -> AgentState:
     print(f"\n🧹 Cleaning content for markdown artifacts...")
     cleaned_content = {}
     for section_key, content in poc_content.items():
+        if (
+            section_key == ARCHITECTURE_ASSETS_KEY and isinstance(content, list)
+        ) or (
+            section_key == ARCHITECTURE_ASSET_KEY and isinstance(content, dict)
+        ):
+            cleaned_content[section_key] = content
+            continue
         if content:
             cleaned_content[section_key] = _clean_final_content(str(content))
         else:

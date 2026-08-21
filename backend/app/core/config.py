@@ -178,6 +178,9 @@ class Config:
             "DYNAMODB_TABLE_POC_DOCUMENTS", "agentic-poc"
         )
         self.S3_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME", "agentic-sow-files")
+        self.DRAWIO_EDITOR_URL = os.environ.get(
+            "DRAWIO_EDITOR_URL", "https://app.diagrams.net"
+        ).rstrip("/")
         
         # =====================================================================
         # SCHEMA CLEANER CONFIGURATION

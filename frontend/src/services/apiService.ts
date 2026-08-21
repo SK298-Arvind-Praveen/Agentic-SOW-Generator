@@ -705,6 +705,15 @@ class APIService {
     }
   }
 
+  /** Save XML and the current PNG export from the embedded draw.io editor. */
+  async updateArchitectureDiagram(previewId: string, drawioXml: string, imageData: string, diagramIndex = 0): Promise<any> {
+    return this.makeRequest(
+      `/api/preview/${encodeURIComponent(previewId)}/architecture-diagram`,
+      'PUT',
+      { drawio_xml: drawioXml, image_data: imageData, diagram_index: diagramIndex },
+    );
+  }
+
   /**
    * Get active in-memory previews (drafts) for a project
    */
