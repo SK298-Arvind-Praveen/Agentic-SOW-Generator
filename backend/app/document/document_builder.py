@@ -1282,12 +1282,12 @@ class DocumentBuilder:
         self._add_header_footer(content_section, metadata, mode)
         self._prepare_expanded_toc(sections, metadata)
 
-        # The benchmark places Document Control immediately after the cover,
+        # Document Version Control is front matter: immediately after the cover,
         # then the TOC, then the substantive body. Keep that ordering while
-        # retaining Document Control in the TOC and its bookmark map.
+        # retaining it in the TOC and its bookmark map when the user selects it.
         preface_position = next(
             (index for index, name in enumerate(self.toc_entries)
-             if name.casefold().startswith("document control")),
+             if name.casefold().startswith(("document control", "document version control"))),
             None,
         )
         if preface_position is not None:
@@ -1550,11 +1550,15 @@ class DocumentBuilder:
         key = self._name_to_key(section_name)
         aliases = {
             "document_control": ("document_control_and_basis",),
+            "document_version_control": ("document_control_and_basis",),
+            "objective": ("project_overview", "project_overview_objectives"),
             "purpose_and_scope_of_this_deliverable": ("project_overview",),
+            "deliverables": ("scope_at_a_glance",),
             "deliverable_scope_at_a_glance": ("scope_at_a_glance",),
             "current_state": ("current_state_and_business_context",),
             "executive_summary_and_project_overview": ("project_overview", "project_overview_objectives"),
             "detailed_scope_of_work": ("scope_of_work",),
+            "scope_of_work": ("scope_of_work",),
             "detailed_production_scope_of_work": ("scope_of_work",),
             "architecture_overview": ("architecture_diagram", "architecture_integrations"),
             "solution_architecture_aws": ("architecture_diagram", "architecture_integrations"),

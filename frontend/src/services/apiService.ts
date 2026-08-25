@@ -714,6 +714,15 @@ class APIService {
     );
   }
 
+  /** Save reviewer-authored Markdown directly into the active preview. */
+  async updatePreviewContent(previewId: string, content: Record<string, string>): Promise<any> {
+    return this.makeRequest(
+      `/api/preview/${encodeURIComponent(previewId)}/content`,
+      'PUT',
+      { content },
+    );
+  }
+
   /**
    * Get active in-memory previews (drafts) for a project
    */

@@ -29,24 +29,26 @@ class SowSectionPreferenceTests(unittest.TestCase):
         )
         self.assertEqual(parse_selected_section_ids("[]", "POC"), [])
         self.assertEqual(
-            parse_selected_section_ids('["timelines_deliverables", "aws_pricing"]', "POC"),
-            ["timelines_deliverables", "aws_pricing"],
+            parse_selected_section_ids('["aws_pricing", "timelines_deliverables"]', "POC"),
+            ["aws_pricing", "timelines_deliverables"],
         )
         self.assertEqual(
-            parse_selected_section_ids('["timeline", "pricing"]', "POC"),
-            ["timelines_deliverables", "aws_pricing"],
+            parse_selected_section_ids('["pricing", "timeline", "pricing"]', "POC"),
+            ["aws_pricing", "timelines_deliverables"],
         )
         with self.assertRaises(ValueError):
             parse_selected_section_ids('["not-a-section"]', "POC")
 
     def test_mandatory_and_optional_titles_are_classified(self):
-        for title in ("{PROJECT_TITLE}", "Table_of_contents", "Document Control"):
+        for title in ("{PROJECT_TITLE}", "Table_of_contents"):
             self.assertIsNone(section_category(title))
         expected_categories = {
+            "Document Version Control": "document_version_control",
             "About {AUTHOR_ORG_SHORT}": "about_shellkode",
             "About {COMPANY_NAME}": "about_client",
-            "Project Overview": "project_overview",
-            "Detailed Scope of Work": "scope_of_work",
+            "Objective": "project_overview",
+            "Deliverables": "scope_of_work",
+            "Scope of Work": "scope_of_work",
             "Architecture and Integrations": "architecture_diagram",
             "Customer Dependencies": "customer_dependencies",
             "Assumptions": "assumptions",
@@ -104,6 +106,43 @@ class SowSectionPreferenceTests(unittest.TestCase):
         self.assertNotIn("AWS Pricing", toc)
         self.assertNotIn("Signatories", toc)
 
+    def test_writer_uses_user_selected_order_for_toc_and_output(self):
+        backend = Path(__file__).resolve().parents[1]
+        template = (backend / "templates" / "poc_template.md").read_text(encoding="utf-8")
+        agent = POCWriterAgent.__new__(POCWriterAgent)
+        agent.config = SimpleNamespace(SOW_SECTION_WORKERS=1)
+        agent.template_type = "POC"
+        agent.template_raw = template
+        agent.global_template_contract = agent._extract_global_template_contract(template)
+        agent.sections = agent._parse_template()
+
+        def fake_generate(self, section, requirements, metadata, source_context, consistency_notes):
+            return f"Generated content for {section.name}."
+
+        agent._generate_section = MethodType(fake_generate, agent)
+        output = agent.generate_poc(
+            requirements={"_original_objective": "Deliver a CRM integration"},
+            metadata={
+                "company_name": "Example Customer",
+                "project_title": "CRM Integration",
+                "author_name": "Author",
+                "author_org": "ShellKode",
+            },
+            selected_sow_sections=[
+                "aws_pricing",
+                "project_overview",
+                "scope_of_work",
+            ],
+        )
+
+        toc = output["toc_structure"]
+        self.assertLess(toc.index("AWS Pricing"), toc.index("Objective"))
+        self.assertLess(toc.index("Current State"), toc.index("Deliverables"))
+
+        output_keys = list(output)
+        self.assertLess(output_keys.index("aws_pricing"), output_keys.index("project_overview"))
+        self.assertLess(output_keys.index("current_state_and_business_context"), output_keys.index("scope_at_a_glance"))
+
     def test_selected_about_client_cannot_collapse_to_an_empty_body(self):
         backend = Path(__file__).resolve().parents[1]
         template = (backend / "templates" / "poc_template.md").read_text(encoding="utf-8")
@@ -131,6 +170,16 @@ class SowSectionPreferenceTests(unittest.TestCase):
 
         self.assertTrue(output["about_company"].strip())
         self.assertIn("About Example Customer", output["toc_structure"])
+
+    def test_about_client_contract_requires_two_plain_paragraphs(self):
+        section = SimpleNamespace(name="About {COMPANY_NAME}")
+        valid = "Axis Securities operates in financial services.\n\nIts confirmed project context concerns customer service modernisation."
+        self.assertEqual(POCWriterAgent._authoring_issues(valid, section), [])
+
+        invalid = "### Company Profile\n- Financial services organisation"
+        issues = POCWriterAgent._authoring_issues(invalid, section)
+        self.assertTrue(any("exactly two brief paragraphs" in issue for issue in issues))
+        self.assertTrue(any("must not contain subsections" in issue for issue in issues))
 
 
 if __name__ == "__main__":

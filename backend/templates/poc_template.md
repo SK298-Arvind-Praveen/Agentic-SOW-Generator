@@ -30,9 +30,9 @@ Sparse input is expected. Expand it into a professional SOW by decomposing state
 
 - Use British Indian English throughout, not US spelling. Prefer `organisation`, `organise`, `centralised`, `analyse`, `behaviour`, `colour`, `programme`, `licence` (noun), and `fulfilment`. Preserve official product names, API fields, quoted source text, and identifiers exactly as supplied.
 - Use the same project name, customer name, module names, requirement IDs, actors, integrations, AWS services, environments, quantities, and status labels everywhere.
-- Establish one module/workstream taxonomy in Scope at a Glance and reuse it in Detailed Scope, Architecture, Open Clarifications, Out of Scope, Assumptions, Success Criteria, Pricing inputs, and Team Effort.
+- Establish one module/workstream taxonomy in Deliverables and reuse it in Scope of Work, Architecture, Open Clarifications, Out of Scope, Assumptions, Success Criteria, Pricing inputs, and Team Effort.
 - Preserve supplied requirement identifiers. When IDs are absent, create stable IDs using short module prefixes such as `EM-01`, `KB-01`, or `WF-01`; never renumber them differently in another section.
-- Do not contradict inclusion boundaries. A baseline capability included in Detailed Scope must not be excluded in Out of Scope; distinguish a limited included capability from an advanced deferred capability.
+- Do not contradict inclusion boundaries. A baseline capability included in Scope of Work must not be excluded in Out of Scope; distinguish a limited included capability from an advanced deferred capability.
 - Do not invent a week-by-week schedule or committed duration. Sequence may be proposed as dependency logic, but dates and durations remain open unless supplied.
 - Do not invent prices, calculator links, funding status, resource commitments, data volumes, concurrency, SLAs, accuracy thresholds, availability, recovery objectives, or achieved outcomes.
 
@@ -104,11 +104,11 @@ Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
 [META_STATIC_TABLE]
 ## Table_of_contents
 
-Document Control
-1. Purpose and Scope of This Deliverable
-2. Deliverable Scope at a Glance
+Document Version Control
+1. Objective
+2. Deliverables
 3. Current State
-4. Detailed Scope of Work
+4. Scope of Work
 5. Solution Architecture — AWS
 6. Open Clarifications
 7. Out of Scope
@@ -120,7 +120,7 @@ Document Control
 Acceptance and Signatories to Statement of Work
 
 [META_GENERATED]
-## Document Control
+## Document Version Control
 
 PURPOSE
 Create the concise provenance and revision baseline that appears immediately after the cover in the reference SOW.
@@ -166,13 +166,14 @@ the selected scope.
 [META_GENERATED]
 ## About {COMPANY_NAME}
 
-Write a concise, source-grounded client profile covering the business context relevant to this
-engagement. Do not invent industry position, scale, revenue, locations, products, regulations, or
-achievements. When the source provides limited client information, explicitly keep the profile to
-the known project context.
+Write exactly two brief, source-grounded prose paragraphs about {COMPANY_NAME}. Cover only the
+company background and business context relevant to this engagement. Do not use subsections,
+bullets, numbered lists, or tables. Do not invent industry position, scale, revenue, locations,
+products, regulations, or achievements. When source information is limited, keep both paragraphs
+to the confirmed project context and say no more than the evidence supports.
 
 [META_GENERATED]
-## 1. Purpose and Scope of This Deliverable
+## 1. Objective
 
 PURPOSE
 Translate the customer's stated need into the decision and implementation baseline governed by this SOW.
@@ -208,7 +209,7 @@ BOUNDARIES
 - Do not state committed dates, costs, or acceptance thresholds unless supplied.
 
 [META_TABLE]
-## 2. Deliverable Scope at a Glance
+## 2. Deliverables
 
 PURPOSE
 Provide the benchmark-style orientation view of the complete in-scope solution and its dependency order.
@@ -278,7 +279,7 @@ RULES
 - Do not add a new top-level heading.
 
 [META_GENERATED]
-## 4. Detailed Scope of Work
+## 4. Scope of Work
 
 PURPOSE
 Produce the implementation-grade heart of the SOW. This section should carry most of the document's functional detail and should be materially more detailed than every other generated section.
@@ -487,7 +488,7 @@ CONDITIONAL COVERAGE
 
 RULES
 
-- Do not exclude a capability included in Detailed Scope.
+- Do not exclude a capability included in Scope of Work.
 - Do not use broad exclusions that nullify the POC objective.
 - Do not add contractual change-control language or legal boilerplate.
 - Do not exclude testing needed to demonstrate the POC's Success Criteria.
@@ -569,7 +570,7 @@ REQUIRED OUTPUT
 
 - Begin directly with seven to twelve concise bullets for a multi-module POC; use five to eight for a genuinely simple POC.
 - Each bullet must contain: the capability/outcome, validation method/evidence, and any confirmed threshold.
-- Use the same module names and requirement terminology as Detailed Scope.
+- Use the same module names and requirement terminology as Scope of Work.
 - Collectively cover:
   - end-to-end workflow completion;
   - data ingestion/migration/reconciliation where relevant;

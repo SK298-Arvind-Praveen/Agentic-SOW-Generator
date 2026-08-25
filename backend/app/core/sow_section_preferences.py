@@ -8,6 +8,7 @@ from typing import Any, Iterable, List, Optional, Set
 
 
 OPTIONAL_SECTION_IDS = (
+    "document_version_control",
     "about_shellkode",
     "about_client",
     "project_overview",
@@ -29,9 +30,10 @@ OPTIONAL_SECTION_IDS = (
 )
 
 SECTION_LABELS = {
+    "document_version_control": "Document Version Control",
     "about_shellkode": "About Shellkode",
     "about_client": "About Client",
-    "project_overview": "Project Overview",
+    "project_overview": "Objective",
     "scope_of_work": "Scope of Work",
     "architecture_diagram": "Architecture Diagram",
     "customer_dependencies": "Customer Dependencies",
@@ -95,8 +97,18 @@ def parse_selected_section_ids(raw_value: Any, mode: str) -> List[str]:
     unknown = sorted(set(value) - set(OPTIONAL_SECTION_IDS) - set(LEGACY_ID_ALIASES))
     if unknown:
         raise ValueError(f"Unknown SOW section option(s): {', '.join(unknown)}")
-    requested = {LEGACY_ID_ALIASES.get(item, item) for item in value}
-    return [item for item in OPTIONAL_SECTION_IDS if item in requested and item in available]
+    # Preserve the user's drag-and-drop order.  The previous set-based
+    # normalisation silently restored the template's canonical order before the
+    # request reached the writer.  Canonicalise legacy IDs and de-duplicate
+    # stably instead.
+    selected: List[str] = []
+    seen: Set[str] = set()
+    for item in value:
+        canonical = LEGACY_ID_ALIASES.get(item, item)
+        if canonical in available and canonical not in seen:
+            selected.append(canonical)
+            seen.add(canonical)
+    return selected
 
 
 def _normalise_title(title: str) -> str:
@@ -113,8 +125,8 @@ def section_category(title: str) -> Optional[str]:
 
     if "{PROJECT_TITLE}" in raw or normalised in {"table of contents", "table_of_contents"}:
         return None
-    if normalised.startswith("document control"):
-        return None
+    if normalised.startswith("document control") or normalised.startswith("document version control"):
+        return "document_version_control"
     if "acceptance and signator" in normalised:
         return "acceptance_signatories"
     if "about author organisation" in normalised:
@@ -122,6 +134,7 @@ def section_category(title: str) -> Optional[str]:
     if "about customer" in normalised:
         return "about_client"
     if normalised.startswith("project overview") or normalised in {
+        "objective",
         "purpose and scope of this deliverable",
         "executive summary and project overview",
         "current state",
@@ -130,7 +143,7 @@ def section_category(title: str) -> Optional[str]:
         "production gap assessment",
     }:
         return "project_overview"
-    if normalised in {"deliverable scope at a glance", "scope at a glance"}:
+    if normalised in {"deliverables", "deliverable scope at a glance", "scope at a glance"}:
         return "scope_of_work"
     if "project team effort" in normalised:
         return "project_team_effort"
@@ -159,7 +172,7 @@ def section_category(title: str) -> Optional[str]:
         return "customer_dependencies"
     if normalised.startswith("assumption") or ("risk" in normalised and "mitigation" in normalised):
         return "assumptions"
-    if "detailed" in normalised and "scope" in normalised:
+    if normalised == "scope of work" or ("detailed" in normalised and "scope" in normalised):
         return "scope_of_work"
     if "architecture" in normalised or "technical specifications" in normalised:
         return "architecture_diagram"

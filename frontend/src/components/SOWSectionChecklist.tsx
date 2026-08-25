@@ -13,9 +13,10 @@ type SectionOption = {
 const ALL_MODES: GeneratorMode[] = ['poc', 'production', 'poc-to-production'];
 
 export const SOW_SECTION_OPTIONS: SectionOption[] = [
+  { id: 'document_version_control', label: 'Document Version Control', modes: ALL_MODES },
   { id: 'about_shellkode', label: 'About Shellkode', modes: ALL_MODES },
   { id: 'about_client', label: 'About Client', modes: ALL_MODES },
-  { id: 'project_overview', label: 'Project Overview', modes: ALL_MODES },
+  { id: 'project_overview', label: 'Objective', modes: ALL_MODES },
   { id: 'scope_of_work', label: 'Scope of Work', modes: ALL_MODES },
   { id: 'architecture_diagram', label: 'Architecture Diagram', modes: ALL_MODES },
   { id: 'customer_dependencies', label: 'Customer Dependencies', modes: ALL_MODES },
@@ -54,7 +55,7 @@ const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selecte
   const availableIds = availableOptions.map(option => option.id);
   const selectedSet = new Set(selected);
 
-  // The user's exact chosen order — selected items filtered to what's valid for
+  // The user's exact selected order — selected items filtered to what's valid for
   // this mode, in the order the user arranged them (never re-sorted to master order).
   const orderedSelected = selected.filter(id => availableIds.includes(id));
 
@@ -70,7 +71,7 @@ const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selecte
     onChange([...orderedSelected, sectionId]);
   };
 
-  const clearChosen = () => onChange([]);
+  const clearSelected = () => onChange([]);
 
   const removeFromOrder = (sectionId: string) => {
     onChange(orderedSelected.filter(id => id !== sectionId));
@@ -140,11 +141,11 @@ const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selecte
       <div className="checklist-heading-row">
         <div>
           <div id="sow-section-checklist-title" className="field-label">Customise SOW sections</div>
-          <p className="checklist-help">Drag a section from Available into Chosen to include it (or click its checkbox). Drag within Chosen to set the exact order sections will appear in the generated SOW.</p>
+          <p className="checklist-help">Click or drag a section from Available into Selected to include it in your SOW, and feel free to rearrange it as needed.</p>
         </div>
         <div className="checklist-actions" aria-label="Section selection actions">
-          <span className="checklist-count">{orderedSelected.length} chosen</span>
-          <button type="button" onClick={clearChosen} disabled={orderedSelected.length === 0}>Clear chosen</button>
+          <span className="checklist-count">{orderedSelected.length} selected</span>
+          <button type="button" onClick={clearSelected} disabled={orderedSelected.length === 0}>Clear selected</button>
         </div>
       </div>
 
@@ -157,32 +158,28 @@ const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selecte
             onDrop={handleAvailablePanelDrop}
           >
             {unselectedOptions.length === 0 ? (
-              <p className="order-empty-message">All sections have been added to Chosen.</p>
+              <p className="order-empty-message">All sections have been added to Selected.</p>
             ) : (
               unselectedOptions.map(option => (
-                <label
+                <button
+                  type="button"
                   className="checklist-option"
                   key={option.id}
                   draggable
+                  onClick={() => addToOrder(option.id)}
                   onDragStart={handleAvailableDragStart(option.id)}
                   onDragEnd={handleDragEnd}
                 >
-                  <input
-                    type="checkbox"
-                    checked
-                    onChange={() => addToOrder(option.id)}
-                  />
-                  <span className="custom-checkbox" aria-hidden="true">✓</span>
                   <span className="checklist-option-title">{option.label}</span>
                   <span className="drag-handle" aria-hidden="true"><GripVertical size={14} /></span>
-                </label>
+                </button>
               ))
             )}
           </div>
         </div>
 
         <div className="checklist-panel">
-          <div className="checklist-panel-title">Chosen SOW sections</div>
+          <div className="checklist-panel-title">Selected SOW sections</div>
           <div
             className={`checklist-panel-body order-list ${dragPayload ? 'drop-active' : ''}`}
             onDragOver={handleOrderPanelDragOver}

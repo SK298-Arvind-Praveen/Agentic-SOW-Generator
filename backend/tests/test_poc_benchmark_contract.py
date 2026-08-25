@@ -32,13 +32,13 @@ class PocBenchmarkContractTests(unittest.TestCase):
             [
                 "{PROJECT_TITLE}",
                 "Table_of_contents",
-                "Document Control",
+                "Document Version Control",
                 "About {AUTHOR_ORG_SHORT}",
                 "About {COMPANY_NAME}",
-                "1. Purpose and Scope of This Deliverable",
-                "2. Deliverable Scope at a Glance",
+                "1. Objective",
+                "2. Deliverables",
                 "3. Current State",
-                "4. Detailed Scope of Work",
+                "4. Scope of Work",
                 "5. Solution Architecture — AWS",
                 "6. Open Clarifications",
                 "7. Out of Scope",
@@ -110,11 +110,11 @@ class PocBenchmarkContractTests(unittest.TestCase):
 
     def test_core_sections_retain_strict_local_authoring_rules(self):
         for section_title, required_text in (
-            ("## Document Control", "REQUIRED STRUCTURE"),
-            ("## 1. Purpose and Scope of This Deliverable", "BOUNDARIES"),
-            ("## 2. Deliverable Scope at a Glance", "CONSISTENCY GATE"),
+            ("## Document Version Control", "REQUIRED STRUCTURE"),
+            ("## 1. Objective", "BOUNDARIES"),
+            ("## 2. Deliverables", "CONSISTENCY GATE"),
             ("## 3. Current State", "REQUIRED COVERAGE"),
-            ("## 4. Detailed Scope of Work", "DOCUMENT-WIDE COMPLETENESS CHECK"),
+            ("## 4. Scope of Work", "DOCUMENT-WIDE COMPLETENESS CHECK"),
             ("## 5. Solution Architecture — AWS", "ARCHITECTURE EVIDENCE RULE"),
             ("## 6. Open Clarifications", "INCLUSION RULES"),
             ("## 7. Out of Scope", "CONDITIONAL COVERAGE"),
@@ -156,9 +156,27 @@ class PocBenchmarkContractTests(unittest.TestCase):
         self.assertIn("Reference-derived visual contract", prompt)
         self.assertIn("British Indian English", prompt)
 
+        about_client = TemplateSection(
+            "About {COMPANY_NAME}",
+            "Write exactly two brief prose paragraphs.",
+            {"type": "GENERATED", "_explicit": True},
+            0,
+        )
+        about_prompt = agent._build_individual_prompt(
+            about_client,
+            {"project_overview": "Validate a workflow"},
+            {
+                "company_name": "Example Customer",
+                "company_description": "Confirmed company research context.",
+                "project_title": "Example POC",
+                "author_org": "ShellKode",
+            },
+        )
+        self.assertIn("Confirmed company research context.", about_prompt)
+
     def test_section_specific_generation_gates_reject_rudimentary_drafts(self):
         detailed_scope = TemplateSection(
-            "4. Detailed Scope of Work", "", {"type": "GENERATED"}, 0
+            "4. Scope of Work", "", {"type": "GENERATED"}, 0
         )
         issues = POCWriterAgent._authoring_issues(
             "A generic implementation will be delivered.", detailed_scope
@@ -183,7 +201,7 @@ class PocBenchmarkContractTests(unittest.TestCase):
 
     def test_workflow_density_and_team_effort_key_are_enforced(self):
         detailed_scope = TemplateSection(
-            "4. Detailed Scope of Work", "", {"type": "GENERATED"}, 0
+            "4. Scope of Work", "", {"type": "GENERATED"}, 0
         )
         modules = "\n\n".join(
             f"### 4.{index} Module {index}\n#### 4.{index}.1 Workflow\n" +

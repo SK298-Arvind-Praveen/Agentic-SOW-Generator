@@ -110,7 +110,7 @@
   background: rgba(2, 173, 239, 0.04);
 }
 
-/* ── Available sections list (left panel) — check or drag to add ── */
+/* ── Available sections list (left panel) — click or drag to add ── */
 .checklist-option {
   position: relative;
   display: flex;
@@ -120,8 +120,12 @@
   min-width: 0;
   min-height: 34px;
   padding: 7px 8px;
+  color: inherit;
+  background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
+  font-family: inherit;
+  text-align: left;
   cursor: grab;
   transition: all var(--transition-base);
 }
@@ -133,29 +137,7 @@
   border-color: var(--border-subtle);
 }
 
-.checklist-option input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-
-.custom-checkbox {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 15px;
-  width: 15px;
-  height: 15px;
-  color: #fff;
-  font-size: 9px;
-  line-height: 1;
-  background: var(--gradient-brand);
-  border: 1px solid transparent;
-  border-radius: 4px;
-}
-
-.checklist-option:focus-within {
+.checklist-option:focus-visible {
   outline: 2px solid rgba(2, 173, 239, 0.35);
   outline-offset: 1px;
 }

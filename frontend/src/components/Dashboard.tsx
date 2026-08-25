@@ -942,13 +942,6 @@ const Dashboard: React.FC = () => {
           <div className="header-left">
             <div className="header-title-section">
               <h1>SOW Creation System</h1>
-              <div className="header-breadcrumb">
-                <span className="breadcrumb-item">Dashboard</span>
-                <ChevronRight className="breadcrumb-separator" />
-                <span className="breadcrumb-item active">
-                  {selectedView === 'documents' ? 'All Documents' : sowOptions.find(s => s.id === selectedSOW)?.title}
-                </span>
-              </div>
             </div>
           </div>
 

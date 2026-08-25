@@ -210,8 +210,8 @@ class DocumentBuilderTests(unittest.TestCase):
             builder = DocumentBuilder(_Config(temp_dir))
             sections = {
                 "toc_structure": (
-                    "Document Control\n"
-                    "1. Purpose and Scope of This Deliverable\n"
+                    "Document Version Control\n"
+                    "1. Objective\n"
                     "Acceptance and Signatories to Statement of Work"
                 ),
                 "document_control_and_basis": (
@@ -242,8 +242,8 @@ class DocumentBuilderTests(unittest.TestCase):
             output = builder.build_document(sections, metadata, mode="POC")
             document = Document(output)
             body_text = [paragraph.text for paragraph in document.paragraphs]
-            self.assertLess(body_text.index("Document Control"), body_text.index("Table of Contents"))
-            self.assertLess(body_text.index("Table of Contents"), body_text.index("1. Purpose and Scope of This Deliverable"))
+            self.assertLess(body_text.index("Document Version Control"), body_text.index("Table of Contents"))
+            self.assertLess(body_text.index("Table of Contents"), body_text.index("1. Objective"))
             self.assertEqual(len(document.tables), 4)  # 1 control + 2 split wide + 1 signature table
 
             signature_table = document.tables[-1]

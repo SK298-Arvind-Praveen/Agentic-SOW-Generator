@@ -21,13 +21,13 @@ Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
 [META_STATIC_TABLE]
 ## Table_of_contents
 
-1. Document Control and Basis
+1. Document Version Control
 2. About {AUTHOR_ORG_SHORT}
 3. About {COMPANY_NAME}
-4. Executive Summary and Project Overview
+4. Objective
 5. Current State and Business Context
-6. Scope at a Glance
-7. Detailed Scope of Work
+6. Deliverables
+7. Scope of Work
 8. Technical Specifications and System Design
 9. Architecture and Integrations
 10. Data Migration and Readiness
@@ -55,7 +55,7 @@ Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
 32. Acceptance and Signatories to Statement of Work
 
 [META_GENERATED]
-## Document Control and Basis
+## Document Version Control
 
 Create a document-control table with Document, Customer, Delivery Partner, Version, Status,
 Date, Engagement Type, Planning Horizon, and Governing Source. Add Purpose and Intended Audience,
@@ -74,13 +74,14 @@ the selected scope.
 [META_GENERATED]
 ## About {COMPANY_NAME}
 
-Write a concise, source-grounded client profile covering the business context relevant to this
-engagement. Do not invent industry position, scale, revenue, locations, products, regulations, or
-achievements. When the source provides limited client information, explicitly keep the profile to
-the confirmed project context and avoid unsupported corporate claims.
+Write exactly two brief, source-grounded prose paragraphs about {COMPANY_NAME}. Cover only the
+company background and business context relevant to this engagement. Do not use subsections,
+bullets, numbered lists, or tables. Do not invent industry position, scale, revenue, locations,
+products, regulations, or achievements. When source information is limited, keep both paragraphs
+to the confirmed project context and avoid unsupported corporate claims.
 
 [META_GENERATED]
-## Executive Summary and Project Overview
+## Objective
 
 Write a decision-oriented production summary covering business problem, target operating outcome,
 solution boundary, production qualities, migration approach, principal dependencies, measurable
@@ -95,14 +96,14 @@ existing controls, and operational impact. Separate facts, inferences, and gaps.
 State Workflow, Pain Points and Root Causes, Business/Technical Drivers, and Evidence Gaps.
 
 [META_GENERATED]
-## Scope at a Glance
+## Deliverables
 
 Create a one-page orientation view: objectives; in-scope capabilities; user groups; data sources;
 integrations; target environments; proposed AWS service families; explicit exclusions; production
 quality attributes; planning duration; deployment approach; and acceptance authority.
 
 [META_GENERATED]
-## Detailed Scope of Work
+## Scope of Work
 
 Build a complete, testable work breakdown:
 ### Mobilization, Discovery and Baseline

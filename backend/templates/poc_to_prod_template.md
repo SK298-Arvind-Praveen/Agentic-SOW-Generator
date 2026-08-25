@@ -21,14 +21,14 @@ Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
 [META_STATIC_TABLE]
 ## Table_of_contents
 
-1. Document Control and Basis
+1. Document Version Control
 2. About {AUTHOR_ORG_SHORT}
 3. About {COMPANY_NAME}
-4. Executive Summary and Project Overview
+4. Objective
 5. POC Evidence and Outcomes
 6. Production Gap Assessment
-7. Scope at a Glance
-8. Detailed Production Scope of Work
+7. Deliverables
+8. Scope of Work
 9. Technical Specifications and System Design
 10. Architecture and Integrations
 11. Data Migration and Readiness
@@ -56,7 +56,7 @@ Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
 33. Acceptance and Signatories to Statement of Work
 
 [META_GENERATED]
-## Document Control and Basis
+## Document Version Control
 
 Create document control and purpose/source-basis sections. Identify the uploaded POC as evidence,
 not automatically as an approved production baseline. Define Confirmed POC Evidence, Proposed
@@ -74,13 +74,14 @@ the selected scope.
 [META_GENERATED]
 ## About {COMPANY_NAME}
 
-Write a concise, source-grounded client profile covering the business context relevant to this
-engagement. Do not invent industry position, scale, revenue, locations, products, regulations, or
-achievements. When the source provides limited client information, explicitly keep the profile to
-the confirmed project context and avoid unsupported corporate claims.
+Write exactly two brief, source-grounded prose paragraphs about {COMPANY_NAME}. Cover only the
+company background and business context relevant to this engagement. Do not use subsections,
+bullets, numbered lists, or tables. Do not invent industry position, scale, revenue, locations,
+products, regulations, or achievements. When source information is limited, keep both paragraphs
+to the confirmed project context and avoid unsupported corporate claims.
 
 [META_GENERATED]
-## Executive Summary and Project Overview
+## Objective
 
 Explain the POC-to-production decision, demonstrated capability, remaining hardening work, target
 production outcome, principal risks/dependencies, migration approach, and acceptance basis. Clearly
@@ -108,14 +109,14 @@ compliance, data, integrations, reliability/recovery, deployment, testing, obser
 documentation, governance, and commercials. Do not imply POC behavior meets production SLAs.
 
 [META_GENERATED]
-## Scope at a Glance
+## Deliverables
 
 Summarize production objectives, capabilities retained from POC, assets to reuse/refactor/replace,
 hardening work, users/data/integrations, environments, exclusions, planning horizon, cutover model,
 and acceptance. Use a compact definition table and deliverables list.
 
 [META_GENERATED]
-## Detailed Production Scope of Work
+## Scope of Work
 
 Create a production work breakdown with FR- and DEL-identified requirements/deliverables:
 baseline and gap closure; application/workflow hardening; data/AI engineering; integration;

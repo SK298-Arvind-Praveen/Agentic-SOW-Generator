@@ -208,7 +208,7 @@ class POCWriterAgent:
         metadata["company_name_short"] = self._short_name(metadata.get("company_name", ""))
         metadata.setdefault("project_title", "Project Statement of Work")
 
-        active_sections = [
+        eligible_sections = [
             section for section in self.sections
             if (
                 section_category(section.name) is None
@@ -219,6 +219,9 @@ class POCWriterAgent:
                 }
             )
         ]
+        active_sections = self._order_sections_by_preference(
+            eligible_sections, selected_preferences
+        )
         self.selected_section_preferences = selected_preferences
         self.excluded_section_preferences = excluded_section_labels(selected_preferences, mode)
         source_context = self._context_excerpt(supporting_context, rag_context)
@@ -305,8 +308,8 @@ class POCWriterAgent:
                         f"{section.name}"
                     )
 
-        # Reassemble strictly in template order; concurrent completion order must
-        # never affect the document's section order or legacy key contract.
+        # Reassemble strictly in the user's selected order; concurrent completion
+        # order must never affect the document or preview sequence.
         for index in range(1, len(active_sections) + 1):
             key, content, _ = rendered[index]
             output[key] = content
@@ -324,6 +327,33 @@ class POCWriterAgent:
         output["generation_quality_summary"] = self._quality_summary(missing, issues, req)
         print(f"✅ Assembly complete - {len(output)} sections")
         return output
+
+    @staticmethod
+    def _order_sections_by_preference(
+        sections: List[TemplateSection],
+        selected_preferences: List[str],
+    ) -> List[TemplateSection]:
+        """Keep fixed front matter first, then group body sections in UI order."""
+        front_matter: List[TemplateSection] = []
+        sections_by_category: Dict[str, List[TemplateSection]] = {
+            category: [] for category in selected_preferences
+        }
+
+        for section in sections:
+            category = section_category(section.name)
+            if category is None:
+                front_matter.append(section)
+            elif category in sections_by_category:
+                # A selectable area can span several template sections. Keep
+                # those sections together and retain their internal template
+                # order while moving the whole group to the requested position.
+                sections_by_category[category].append(section)
+
+        return front_matter + [
+            section
+            for category in selected_preferences
+            for section in sections_by_category.get(category, [])
+        ]
 
     def _section_worker_count(self, job_count: int) -> int:
         configured = getattr(self.config, "SOW_SECTION_WORKERS", 4)
@@ -370,7 +400,7 @@ class POCWriterAgent:
             title = self._replace_placeholders(section.name, metadata)
             title = re.sub(r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", title).strip()
             unnumbered_poc_title = self.template_type == "POC" and (
-                title.casefold().startswith("document control")
+                title.casefold().startswith(("document control", "document version control"))
                 or "acceptance and signator" in title.casefold()
             )
             if unnumbered_poc_title:
@@ -450,15 +480,25 @@ PREVIOUS DRAFT:
             line.casefold() for line in (content or "").splitlines()
             if re.match(r"^\s*\|.+\|\s*$", line)
         ]
-        if name.startswith("document control"):
+        if name == "about {company_name}":
+            paragraphs = [
+                paragraph.strip()
+                for paragraph in re.split(r"\n\s*\n", content or "")
+                if paragraph.strip()
+            ]
+            if len(paragraphs) != 2:
+                issues.append("About Client must contain exactly two brief paragraphs")
+            if re.search(r"(?m)^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|\|)", content or ""):
+                issues.append("About Client must not contain subsections, lists, or tables")
+        elif name.startswith(("document control", "document version control")):
             if not any(all(label in line for label in ("version", "date", "prepared by", "status", "classification")) for line in table_lines):
                 issues.append("Document Control is missing the required five-column control table")
             if "revision basis" not in normalized:
                 issues.append("Document Control is missing Revision Basis")
-        elif name.startswith("deliverable scope at a glance"):
+        elif name in {"deliverables", "deliverable scope at a glance"}:
             if not any(all(label in line for label in ("module/workstream", "core outcome", "depends on")) for line in table_lines):
                 issues.append("Scope at a Glance is missing the required module dependency table")
-        elif name.startswith("detailed scope of work"):
+        elif name in {"scope of work", "detailed scope of work"}:
             module_headings = re.findall(r"(?m)^###\s+4\.\d+\s+.+$", content or "")
             if len(module_headings) < 2:
                 issues.append("Detailed Scope needs at least two numbered module/workstream subsections")
@@ -504,8 +544,10 @@ PREVIOUS DRAFT:
         name = re.sub(
             r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", section.name
         ).casefold()
-        if name.startswith("document control"):
+        if name.startswith(("document control", "document version control")):
             return 350
+        if name == "about {company_name}":
+            return 180
         if name.startswith("about "):
             return 220
         if any(term in name for term in ("detailed scope", "technical specification")):
@@ -529,6 +571,12 @@ PREVIOUS DRAFT:
             "PROD": "production implementation",
             "POC_TO_PROD": "POC-to-production transition",
         }.get(self.template_type, self.template_type.lower())
+        company_research_context = "(not applicable to this section)"
+        if section_category(section.name) == "about_client":
+            company_research_context = (
+                metadata.get("company_description")
+                or "No separate company research was available; use only the confirmed project context."
+            )
         return f"""You are a principal solutions architect and senior commercial technical writer.
 Write the body of one section in a benchmark-quality {type_label} Statement of Work.
 
@@ -543,6 +591,9 @@ AUTHORITATIVE REQUIREMENTS BASELINE
 
 SOURCE EXCERPT (supporting evidence; may be empty)
 {supporting_context or '(none)'}
+
+CLIENT RESEARCH CONTEXT (use only when writing About Client)
+{company_research_context}
 
 DOCUMENT CONSISTENCY NOTES
 {prior_context or '(none)'}
@@ -790,11 +841,15 @@ NON-NEGOTIABLE AUTHORING STANDARD
         resolved = re.sub(r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", resolved).strip()
         mappings = {
             "document control": "document_control_and_basis",
+            "document version control": "document_control_and_basis",
+            "objective": "project_overview",
             "purpose and scope of this deliverable": "project_overview",
+            "deliverables": "scope_at_a_glance",
             "deliverable scope at a glance": "scope_at_a_glance",
             "current state": "current_state_and_business_context",
             "executive summary and project overview": "project_overview",
             "detailed scope of work": "scope_of_work",
+            "scope of work": "scope_of_work",
             "detailed production scope of work": "scope_of_work",
             "architecture & integrations": "architecture_integrations",
             "architecture and integrations": "architecture_integrations",

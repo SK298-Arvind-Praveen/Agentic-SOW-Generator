@@ -1234,11 +1234,25 @@ def generate_document():
             project_name = request.form.get('project_name', '').strip()
             objective = request.form.get('objective', '').strip()
 
-            if not all([company_name, author_name, project_name, objective]):
+            supported_source_extensions = {'.pdf', '.docx', '.doc', '.txt'}
+            has_supporting_source = any(
+                item and item.filename
+                and Path(item.filename).suffix.lower() in supported_source_extensions
+                for item in request.files.getlist('supporting_docs')
+            )
+
+            if not all([company_name, author_name, project_name]) or not (
+                objective or has_supporting_source
+            ):
                 return jsonify({
                     "success": False,
-                    "error": f"{mode} mode requires: company_name, author_name, project_name, objective"
+                    "error": (
+                        f"{mode} mode requires company_name, author_name, project_name, "
+                        "and either project scope text or a BRD/supporting document"
+                    )
                 }), 400
+            if not objective:
+                objective = "Derive the project scope and objectives from the uploaded business requirements document."
 
         document_date = request.form.get('document_date') or datetime.now().strftime("%d %B %Y")
         version = request.form.get('version', '1.0')
@@ -2148,7 +2162,8 @@ def generate_preview():
             objective = "Convert POC to Production document"
         
         else:
-            # For POC and PROD modes - validate required fields
+            # For POC and PROD modes, accept either typed scope or an uploaded
+            # BRD/supporting document as the authoritative project source.
             company_name = request.form.get('company_name', '').strip()
             author_name = request.form.get('author_name', '').strip()
             project_name = request.form.get('project_name', '').strip()
@@ -2158,12 +2173,26 @@ def generate_preview():
             for key, value in request.form.items():
                 print(f"   {key}: {value}")
             objective = request.form.get('objective', '').strip()
+
+            supported_source_extensions = {'.pdf', '.docx', '.doc', '.txt'}
+            has_supporting_source = any(
+                item and item.filename
+                and Path(item.filename).suffix.lower() in supported_source_extensions
+                for item in request.files.getlist('supporting_docs')
+            )
             
-            if not all([company_name, author_name, project_name, objective]):
+            if not all([company_name, author_name, project_name]) or not (
+                objective or has_supporting_source
+            ):
                 return jsonify({
                     "success": False,
-                    "error": f"{mode} mode requires: company_name, author_name, project_name, objective"
+                    "error": (
+                        f"{mode} mode requires company_name, author_name, project_name, "
+                        "and either project scope text or a BRD/supporting document"
+                    )
                 }), 400
+            if not objective:
+                objective = "Derive the project scope and objectives from the uploaded business requirements document."
             
             # Get optional fields for POC/PROD
             document_date = request.form.get('document_date', document_date)
@@ -2639,6 +2668,91 @@ def update_preview_architecture_diagram(preview_id):
     except Exception as exc:
         print(f"❌ Architecture diagram update failed: {exc}")
         return jsonify({"success": False, "error": "Unable to save architecture diagram"}), 500
+
+
+DIRECT_MARKDOWN_EDIT_RESERVED_KEYS = {
+    "cover_page",
+    "toc_structure",
+    "table_of_contents",
+    "tableofcontents",
+    "table_contents",
+    "generation_quality_summary",
+    ARCHITECTURE_ASSET_KEY,
+    ARCHITECTURE_ASSETS_KEY,
+}
+
+
+@app.route('/api/preview/<preview_id>/content', methods=['PUT'])
+def update_preview_content(preview_id):
+    """Persist direct reviewer Markdown edits without invoking the LLM."""
+    data = request.get_json(silent=True) or {}
+    submitted = data.get("content")
+    if not isinstance(submitted, dict) or not submitted:
+        return jsonify({
+            "success": False,
+            "error": "content must be a non-empty object of section Markdown",
+        }), 400
+    if any(not isinstance(key, str) or not isinstance(value, str) for key, value in submitted.items()):
+        return jsonify({
+            "success": False,
+            "error": "Every edited section must have a string key and Markdown string value",
+        }), 400
+    if any("\x00" in value for value in submitted.values()):
+        return jsonify({"success": False, "error": "Markdown cannot contain null characters"}), 400
+
+    with preview_lock:
+        preview_data = preview_storage.get(preview_id)
+        if not preview_data:
+            return jsonify({"success": False, "error": "Preview not found"}), 404
+        if preview_data.get("status") != "ready":
+            return jsonify({"success": False, "error": "Preview is not ready"}), 409
+
+        existing = preview_data.get("content")
+        if not isinstance(existing, dict):
+            return jsonify({"success": False, "error": "Preview has no structured content"}), 409
+
+        editable_keys = {
+            key
+            for key, value in existing.items()
+            if isinstance(value, str) and key not in DIRECT_MARKDOWN_EDIT_RESERVED_KEYS
+        }
+        unknown = sorted(set(submitted) - editable_keys)
+        if unknown:
+            return jsonify({
+                "success": False,
+                "error": f"Unknown or system-managed section(s): {', '.join(unknown)}",
+            }), 400
+
+        changed_sections = [
+            key for key, value in submitted.items()
+            if existing.get(key) != value
+        ]
+        # Rebuild from the existing mapping so section insertion order and every
+        # system-managed value (including draw.io assets) remain untouched.
+        merged_content = {
+            key: submitted.get(key, value)
+            for key, value in existing.items()
+        }
+        preview_data["content"] = merged_content
+        preview_data["last_modified"] = datetime.now().isoformat()
+        if changed_sections:
+            preview_data["edit_count"] = preview_data.get("edit_count", 0) + 1
+
+        response_data = {
+            "success": True,
+            "preview_id": preview_id,
+            "status": preview_data.get("status"),
+            "progress": preview_data.get("progress", 100),
+            "current_step": "Reviewer Markdown edits saved",
+            "mode": preview_data.get("mode"),
+            "metadata": preview_data.get("metadata", {}),
+            "content": merged_content,
+            "edited_sections": changed_sections,
+            "edit_count": preview_data["edit_count"],
+            "message": "Markdown content updated successfully",
+        }
+
+    return jsonify(response_data), 200
 
 
 @app.route('/api/sections/poc', methods=['GET'])

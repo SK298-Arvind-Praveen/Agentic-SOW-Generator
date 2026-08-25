@@ -7,7 +7,17 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import apiService from '../services/apiService';
 import SOWSectionChecklist from './SOWSectionChecklist';
+import { hasProjectScopeSource, MIN_PROJECT_SCOPE_LENGTH } from './sowInputValidation';
 import DiagramEditorModal, { ArchitectureDiagramAsset } from './DiagramEditorModal';
+import {
+  EditableMarkdownSection,
+  getEffectivePreviewContent,
+  isPreviewBodyKey,
+  MarkdownRenderer,
+  parsePreviewContentMarkdown,
+  previewSectionLabel,
+  serializePreviewContent,
+} from './SOWPreviewMarkdown';
 import './SOWGenerator.css';
 
 interface SOWGeneratorData {
@@ -36,7 +46,7 @@ interface SOWGeneratorProps {
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_FILE_TYPES = ['.pdf', '.doc', '.docx', '.txt'];
-const MIN_OBJECTIVE_LENGTH = 20; // Reduced for easier testing
+const MIN_OBJECTIVE_LENGTH = MIN_PROJECT_SCOPE_LENGTH;
 
 // Helper function to determine the best company name
 const getCompanyName = (accountName?: string, projectName?: string, currentValue?: string): string => {
@@ -180,11 +190,10 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
   const [diagramEditorAsset, setDiagramEditorAsset] = useState<{asset: ArchitectureDiagramAsset; index: number} | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editData, setEditData] = useState<any>(null);
-  const [selectedSections, setSelectedSections] = useState<string[]>([]);
-  const [sectionInputs, setSectionInputs] = useState<Record<string, string>>({});
+  const [markdownDraft, setMarkdownDraft] = useState('');
+  const [editableMarkdownSections, setEditableMarkdownSections] = useState<EditableMarkdownSection[]>([]);
+  const [isSavingMarkdown, setIsSavingMarkdown] = useState(false);
   const [hasPreviewGenerated, setHasPreviewGenerated] = useState(false);
-  const [isFullReplace, setIsFullReplace] = useState(false);
-  const [availableSections, setAvailableSections] = useState<{key: string, name: string}[]>([]);
 
   // Auto-load preview from draft if coming from drafts modal
   useEffect(() => {
@@ -277,7 +286,7 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
 
 About Shellkode                                                                                    3
 About WaterTec                                                                                     3
-Project Overview / Objectives                                                                      
+Objective                                                                                          
 Scope of Work                                                                                      3
 Technical Specifications & System Design                                                           3
 Architecture & Integrations                                                                        4
@@ -303,9 +312,11 @@ About Shellkode
 Shellkode specializes in developing advanced data and AI solutions for businesses. The company builds robust data foundations that transform raw inputs into actionable intelligence, creates self-improving machine learning systems, and offers AI-driven services to modernize applications and infrastructure for cloud environments. Shellkode's expertise lies in enhancing data processing, predictive modeling, and cloud migration capabilities.
 
 About WaterTec
-WaterTec delivers innovative water management solutions focused on optimizing efficiency and sustainability for commercial and industrial applications. Their comprehensive service portfolio includes advanced filtration systems, wastewater treatment technologies, and smart monitoring capabilities, all designed to help clients reduce operational costs while maintaining compliance with environmental regulations.
+WaterTec provides water-management solutions for commercial and industrial applications.
 
-Project Overview / Objectives
+For this illustrative SOW, its relevant context is the use of filtration, treatment, and monitoring capabilities to support operational efficiency.
+
+Objective
 Content not available
 
 Scope of Work
@@ -436,8 +447,7 @@ Date                                         Date`
         companyNameValid &&
         formData.authorName.trim() !== '' &&
         formData.documentDate !== '' &&
-        formData.projectObjective.trim() !== '' &&
-        formData.projectObjective.trim().length >= MIN_OBJECTIVE_LENGTH
+        hasProjectScopeSource(formData.projectObjective, formData.uploadedFiles)
       );
     }
   }, [formData, selectedSowSections]);
@@ -714,7 +724,7 @@ Date                                         Date`
 
   const handlePreview = async () => {
     if (!isFormValid()) {
-      toast.error('Please fill in all required fields');
+      toast.error('Complete the required fields and provide project scope text or a BRD/supporting document');
       return;
     }
 
@@ -1049,7 +1059,7 @@ Date                                         Date`
     }
   };
 
-  const handleEditFromPreview = async () => {
+  const handleEditFromPreview = () => {
     const previewId = previewData?.preview_id || localStorage.getItem('lastPreviewId');
 
     if (!previewId) {
@@ -1057,68 +1067,29 @@ Date                                         Date`
       return;
     }
 
-    setShowPreviewModal(false);
+    const content = getEffectivePreviewContent(previewData);
+    if (!content || typeof content !== 'object' || Array.isArray(content)) {
+      toast.error('This preview does not contain editable document content');
+      return;
+    }
+
+    const editable = serializePreviewContent(content as Record<string, unknown>);
+    if (editable.sections.length === 0) {
+      toast.error('No editable Markdown sections were found in this preview');
+      return;
+    }
+
     setEditData(previewData);
-    setSelectedSections([]);
-    setSectionInputs({});
-    setIsFullReplace(false);
-    setAvailableSections([]);
+    setMarkdownDraft(editable.markdown);
+    setEditableMarkdownSections(editable.sections);
+    setShowPreviewModal(false);
     setShowEditModal(true);
-
-    // Call sections API based on current mode
-    let mode: 'poc' | 'prod' | 'poc_to_prod';
-    if (formData.generationMode === 'poc') {
-      mode = 'poc';
-    } else {
-      // Both 'production' and 'poc-to-production' use 'prod'
-      mode = 'prod';
-    }
-    
-    const toastId = toast.loading('Loading sections...', {
-      position: 'top-right',
-      autoClose: false,
-    });
-
-    try {
-      console.log(`Calling sections API for mode: ${mode}, previewId: ${previewId}`);
-      const sectionsResponse = await apiService.fetchSections(mode, previewId);
-      console.log('Sections API Response:', sectionsResponse);
-
-      if (sectionsResponse.success && sectionsResponse.sections) {
-        const sections = sectionsResponse.sections;
-
-        setAvailableSections(sections);
-        console.log('Available sections:', sections);
-
-        toast.update(toastId, {
-          render: 'Sections loaded successfully',
-          type: 'success',
-          isLoading: false,
-          autoClose: 2000,
-          closeButton: true,
-        });
-      } else {
-        toast.update(toastId, {
-          render: 'Sections loaded',
-          type: 'info',
-          isLoading: false,
-          autoClose: 2000,
-          closeButton: true,
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching sections:', error);
-      toast.update(toastId, {
-        render: 'Failed to load sections',
-        type: 'error',
-        isLoading: false,
-        autoClose: 3000,
-        closeButton: true,
-      });
-    }
   };
 
   const renderPreviewSection = (section: string, content: unknown) => {
+    if (!isPreviewBodyKey(section) && !section.startsWith('architecture_diagram_asset')) {
+      return null;
+    }
     const isEdited = previewData.edited_sections && previewData.edited_sections.includes(section);
     if (
       (section === 'architecture_diagram_assets' && Array.isArray(content)) ||
@@ -1156,51 +1127,17 @@ Date                                         Date`
         className={`preview-content-section ${isEdited ? 'edited-section' : ''}`}
       >
         <div className="preview-content-section-title">
-          <h4>{section.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</h4>
+          <h4>{previewSectionLabel(section)}</h4>
           {isEdited && <span className="edited-badge">Edited</span>}
         </div>
-        <p className="preview-content-section-text">{String(content)}</p>
+        <MarkdownRenderer markdown={String(content ?? '')} />
       </div>
     );
   };
 
-  const handleSectionToggle = (section: string) => {
-    setSelectedSections(prev => {
-      if (prev.includes(section)) {
-        const newSections = prev.filter(s => s !== section);
-        setSectionInputs(prevInputs => {
-          const newInputs = { ...prevInputs };
-          delete newInputs[section];
-          return newInputs;
-        });
-        return newSections;
-      } else {
-        return [...prev, section];
-      }
-    });
-  };
-
-  const handleSectionInputChange = (section: string, value: string) => {
-    setSectionInputs(prev => ({
-      ...prev,
-      [section]: value
-    }));
-  };
-
-  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>, section: string) => {
-    // Allow default paste behavior - browser will handle it
-    // This ensures bullet points, line breaks, and formatting are preserved
-  };
-
   const handleSaveEdit = async () => {
-    if (selectedSections.length === 0) {
-      toast.error('Please select at least one section to edit');
-      return;
-    }
-
-    const missingSections = selectedSections.filter(section => !sectionInputs[section]?.trim());
-    if (missingSections.length > 0) {
-      toast.error(`Please provide input for: ${missingSections.join(', ')}`);
+    if (!markdownDraft.trim()) {
+      toast.error('The Markdown document cannot be empty');
       return;
     }
 
@@ -1210,35 +1147,28 @@ Date                                         Date`
       return;
     }
 
-    const toastId = toast.loading('Saving changes...', {
+    let parsedContent: Record<string, string>;
+    try {
+      parsedContent = parsePreviewContentMarkdown(markdownDraft, editableMarkdownSections);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to read the Markdown section headings');
+      return;
+    }
+
+    const toastId = toast.loading('Saving Markdown changes...', {
       position: 'top-right',
       autoClose: false,
     });
+    setIsSavingMarkdown(true);
 
     try {
-      const combinedInput = selectedSections.map(section => {
-        return `[${section}]\n${sectionInputs[section]}`;
-      }).join('\n\n');
-
-      console.log('Calling edit API with:', {
-        previewId,
-        selectedSections,
-        userInput: combinedInput,
-        fullReplace: isFullReplace
-      });
-
-      const response = await apiService.editSOW(
-        previewId,
-        selectedSections,
-        combinedInput,
-        isFullReplace
-      );
+      const response = await apiService.updatePreviewContent(previewId, parsedContent);
 
       console.log('Save Edit Response:', response);
 
       if (response.success) {
         toast.update(toastId, {
-          render: `${selectedSections.length} section(s) updated successfully!`,
+          render: 'Markdown changes saved to the preview',
           type: 'success',
           isLoading: false,
           autoClose: 3000,
@@ -1248,19 +1178,8 @@ Date                                         Date`
         setShowEditModal(false);
         setPreviewData(response);
         setShowPreviewModal(true);
-        setSelectedSections([]);
-        setSectionInputs({});
-        
-        // Scroll to first edited section after modal opens
-        setTimeout(() => {
-          if (response.edited_sections && response.edited_sections.length > 0) {
-            const firstEditedSection = response.edited_sections[0];
-            const element = document.getElementById(`section-${firstEditedSection}`);
-            if (element) {
-              element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-          }
-        }, 300);
+        setMarkdownDraft('');
+        setEditableMarkdownSections([]);
       } else {
         toast.update(toastId, {
           render: response.error || response.message || 'Failed to save changes',
@@ -1279,10 +1198,13 @@ Date                                         Date`
         autoClose: 5000,
         closeButton: true,
       });
+    } finally {
+      setIsSavingMarkdown(false);
     }
   };
 
   const isFormComplete = isFormValid();
+  const effectivePreviewContent = getEffectivePreviewContent(previewData);
 
   return (
     <div className="sow-generator-container">
@@ -1565,17 +1487,17 @@ Date                                         Date`
                 onChange={setSelectedSowSections}
               />
               
-              {/* Project Objectives - Full Width */}
+              {/* Project scope text — either this or a supporting document is required. */}
               <div className="field-group full-width">
                 <label htmlFor="projectObjective" className="field-label">
-                  Project Objectives & Goals <span className="required">*</span>
+                  Project Scope &amp; Details
                 </label>
                 <textarea
                   id="projectObjective"
                   name="projectObjective"
                   value={formData.projectObjective}
                   onChange={handleInputChange}
-                  placeholder="Describe your project objectives, deliverables, timeline, and expected outcomes in detail..."
+                  placeholder="Describe the project scope, objectives, deliverables, constraints, and expected outcomes..."
                   className="field-textarea"
                   rows={5}
                   style={{
@@ -1587,19 +1509,23 @@ Date                                         Date`
                 />
                 <div className="textarea-info">
                   <span className="char-count">
-                    {formData.projectObjective.length} / {MIN_OBJECTIVE_LENGTH} characters (minimum)
+                    {formData.projectObjective.length} / {MIN_OBJECTIVE_LENGTH} characters when using text
                   </span>
                 </div>
               </div>
 
-              {/* Supporting Documents - Full Width Below */}
+              <div className="scope-source-divider" role="separator" aria-label="or">
+                <span>OR</span>
+              </div>
+
+              {/* BRD/supporting document — either this or scope text is required. */}
               <div className="field-group full-width" style={{ marginTop: '20px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                   <Upload className="section-icon" style={{ width: '20px', height: '20px' }} />
-                  <label className="field-label" style={{ marginBottom: 0 }}>Business Requirement & Other Supporting Documents (Optional)</label>
+                  <label className="field-label" style={{ marginBottom: 0 }}>Business Requirements Document (BRD) or Supporting Document</label>
                 </div>
                 <p style={{ fontSize: '14px', color: '#666', marginBottom: '12px', marginTop: '4px' }}>
-                  Upload additional documents for context (optional)
+                  Provide at least one source: enter project scope above or upload a document here. You may provide both.
                 </p>
                 <div
                   className={`upload-area ${dragActive ? 'drag-active' : ''}`}
@@ -1682,7 +1608,7 @@ Date                                         Date`
                 }
                 title={
                   !isFormComplete
-                    ? 'Please fill in all required fields'
+                    ? 'Complete the required fields and provide project scope text or a BRD/supporting document'
                     : isGenerating
                       ? 'Creating your professional SOW...'
                       : hasPreviewGenerated
@@ -1886,41 +1812,31 @@ Date                                         Date`
                 </>
               )}
 
-              {/* Display content if available and non-empty */}
-              {previewData.content && (
-                typeof previewData.content === 'string'
-                  ? previewData.content.length > 0
-                  : Object.keys(previewData.content).length > 0
+              {/* Display the latest preview content once, with Markdown formatting. */}
+              {effectivePreviewContent && (
+                typeof effectivePreviewContent === 'string'
+                  ? effectivePreviewContent.length > 0
+                  : Object.keys(effectivePreviewContent as object).length > 0
               ) && (
                 <>
                   <h3 className="preview-section-title">Document Sections</h3>
                   <div className="preview-content-display">
-                    {typeof previewData.content === 'string' ? (
-                      <pre className="preview-content-text">{previewData.content}</pre>
+                    {typeof effectivePreviewContent === 'string' ? (
+                      <div className="preview-content-section">
+                        <MarkdownRenderer markdown={effectivePreviewContent} />
+                      </div>
                     ) : (
                       <div className="preview-content-sections">
-                        {Object.entries(previewData.content).map(([section, content]) => renderPreviewSection(section, content))}
+                        {Object.entries(effectivePreviewContent as Record<string, unknown>)
+                          .map(([section, content]) => renderPreviewSection(section, content))}
                       </div>
                     )}
                   </div>
                 </>
               )}
 
-              {/* Display updated_content (after edits) if available and non-empty */}
-              {previewData.updated_content && Object.keys(previewData.updated_content).length > 0 && (
-                <>
-                  <h3 className="preview-section-title">Document Sections</h3>
-                  <div className="preview-content-display">
-                    <div className="preview-content-sections">
-                      {Object.entries(previewData.updated_content).map(([section, content]) => renderPreviewSection(section, content))}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* Show empty-content diagnostic if neither content block has data */}
-              {(!previewData.content || Object.keys(previewData.content || {}).length === 0) &&
-               (!previewData.updated_content || Object.keys(previewData.updated_content || {}).length === 0) &&
+              {/* Show empty-content diagnostic if the latest content block has no data. */}
+              {(!effectivePreviewContent || Object.keys(effectivePreviewContent || {}).length === 0) &&
                previewData.status === 'ready' && (
                 <div style={{ padding: '16px', background: 'var(--warning-bg)', border: '1px solid rgba(181,71,8,0.2)', borderRadius: '8px', fontSize: '13px', color: 'var(--warning)' }}>
                   Preview is ready but the generated content appears to be empty. This may indicate a template configuration issue. Try regenerating the document.
@@ -1992,176 +1908,45 @@ Date                                         Date`
         />
       )}
 
-      {/* Edit Modal — portal */}
+      {/* Direct Markdown editor — uses the generated preview content itself. */}
       {showEditModal && editData && ReactDOM.createPortal(
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
-          <div className="modal-content modal-large edit-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content modal-large markdown-edit-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Edit SOW Sections</h2>
+              <div>
+                <h2>Edit SOW Markdown</h2>
+                <p className="markdown-editor-subtitle">Edit the complete generated body in one place. The front page, table of contents, page numbers, and diagram assets remain managed automatically.</p>
+              </div>
               <button className="modal-close" onClick={() => setShowEditModal(false)}>
                 <X size={20} />
               </button>
             </div>
-            <div className="modal-body edit-body">
-              {/* Edit Mode Toggle */}
-              <div className="edit-mode-toggle-container" style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '16px',
-                background: '#f9fafb',
-                border: '1px solid #e5e7eb',
-                borderRadius: '8px',
-                marginBottom: '20px',
-                gap: '16px',
-                minHeight: '60px',
-                width: '100%'
-              }}>
-                <div className="edit-mode-info" style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '4px',
-                  flex: 1
-                }}>
-                  <label className="edit-mode-label" style={{
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: '#374151',
-                    margin: 0
-                  }}>Edit Mode:</label>
-                  <span className="edit-mode-description" style={{
-                    fontSize: '13px',
-                    color: '#6b7280',
-                    lineHeight: 1.4
-                  }}>
-                    {isFullReplace 
-                      ? 'Full Edit - Completely replace section content' 
-                      : 'Partial Edit - Make incremental changes to content'}
+            <div className="modal-body markdown-edit-body">
+              <div className="markdown-editor-notice">
+                Keep each <code>## Section Heading</code> line in place. Use <code>###</code> for any new subtopics. Markdown tables, lists, emphasis, links, and headings are rendered in the preview beside the editor.
+              </div>
+              <div className="markdown-editor-layout">
+                <div className="markdown-editor-pane">
+                  <label htmlFor="sow-markdown-editor">Markdown</label>
+                  <textarea
+                    id="sow-markdown-editor"
+                    className="markdown-document-editor"
+                    value={markdownDraft}
+                    onChange={(event) => setMarkdownDraft(event.target.value)}
+                    spellCheck
+                    aria-describedby="sow-markdown-help"
+                  />
+                  <span id="sow-markdown-help" className="markdown-editor-meta">
+                    {editableMarkdownSections.length} sections · {markdownDraft.length.toLocaleString()} characters
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    console.log('Toggle clicked! Current state:', isFullReplace);
-                    setIsFullReplace(!isFullReplace);
-                  }}
-                  className={`toggle-button ${isFullReplace ? 'active' : ''}`}
-                  aria-pressed={isFullReplace}
-                  title={isFullReplace ? 'Switch to Partial Edit' : 'Switch to Full Edit'}
-                  style={{
-                    position: 'relative',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    padding: isFullReplace ? '8px 60px 8px 16px' : '8px 16px 8px 60px',
-                    background: isFullReplace ? '#dbeafe' : '#e5e7eb',
-                    border: isFullReplace ? '2px solid #3b82f6' : '2px solid #d1d5db',
-                    borderRadius: '24px',
-                    cursor: 'pointer',
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: isFullReplace ? '#1e40af' : '#6b7280',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  <span className="toggle-slider" style={{
-                    position: 'absolute',
-                    left: isFullReplace ? 'auto' : '4px',
-                    right: isFullReplace ? '4px' : 'auto',
-                    width: '44px',
-                    height: '28px',
-                    background: isFullReplace ? '#3b82f6' : '#9ca3af',
-                    borderRadius: '20px',
-                    boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.1)'
-                  }}>
-                    <span style={{
-                      position: 'absolute',
-                      top: '2px',
-                      left: isFullReplace ? '18px' : '2px',
-                      width: '24px',
-                      height: '24px',
-                      background: 'white',
-                      borderRadius: '50%',
-                      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)'
-                    }}></span>
-                  </span>
-                  <span className="toggle-label" style={{ userSelect: 'none' }}>
-                    {isFullReplace ? 'Full Edit' : 'Partial Edit'}
-                  </span>
-                </button>
-              </div>
-
-              <div className="multi-section-selector">
-                <label className="section-label">Select Sections to Edit:</label>
-                <div className="sections-checkbox-list">
-                  {availableSections.length === 0 ? (
-                    <p style={{ color: '#6b7280', fontSize: '14px', padding: '8px 0' }}>Loading sections...</p>
-                  ) : (
-                    availableSections.map((section) => (
-                      <label key={section.key} className="section-checkbox-item">
-                        <input
-                          type="checkbox"
-                          checked={selectedSections.includes(section.key)}
-                          onChange={() => handleSectionToggle(section.key)}
-                          className="section-checkbox"
-                        />
-                        <span className="section-checkbox-label">{section.name}</span>
-                      </label>
-                    ))
-                  )}
+                <div className="markdown-editor-pane markdown-live-preview-pane">
+                  <div className="markdown-live-preview-title">Live preview</div>
+                  <div className="markdown-live-preview">
+                    <MarkdownRenderer markdown={markdownDraft} />
+                  </div>
                 </div>
               </div>
-
-              {selectedSections.length > 0 && (
-                <div className="selected-sections-inputs">
-                  {selectedSections.map((section) => (
-                    <div key={section} className="section-input-group">
-                      <div className="section-input-header">
-                        <h4 className="section-input-title">{availableSections.find(s => s.key === section)?.name || section}</h4>
-                        <button
-                          type="button"
-                          onClick={() => handleSectionToggle(section)}
-                          className="remove-section-btn"
-                          title="Remove section"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                      
-                      <div className="current-content-compact">
-                        <span className="content-label">Current:</span>
-                        <div className="content-preview">
-                          {((editData?.content || editData?.updated_content)?.[section] || '').substring(0, 100)}...
-                        </div>
-                      </div>
-
-                      <textarea
-                        value={sectionInputs[section] || ''}
-                        onChange={(e) => handleSectionInputChange(section, e.target.value)}
-                        onPaste={(e) => handlePaste(e, section)}
-                        placeholder={
-                          isFullReplace 
-                            ? `Enter complete new content for ${section}...` 
-                            : `Describe changes for ${section} (e.g., "Add another week in the timeline")...`
-                        }
-                        className="section-input-textarea"
-                        rows={4}
-                        style={{
-                          whiteSpace: 'pre-wrap',
-                          wordWrap: 'break-word',
-                          fontFamily: 'inherit'
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {selectedSections.length === 0 && (
-                <div className="no-selection-message">
-                  <p>Please select at least one section to edit</p>
-                </div>
-              )}
             </div>
             <div className="modal-footer">
               <button className="modal-btn modal-btn-secondary" onClick={() => setShowEditModal(false)}>
@@ -2170,10 +1955,10 @@ Date                                         Date`
               <button 
                 className="modal-btn modal-btn-primary" 
                 onClick={handleSaveEdit}
-                disabled={selectedSections.length === 0}
+                disabled={!markdownDraft.trim() || isSavingMarkdown}
               >
-                <Edit size={16} style={{ marginRight: '8px' }} />
-                Save {selectedSections.length > 0 && `(${selectedSections.length})`}
+                {isSavingMarkdown ? <Loader size={16} style={{ marginRight: '8px', animation: 'spin 1s linear infinite' }} /> : <Edit size={16} style={{ marginRight: '8px' }} />}
+                {isSavingMarkdown ? 'Saving...' : 'Save Markdown'}
               </button>
             </div>
           </div>
