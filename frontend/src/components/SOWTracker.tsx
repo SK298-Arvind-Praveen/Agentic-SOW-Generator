@@ -15,6 +15,7 @@ import {
 import { toast } from 'react-toastify';
 import apiService from '../services/apiService';
 import './SOWTracker.css';
+import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
 
 interface SOWRecord {
   sow_id: string;
@@ -27,6 +28,7 @@ interface SOWRecord {
   s3_url: string;
   drive_link: string;
   created_at?: string;
+  business_unit?: string;
 }
 
 interface Statistics {
@@ -39,6 +41,7 @@ interface Statistics {
 
 const SOWTracker: React.FC = () => {
   const navigate = useNavigate();
+  const { user, isAdmin } = useAuth();
   const [loading, setLoading] = useState(true);
   const [sowRecords, setSOWRecords] = useState<SOWRecord[]>([]);
   const [filteredRecords, setFilteredRecords] = useState<SOWRecord[]>([]);
@@ -53,11 +56,12 @@ const SOWTracker: React.FC = () => {
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMode, setSelectedMode] = useState<string>('all');
+  const [selectedBusinessUnit, setSelectedBusinessUnit] = useState<string>('all');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
   useEffect(() => {
     fetchSOWRecords();
-  }, []);
+  }, [selectedBusinessUnit]);
 
   useEffect(() => {
     applyFilters();
@@ -68,7 +72,9 @@ const SOWTracker: React.FC = () => {
       setLoading(true);
 
       // Fetch all SOW records from history API
-      const response = await apiService.fetchDocuments();
+      const response = await apiService.fetchDocuments({
+        businessUnit: isAdmin && selectedBusinessUnit !== 'all' ? selectedBusinessUnit : undefined,
+      });
 
       if (response.success && response.documents) {
         const records: SOWRecord[] = response.documents.map((item: any) => {
@@ -83,7 +89,8 @@ const SOWTracker: React.FC = () => {
             document_date: doc.document_date || doc.date || doc.created_at || new Date().toISOString().split('T')[0],
             s3_url: doc.s3_url || doc.download_url || '',
             drive_link: doc.drive_link || '',
-            created_at: doc.timestamp || doc.created_at
+            created_at: doc.timestamp || doc.created_at,
+            business_unit: doc.business_unit,
           };
         });
 
@@ -268,7 +275,7 @@ const SOWTracker: React.FC = () => {
       <div className="tracker-header">
         <div className="header-content">
           <h1>SOW Tracker Dashboard</h1>
-          <p>Monitor and manage all Statement of Work documents</p>
+          <p>{isAdmin ? 'Monitor and manage SOWs across all business units' : `Monitor and manage ${user?.business_unit} SOWs`}</p>
         </div>
       </div>
 
@@ -343,6 +350,18 @@ const SOWTracker: React.FC = () => {
           />
         </div>
 
+        {isAdmin && (
+          <select
+            className="search-input bu-filter-select"
+            value={selectedBusinessUnit}
+            onChange={(event) => setSelectedBusinessUnit(event.target.value)}
+            aria-label="Filter by business unit"
+          >
+            <option value="all">All Business Units</option>
+            {BUSINESS_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+          </select>
+        )}
+
         <div className="filter-buttons">
           <button
             className={`filter-btn ${selectedMode === 'all' ? 'active' : ''}`}
@@ -402,6 +421,7 @@ const SOWTracker: React.FC = () => {
                   </span>
                 </th>
                 <th>Type</th>
+                {isAdmin && <th>Business Unit</th>}
                 <th onClick={() => handleSort('date')} className="sortable-header">
                   <span className="header-content">
                     Date
@@ -429,6 +449,7 @@ const SOWTracker: React.FC = () => {
                         {getModeLabel(record.mode)}
                       </span>
                     </td>
+                    {isAdmin && <td>{record.business_unit || 'Unassigned'}</td>}
                     <td>{new Date(record.document_date).toLocaleDateString()}</td>
                     <td className="actions-column">
                       {(record.s3_url || record.drive_link) && (
@@ -445,7 +466,7 @@ const SOWTracker: React.FC = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="no-records">
+                  <td colSpan={isAdmin ? 7 : 6} className="no-records">
                     No SOW records found
                   </td>
                 </tr>

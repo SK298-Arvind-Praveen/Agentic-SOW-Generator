@@ -46,7 +46,14 @@ class S3ProxyDownloadTests(unittest.TestCase):
         }
 
         with patch.dict(os.environ, {"S3_BUCKET_NAME": "test-bucket"}, clear=False):
-            with patch.object(server, "get_s3_client", return_value=s3_client):
+            visible_handler = MagicMock()
+            visible_handler.table.scan.return_value = {
+                "Items": [{"document_id": "doc-1", "s3_url": "https://test-bucket.s3.amazonaws.com/POC/example.docx"}]
+            }
+            server.app.config["TESTING"] = True
+            with patch.object(server, "get_s3_client", return_value=s3_client), patch.object(
+                server, "DynamoDBHandler", return_value=visible_handler
+            ):
                 response = server.app.test_client().post(
                     "/api/proxy-download",
                     json={
@@ -56,6 +63,7 @@ class S3ProxyDownloadTests(unittest.TestCase):
                         )
                     },
                 )
+            server.app.config["TESTING"] = False
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, b"private document bytes")

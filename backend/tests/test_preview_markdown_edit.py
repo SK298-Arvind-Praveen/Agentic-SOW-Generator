@@ -7,6 +7,8 @@ class PreviewMarkdownEditTests(unittest.TestCase):
     preview_id = "PREVIEW_MARKDOWN_EDIT_TEST"
 
     def setUp(self):
+        self.previous_testing = server.app.config.get("TESTING", False)
+        server.app.config["TESTING"] = True
         self.client = server.app.test_client()
         with server.preview_lock:
             server.preview_storage[self.preview_id] = {
@@ -27,6 +29,7 @@ class PreviewMarkdownEditTests(unittest.TestCase):
             }
 
     def tearDown(self):
+        server.app.config["TESTING"] = self.previous_testing
         with server.preview_lock:
             server.preview_storage.pop(self.preview_id, None)
 
@@ -67,4 +70,3 @@ class PreviewMarkdownEditTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

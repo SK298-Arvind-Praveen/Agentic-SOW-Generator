@@ -59,6 +59,7 @@ export interface Document {
   version?: string;
   document_date?: string;
   docCount?: number;
+  business_unit?: string;
 }
 
 export interface DocumentsResponse {
@@ -73,6 +74,45 @@ export interface DocumentsResponse {
 }
 
 class APIService {
+  private async authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+    const token = localStorage.getItem('authToken');
+    const headers = new Headers(init.headers || {});
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const response = await globalThis.fetch(input, { ...init, headers });
+    if (response.status === 401 && !String(input).includes('/api/auth/login')) {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('authUser');
+      window.dispatchEvent(new Event('sow-auth-expired'));
+    }
+    return response;
+  }
+
+  async login(email: string, password: string): Promise<any> {
+    const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Unable to sign in');
+    return data;
+  }
+
+  async fetchSowSections(): Promise<any> {
+    return this.makeRequest('/api/sow-sections', 'GET');
+  }
+
+  async createSowSection(data: { label: string; prompt?: string; modes?: string[] }): Promise<any> {
+    return this.makeRequest('/api/sow-sections', 'POST', data);
+  }
+
+  async updateSowSection(id: string, data: { label?: string; prompt?: string; modes?: string[] }): Promise<any> {
+    return this.makeRequest(`/api/sow-sections/${encodeURIComponent(id)}`, 'PUT', data);
+  }
+
+  async deleteSowSection(id: string): Promise<any> {
+    return this.makeRequest(`/api/sow-sections/${encodeURIComponent(id)}`, 'DELETE');
+  }
   /**
    * Map internal mode values to API mode values
    */
@@ -92,10 +132,10 @@ class APIService {
   /**
    * Fetch all accounts with optional filters
    */
-  async fetchAccounts(params?: { segment?: string; priority?: string; limit?: number }): Promise<any> {
+  async fetchAccounts(params?: { segment?: string; priority?: string; limit?: number; business_unit?: string }): Promise<any> {
     try {
       const queryString = params ? '?' + new URLSearchParams(params as any).toString() : '';
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/accounts${queryString}`);
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/accounts${queryString}`);
       return await response.json();
     } catch (error) {
       console.error('Error fetching accounts:', error);
@@ -106,9 +146,10 @@ class APIService {
   /**
    * Fetch account statistics
    */
-  async fetchAccountStatistics(): Promise<any> {
+  async fetchAccountStatistics(businessUnit?: string): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/accounts/statistics`);
+      const query = businessUnit ? `?business_unit=${encodeURIComponent(businessUnit)}` : '';
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/accounts/statistics${query}`);
       return await response.json();
     } catch (error) {
       console.error('Error fetching account statistics:', error);
@@ -121,7 +162,7 @@ class APIService {
    */
   async fetchAccount(accountId: string): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/accounts/${accountId}`);
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/accounts/${accountId}`);
       return await response.json();
     } catch (error) {
       console.error('Error fetching account:', error);
@@ -132,9 +173,9 @@ class APIService {
   /**
    * Create a new account
    */
-  async createAccount(data: { account_name: string; segment: string; priority: string; description?: string }): Promise<any> {
+  async createAccount(data: { account_name: string; segment: string; priority: string; description?: string; business_unit?: string }): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/accounts`, {
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/accounts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -149,9 +190,9 @@ class APIService {
   /**
    * Update an existing account
    */
-  async updateAccount(accountId: string, data: { account_name: string; segment: string; priority: string; description?: string }): Promise<any> {
+  async updateAccount(accountId: string, data: { account_name: string; segment: string; priority: string; description?: string; business_unit?: string }): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/accounts/${accountId}`, {
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/accounts/${accountId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates: data })
@@ -172,7 +213,7 @@ class APIService {
    */
   async fetchProjectsForAccount(accountId: string): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/accounts/${accountId}/projects`);
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/accounts/${accountId}/projects`);
       return await response.json();
     } catch (error) {
       console.error('Error fetching projects:', error);
@@ -185,7 +226,7 @@ class APIService {
    */
   async fetchProject(projectId: string): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/projects/${projectId}`);
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/projects/${projectId}`);
       return await response.json();
     } catch (error) {
       console.error('Error fetching project:', error);
@@ -198,7 +239,7 @@ class APIService {
    */
   async createProject(accountId: string, data: { project_name: string; description: string }): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/accounts/${accountId}/projects`, {
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/accounts/${accountId}/projects`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -215,7 +256,7 @@ class APIService {
    */
   async deleteAccount(accountId: string): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/accounts/${accountId}`, {
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/accounts/${accountId}`, {
         method: 'DELETE'
       });
       return await response.json();
@@ -230,7 +271,7 @@ class APIService {
    */
   async deleteProject(projectId: string): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/projects/${projectId}`, {
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/projects/${projectId}`, {
         method: 'DELETE'
       });
       return await response.json();
@@ -249,7 +290,7 @@ class APIService {
    */
   async fetchSOWsForProject(projectId: string): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/projects/${projectId}/sows`);
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/projects/${projectId}/sows`);
       return await response.json();
     } catch (error) {
       console.error('Error fetching SOWs:', error);
@@ -271,7 +312,7 @@ class APIService {
     }
   ): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/projects/${projectId}/sows`, {
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/projects/${projectId}/sows`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -288,7 +329,7 @@ class APIService {
    */
   async deleteSOW(sowId: string): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/sows/${sowId}`, {
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/sows/${sowId}`, {
         method: 'DELETE'
       });
       return await response.json();
@@ -303,7 +344,7 @@ class APIService {
    */
   async fetchDraftsForProject(projectId: string): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/projects/${projectId}/drafts`);
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/projects/${projectId}/drafts`);
       return await response.json();
     } catch (error) {
       console.error('Error fetching drafts:', error);
@@ -316,7 +357,7 @@ class APIService {
    */
   async fetchDraft(projectId: string, draftId: string): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/projects/${projectId}/drafts/${draftId}`);
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/projects/${projectId}/drafts/${draftId}`);
       return await response.json();
     } catch (error) {
       console.error('Error fetching draft:', error);
@@ -329,7 +370,7 @@ class APIService {
    */
   async deleteDraft(projectId: string, draftId: string): Promise<any> {
     try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/api/projects/${projectId}/drafts/${draftId}`, {
+      const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/projects/${projectId}/drafts/${draftId}`, {
         method: 'DELETE'
       });
       return await response.json();
@@ -392,7 +433,7 @@ class APIService {
       const baseUrl = API_CONFIG.BASE_URL.replace(/\/$/, '');
 
       // Step 1: Download source POC document via proxy
-      const proxyResponse = await fetch(`${baseUrl}/api/proxy-download`, {
+      const proxyResponse = await this.authenticatedFetch(`${baseUrl}/api/proxy-download`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ s3_url: s3Url })
@@ -420,7 +461,7 @@ class APIService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.TIMEOUT);
 
-      const previewResponse = await fetch(`${baseUrl}/api/preview`, {
+      const previewResponse = await this.authenticatedFetch(`${baseUrl}/api/preview`, {
         method: 'POST',
         body: formData,
         signal: controller.signal
@@ -472,9 +513,12 @@ class APIService {
   /**
    * Fetch all documents
    */
-  async fetchDocuments(): Promise<DocumentsResponse> {
+  async fetchDocuments(params?: { businessUnit?: string }): Promise<DocumentsResponse> {
     try {
-      const response = await this.makeRequest('/api/history', 'GET');
+      const query = params?.businessUnit
+        ? `?business_unit=${encodeURIComponent(params.businessUnit)}`
+        : '';
+      const response = await this.makeRequest(`/api/history${query}`, 'GET');
       return response as DocumentsResponse;
     } catch (error) {
       return {
@@ -540,9 +584,10 @@ class APIService {
   /**
    * Fetch companies grouped data
    */
-  async fetchCompaniesGrouped(): Promise<any> {
+  async fetchCompaniesGrouped(businessUnit?: string): Promise<any> {
     try {
-      const response = await this.makeRequest('/api/companies-grouped', 'GET');
+      const query = businessUnit ? `?business_unit=${encodeURIComponent(businessUnit)}` : '';
+      const response = await this.makeRequest(`/api/companies-grouped${query}`, 'GET');
       return response;
     } catch (error) {
       return { success: false, companies: [] };
@@ -586,7 +631,8 @@ class APIService {
     supportingDocs?: File[],
     projectId?: string,
     accountId?: string,
-    selectedSowSections?: string[]
+    selectedSowSections?: string[],
+    businessUnit?: string,
   ): Promise<any> {
     const apiMode = this.mapModeToAPI(mode);
 
@@ -599,6 +645,7 @@ class APIService {
         formData.append('mode', 'poc_to_prod');
         formData.append('file', file);
         formData.append('selected_sow_sections', JSON.stringify(selectedSowSections || []));
+        if (businessUnit) formData.append('business_unit', businessUnit);
 
         // Add supporting documents if provided
         if (supportingDocs && supportingDocs.length > 0) {
@@ -611,7 +658,7 @@ class APIService {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.TIMEOUT);
 
-        const response = await fetch(`${baseUrl}/api/preview`, {
+        const response = await this.authenticatedFetch(`${baseUrl}/api/preview`, {
           method: 'POST',
           body: formData,
           signal: controller.signal
@@ -636,6 +683,7 @@ class APIService {
       formData.append('objective', objective);
       formData.append('project_name', projectName);
       formData.append('selected_sow_sections', JSON.stringify(selectedSowSections || []));
+      if (businessUnit) formData.append('business_unit', businessUnit);
 
       // Add project_id and account_id if provided (for linking to project)
       if (projectId) {
@@ -659,7 +707,7 @@ class APIService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.TIMEOUT);
 
-      const response = await fetch(`${baseUrl}/api/preview`, {
+      const response = await this.authenticatedFetch(`${baseUrl}/api/preview`, {
         method: 'POST',
         body: formData,
         signal: controller.signal
@@ -817,7 +865,7 @@ class APIService {
 
       console.log('Downloading via proxy:', proxyUrl);
 
-      const response = await fetch(proxyUrl, {
+      const response = await this.authenticatedFetch(proxyUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -867,7 +915,7 @@ class APIService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.TIMEOUT);
 
-      const response = await fetch(url, {
+      const response = await this.authenticatedFetch(url, {
         ...options,
         signal: controller.signal
       });
@@ -919,7 +967,7 @@ class APIService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.TIMEOUT);
 
-      const response = await fetch(url, {
+      const response = await this.authenticatedFetch(url, {
         ...options,
         signal: controller.signal
       });
@@ -969,7 +1017,7 @@ class APIService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-      const response = await fetch(url, {
+      const response = await this.authenticatedFetch(url, {
         ...options,
         signal: controller.signal
       });

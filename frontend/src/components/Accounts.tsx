@@ -23,6 +23,7 @@ import {
 import apiService from '../services/apiService';
 import '../styles/modern-theme.css';
 import './Accounts.css';
+import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
 
 interface Account {
   account_id: string;
@@ -35,6 +36,7 @@ interface Account {
   demo_count?: number;
   created_at: string;
   status: string;
+  business_unit?: string;
 }
 
 interface Statistics {
@@ -47,12 +49,14 @@ interface Statistics {
 
 const Accounts: React.FC = () => {
   const navigate = useNavigate();
+  const { user, isAdmin } = useAuth();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [statistics, setStatistics] = useState<Statistics | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [segmentFilter, setSegmentFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
+  const [businessUnitFilter, setBusinessUnitFilter] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -67,11 +71,12 @@ const Accounts: React.FC = () => {
     segment: 'Others',
     priority: 'P3',
     description: ''
+    ,business_unit: user?.business_unit || ''
   });
 
   useEffect(() => {
     fetchAccounts();
-  }, [segmentFilter, priorityFilter]);
+  }, [segmentFilter, priorityFilter, businessUnitFilter]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -94,10 +99,11 @@ const Accounts: React.FC = () => {
       const params: any = {};
       if (segmentFilter) params.segment = segmentFilter;
       if (priorityFilter) params.priority = priorityFilter;
+      if (isAdmin && businessUnitFilter) params.business_unit = businessUnitFilter;
 
       const [accountsRes, statsRes] = await Promise.all([
         apiService.fetchAccounts(params),
-        apiService.fetchAccountStatistics()
+        apiService.fetchAccountStatistics(isAdmin ? businessUnitFilter : undefined)
       ]);
 
       if (accountsRes.success) setAccounts(accountsRes.accounts || []);
@@ -125,7 +131,7 @@ const Accounts: React.FC = () => {
       if (response.success) {
         toast.success(`Account "${formData.account_name}" created successfully!`);
         setShowCreateModal(false);
-        setFormData({ account_name: '', segment: 'Others', priority: 'P3', description: '' });
+        setFormData({ account_name: '', segment: 'Others', priority: 'P3', description: '', business_unit: user?.business_unit || '' });
         fetchAccounts();
       } else {
         toast.error(response.error || 'Failed to create account');
@@ -149,6 +155,7 @@ const Accounts: React.FC = () => {
       segment: account.segment,
       priority: account.priority,
       description: account.description || ''
+      ,business_unit: account.business_unit || ''
     });
     setShowEditModal(true);
     setOpenMenuId(null);
@@ -171,7 +178,7 @@ const Accounts: React.FC = () => {
         toast.success(`Account "${formData.account_name}" updated successfully!`);
         setShowEditModal(false);
         setAccountToEdit(null);
-        setFormData({ account_name: '', segment: 'Others', priority: 'P3', description: '' });
+        setFormData({ account_name: '', segment: 'Others', priority: 'P3', description: '', business_unit: user?.business_unit || '' });
         fetchAccounts();
       } else {
         toast.error(response.error || 'Failed to update account');
@@ -361,6 +368,12 @@ const Accounts: React.FC = () => {
         </div>
 
         <div className="filter-controls">
+          {isAdmin && (
+            <select value={businessUnitFilter} onChange={(e) => setBusinessUnitFilter(e.target.value)} className="filter-select">
+              <option value="">All Business Units</option>
+              {BUSINESS_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+            </select>
+          )}
           <button
             className={`filter-btn ${showFilters ? 'active' : ''}`}
             onClick={() => setShowFilters(!showFilters)}
@@ -404,6 +417,7 @@ const Accounts: React.FC = () => {
           <thead>
             <tr>
               <th>Account Name</th>
+              {isAdmin && <th>Business Unit</th>}
               <th>Segment</th>
               <th>Priority</th>
               <th>Projects</th>
@@ -416,7 +430,7 @@ const Accounts: React.FC = () => {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="loading-cell">Loading accounts...</td>
+                <td colSpan={isAdmin ? 9 : 8} className="loading-cell">Loading accounts...</td>
               </tr>
             ) : getFilteredAccounts().length > 0 ? (
               getFilteredAccounts().map((account) => (
@@ -426,6 +440,7 @@ const Accounts: React.FC = () => {
                   className="account-row"
                 >
                   <td className="account-name-cell">{account.account_name}</td>
+                  {isAdmin && <td>{account.business_unit || 'Unassigned'}</td>}
                   <td>
                     <span
                       className="segment-badge"
@@ -477,7 +492,7 @@ const Accounts: React.FC = () => {
               ))
             ) : (
               <tr>
-                <td colSpan={8} className="no-data-cell">No accounts found</td>
+                <td colSpan={isAdmin ? 9 : 8} className="no-data-cell">No accounts found</td>
               </tr>
             )}
           </tbody>
@@ -510,6 +525,20 @@ const Accounts: React.FC = () => {
                 </div>
 
                 <div className="form-row">
+                  {isAdmin && (
+                    <div className="form-group">
+                      <label>Business Unit *</label>
+                      <select
+                        value={formData.business_unit}
+                        onChange={(e) => setFormData({ ...formData, business_unit: e.target.value })}
+                        className="form-select"
+                        required
+                      >
+                        <option value="">Select business unit...</option>
+                        {BUSINESS_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                      </select>
+                    </div>
+                  )}
                   <div className="form-group">
                     <label>Segment</label>
                     <select

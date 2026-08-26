@@ -26,18 +26,23 @@ const Layout: React.FC = () => {
     navigate('/login');
   };
 
+  const roleLabel = user?.role === 'ADMIN' ? 'Administrator' : `${user?.business_unit || 'BU'} Business Unit`;
+
   return (
     <div className="app-shell">
       <Sidebar />
       <div className="app-main">
         <div className="app-topbar">
+          <div className="bu-context-badge">
+            {user?.role === 'ADMIN' ? 'All Business Units' : user?.business_unit}
+          </div>
           <div className="header-profile" onClick={() => setShowUserDropdown(!showUserDropdown)}>
             <div className="profile-avatar-small">
               <User className="profile-icon-small" />
             </div>
             <div className="header-user-info">
-              <span className="header-username">{user}</span>
-              <span className="header-role">Administrator</span>
+              <span className="header-username">{user?.name}</span>
+              <span className="header-role">{roleLabel}</span>
             </div>
             <ChevronDown className="profile-dropdown-icon" />
 
@@ -48,8 +53,8 @@ const Layout: React.FC = () => {
                     <User size={20} />
                   </div>
                   <div className="dropdown-user-info">
-                    <div className="dropdown-username">{user}</div>
-                    <div className="dropdown-role">Administrator</div>
+                    <div className="dropdown-username">{user?.name}</div>
+                    <div className="dropdown-role">{roleLabel}</div>
                   </div>
                 </div>
                 <div className="dropdown-divider"></div>

@@ -19,16 +19,10 @@ const Login: React.FC = () => {
     setIsLoading(true);
     setError('');
 
-    // Simulate loading
-    setTimeout(() => {
-      const success = login(username, password);
-      if (success) {
-        navigate('/dashboard');
-      } else {
-        setError('Invalid credentials. Try admin/shellkode123');
-      }
-      setIsLoading(false);
-    }, 1000);
+    const result = await login(username, password);
+    if (result.success) navigate('/dashboard');
+    else setError(result.error || 'Invalid email or password');
+    setIsLoading(false);
   };
 
   return (
@@ -124,7 +118,8 @@ const Login: React.FC = () => {
           </form>
 
           <div className="login-footer">
-            <p className="demo-info">Demo: admin / shellkode123</p>
+            <p className="demo-info">Test password: Shellkode@123</p>
+            <p className="demo-info">Admin: admin@shellkode.com · BU example: genai@shellkode.com</p>
           </div>
         </div>
       </div>

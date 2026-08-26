@@ -5,14 +5,20 @@ same code can be used with a sandbox account or a separate AWS account.
 """
 
 import os
+import sys
 from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
+from werkzeug.security import generate_password_hash
 
 
-load_dotenv(Path(__file__).resolve().parents[1] / "config" / ".env")
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+load_dotenv(BACKEND_ROOT / "config" / ".env")
 
 
 def aws_client_kwargs():
@@ -25,11 +31,30 @@ def aws_client_kwargs():
     return kwargs
 
 
+def resource_tags():
+    """Return the organisation-required tags for resource creation requests."""
+    return [
+        {
+            "Key": "customer",
+            "Value": os.getenv("RESOURCE_TAG_CUSTOMER", "shellkode"),
+        },
+        {
+            "Key": "createdby",
+            "Value": os.getenv(
+                "RESOURCE_TAG_CREATED_BY", "arnaav.a@shellkode.com"
+            ),
+        },
+        {"Key": "Application", "Value": "SOW-Generator"},
+        {"Key": "ManagedBy", "Value": "setup_dynamodb_table.py"},
+    ]
+
+
 def table_definitions():
     """Return DynamoDB definitions for all application tables."""
     accounts_table = os.getenv("DYNAMODB_TABLE_ACCOUNTS", "agentic-sow-v2")
     documents_table = os.getenv("DYNAMODB_TABLE_POC_DOCUMENTS", "agentic-poc")
     rag_table = os.getenv("DYNAMODB_TABLE_RAG_SCHEMA", "rag-schema")
+    rbac_table = os.getenv("DYNAMODB_TABLE_RBAC", "agentic-sow-rbac")
 
     return [
         {
@@ -160,6 +185,17 @@ def table_definitions():
                 },
             ],
         },
+        {
+            "TableName": rbac_table,
+            "KeySchema": [
+                {"AttributeName": "PK", "KeyType": "HASH"},
+                {"AttributeName": "SK", "KeyType": "RANGE"},
+            ],
+            "AttributeDefinitions": [
+                {"AttributeName": "PK", "AttributeType": "S"},
+                {"AttributeName": "SK", "AttributeType": "S"},
+            ],
+        },
     ]
 
 
@@ -182,13 +218,17 @@ def create_tables():
                 raise
 
         print(f"📋 Creating DynamoDB table '{table_name}' in {region}...")
+        creation_tags = resource_tags()
+        print(
+            "   Tags: "
+            + ", ".join(
+                f"{tag['Key']}={tag['Value']}" for tag in creation_tags
+            )
+        )
         dynamodb.create_table(
             **definition,
             BillingMode="PAY_PER_REQUEST",
-            Tags=[
-                {"Key": "Application", "Value": "SOW-Generator"},
-                {"Key": "ManagedBy", "Value": "setup_dynamodb_table.py"},
-            ],
+            Tags=creation_tags,
         )
         dynamodb.get_waiter("table_exists").wait(
             TableName=table_name,
@@ -249,6 +289,33 @@ def seed_sample_data():
     print("✅ Seeded Example Account")
 
 
+def seed_rbac_data():
+    """Seed the test users and the shared administrator-managed section catalogue."""
+    from app.core.access_control import DEFAULT_SECTION_CATALOGUE, SAMPLE_PASSWORD, SAMPLE_USERS
+
+    region = os.getenv("AWS_REGION", "us-east-1")
+    table_name = os.getenv("DYNAMODB_TABLE_RBAC", "agentic-sow-rbac")
+    table = boto3.resource("dynamodb", region_name=region, **aws_client_kwargs()).Table(table_name)
+    for email, profile in SAMPLE_USERS.items():
+        table.put_item(Item={
+            "PK": f"USER#{email}",
+            "SK": "PROFILE",
+            "email": email,
+            "name": profile["name"],
+            "role": profile["role"],
+            "business_unit": profile.get("business_unit") or "",
+            "password_hash": generate_password_hash(SAMPLE_PASSWORD),
+            "status": "active",
+        })
+    table.put_item(Item={
+        "PK": "CONFIG",
+        "SK": "SOW_SECTIONS",
+        "sections": DEFAULT_SECTION_CATALOGUE,
+        "updated_by": "setup_dynamodb_table.py",
+    })
+    print(f"✅ Seeded {len(SAMPLE_USERS)} test users and the SOW section catalogue")
+
+
 def main():
     region = os.getenv("AWS_REGION", "us-east-1")
     print("=" * 70)
@@ -256,6 +323,7 @@ def main():
     print("=" * 70)
 
     create_tables()
+    seed_rbac_data()
     create_s3_bucket()
 
     response = input("Do you want to seed a sample account? (y/n): ")

@@ -33,6 +33,17 @@
   z-index: 20;
 }
 
+.bu-context-badge {
+  margin-right: auto;
+  border: 1px solid #bae6fd;
+  background: #eff8ff;
+  color: #0369a1;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .app-content {
   flex: 1;
   min-height: 0;

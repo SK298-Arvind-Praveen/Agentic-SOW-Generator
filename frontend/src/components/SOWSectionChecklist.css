@@ -243,8 +243,72 @@
   border-radius: var(--radius-full);
 }
 
+.section-catalogue-manager {
+  margin: 10px 0 14px;
+  padding: 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.catalogue-editor {
+  display: grid;
+  grid-template-columns: minmax(160px, .7fr) minmax(240px, 1.5fr) auto auto;
+  gap: 8px;
+}
+
+.catalogue-editor input {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  font: inherit;
+}
+
+.catalogue-editor button,
+.catalogue-item button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.catalogue-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.catalogue-item {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: white;
+}
+
+.catalogue-item-name {
+  flex: 1;
+  padding: 7px 9px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.catalogue-delete {
+  padding: 7px;
+  color: var(--error);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.catalogue-error { color: var(--error); margin: 8px 0 0; font-size: 12px; }
+
 @media (max-width: 900px) {
   .checklist-heading-row { flex-direction: column; }
   .checklist-actions { justify-content: flex-start; }
   .checklist-two-panel { flex-direction: column; }
+  .catalogue-editor { grid-template-columns: 1fr; }
 }

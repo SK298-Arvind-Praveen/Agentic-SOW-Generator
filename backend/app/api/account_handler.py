@@ -90,6 +90,8 @@ class AccountHandler:
         """
         account_id = str(uuid.uuid4())
         timestamp = datetime.now().isoformat()
+        metadata = metadata or {}
+        business_unit = metadata.get('business_unit')
 
         account_data = {
             'PK': f'ACCOUNT#{account_id}',
@@ -105,7 +107,8 @@ class AccountHandler:
             'created_at': timestamp,
             'updated_at': timestamp,
             'status': 'active',
-            'metadata': metadata or {}
+            'business_unit': business_unit,
+            'metadata': metadata,
         }
 
         try:
@@ -308,6 +311,9 @@ class AccountHandler:
         """
         project_id = str(uuid.uuid4())
         timestamp = datetime.now().isoformat()
+        metadata = metadata or {}
+        account = self.get_account(account_id) or {}
+        business_unit = metadata.get('business_unit') or account.get('business_unit')
 
         project_data = {
             'PK': f'ACCOUNT#{account_id}',
@@ -321,7 +327,8 @@ class AccountHandler:
             'created_at': timestamp,
             'updated_at': timestamp,
             'status': 'active',
-            'metadata': metadata or {}
+            'business_unit': business_unit,
+            'metadata': metadata,
         }
 
         # Also create a project metadata entry for direct access
@@ -609,6 +616,7 @@ class AccountHandler:
                 'project_id': project_id,
                 'account_id': account_id,
                 'linked_at': timestamp,
+                'business_unit': sow_data.get('business_unit') or project.get('business_unit'),
                 **sow_data
             }
 

@@ -79,6 +79,15 @@ def available_section_ids(mode: str) -> Set[str]:
     return set(MODE_SECTION_IDS.get((mode or "POC").upper(), OPTIONAL_SECTION_IDS))
 
 
+def section_catalogue() -> List[dict]:
+    try:
+        from app.core.access_control import RBACStore
+        return RBACStore().list_sections()
+    except Exception:
+        return [{"id": item, "label": SECTION_LABELS[item], "prompt": "", "custom": False}
+                for item in OPTIONAL_SECTION_IDS]
+
+
 def parse_selected_section_ids(raw_value: Any, mode: str) -> List[str]:
     """Parse a request value while preserving legacy all-sections behaviour."""
     available = available_section_ids(mode)
@@ -94,7 +103,12 @@ def parse_selected_section_ids(raw_value: Any, mode: str) -> List[str]:
     if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
         raise ValueError("selected_sow_sections must be an array of section identifiers")
 
-    unknown = sorted(set(value) - set(OPTIONAL_SECTION_IDS) - set(LEGACY_ID_ALIASES))
+    unknown = sorted(
+        item for item in value
+        if item not in available
+        and item not in LEGACY_ID_ALIASES
+        and not re.fullmatch(r"[a-z0-9_]{1,64}", item)
+    )
     if unknown:
         raise ValueError(f"Unknown SOW section option(s): {', '.join(unknown)}")
     # Preserve the user's drag-and-drop order.  The previous set-based
@@ -105,7 +119,7 @@ def parse_selected_section_ids(raw_value: Any, mode: str) -> List[str]:
     seen: Set[str] = set()
     for item in value:
         canonical = LEGACY_ID_ALIASES.get(item, item)
-        if canonical in available and canonical not in seen:
+        if (canonical in available or re.fullmatch(r"[a-z0-9_]{1,64}", canonical)) and canonical not in seen:
             selected.append(canonical)
             seen.add(canonical)
     return selected

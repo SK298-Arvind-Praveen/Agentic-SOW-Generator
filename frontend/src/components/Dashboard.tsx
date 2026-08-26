@@ -25,6 +25,7 @@ import 'react-datepicker/dist/react-datepicker.css';
 import apiService, { Document } from '../services/apiService';
 import './Dashboard.css';
 import './SOWGenerator.css';
+import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
 
 type SOWType = 'poc' | 'production' | 'poc-to-production';
 type ViewType = 'generate' | 'records' | 'documents';
@@ -32,6 +33,8 @@ type ViewType = 'generate' | 'records' | 'documents';
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { isAdmin } = useAuth();
+  const [businessUnitFilter, setBusinessUnitFilter] = useState('');
   const [selectedSOW, setSelectedSOW] = useState<SOWType>('poc');
   const [selectedView, setSelectedView] = useState<ViewType>('generate');
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -130,9 +133,9 @@ const Dashboard: React.FC = () => {
   // Fetch records every time the records view is opened
   useEffect(() => {
     if (selectedView === 'records') {
-      fetchAllRecords();
+      fetchAllRecords(true);
     }
-  }, [selectedView]);
+  }, [selectedView, businessUnitFilter]);
 
   // Smooth progress animation for production loader
   useEffect(() => {
@@ -190,7 +193,9 @@ const Dashboard: React.FC = () => {
     if (!force && Date.now() - recordsCachedAt.current < RECORDS_CACHE_TTL) return;
     isFetchingRecords.current = true;
     try {
-      const response = await apiService.fetchCompaniesGrouped();
+      const response = await apiService.fetchCompaniesGrouped(
+        isAdmin && businessUnitFilter ? businessUnitFilter : undefined
+      );
       if (!response?.success || !response.companies) return;
 
       const pocRecords: Document[] = [];
@@ -1014,6 +1019,20 @@ const Dashboard: React.FC = () => {
                   <p>View and manage your generated SOW documents</p>
                 </div>
                 <div className="records-header-right">
+                  {isAdmin && (
+                    <select
+                      className="records-bu-filter"
+                      value={businessUnitFilter}
+                      onChange={(event) => {
+                        recordsCachedAt.current = 0;
+                        setBusinessUnitFilter(event.target.value);
+                      }}
+                      aria-label="Filter records by business unit"
+                    >
+                      <option value="">All Business Units</option>
+                      {BUSINESS_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                    </select>
+                  )}
                   <div className="records-search-container">
                     <Search className="records-search-icon" size={14} />
                     <input
@@ -1060,13 +1079,7 @@ const Dashboard: React.FC = () => {
               
               {!selectedCompany ? (
                 // Company Cards View
-                <div className="company-cards-container" style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-                  gap: '16px',
-                  padding: '0',
-                  marginTop: '-20px'
-                }}>
+                <div className="company-cards-container">
                   {(selectedSOW === 'poc' && isLoadingRecentPOCs) || 
                    (selectedSOW === 'production' && isLoadingProductionRecords) || 
                    (selectedSOW === 'poc-to-production' && isLoadingPocToProductionRecords) ? (

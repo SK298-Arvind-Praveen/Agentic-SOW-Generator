@@ -19,6 +19,7 @@ import {
   serializePreviewContent,
 } from './SOWPreviewMarkdown';
 import './SOWGenerator.css';
+import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
 
 interface SOWGeneratorData {
   generationMode: 'poc' | 'production' | 'poc-to-production';
@@ -29,6 +30,7 @@ interface SOWGeneratorData {
   projectObjective: string;
   uploadedFiles?: File[];
   selectedSowSections?: string[];
+  businessUnit?: string;
 }
 
 interface SOWGeneratorProps {
@@ -75,6 +77,7 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
   onCancel
 }) => {
   const navigate = useNavigate();
+  const { user, isAdmin } = useAuth();
 
   // If projectId is provided, use it for project-based SOW creation
   const isProjectBased = !!projectId;
@@ -86,7 +89,8 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
     authorName: '',
     documentDate: new Date().toISOString().split('T')[0],
     projectObjective: '',
-    uploadedFiles: []
+    uploadedFiles: [],
+    businessUnit: user?.business_unit || '',
   });
   // Starts empty — the user builds up the SOW section order deliberately
   // rather than starting from an implicit "everything included" state.
@@ -433,6 +437,7 @@ Date                                         Date`
 
   const isFormValid = useCallback((): boolean => {
     if (selectedSowSections.length === 0) return false;
+    if (!formData.businessUnit) return false;
 
     if (formData.generationMode === 'poc-to-production') {
       // For poc-to-production mode, only require uploaded files
@@ -764,6 +769,7 @@ Date                                         Date`
         projectName,
         isProjectBased,
         selectedSowSections,
+        businessUnit: formData.businessUnit,
       });
 
       // Separate main file (for POC_TO_PROD) from supporting documents
@@ -795,6 +801,7 @@ Date                                         Date`
         isProjectBased ? projectId : undefined,
         isProjectBased ? accountId : undefined,
         selectedSowSections,
+        formData.businessUnit,
       );
 
       console.log('Preview API Response:', response);
@@ -1216,6 +1223,30 @@ Date                                         Date`
       </div>
 
       <div className="form-content">
+        <div className="section-group bu-assignment-section">
+          <div className="section-header">
+            <h2 className="section-title">Business Unit</h2>
+          </div>
+          <div className="field-group">
+            <label htmlFor="businessUnit" className="field-label">
+              SOW Owner <span className="required">*</span>
+            </label>
+            {isAdmin ? (
+              <select
+                id="businessUnit"
+                name="businessUnit"
+                value={formData.businessUnit || ''}
+                onChange={handleInputChange}
+                className="field-input"
+              >
+                <option value="">Select business unit...</option>
+                {BUSINESS_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+              </select>
+            ) : (
+              <input className="field-input auto-populated" value={user?.business_unit || ''} readOnly />
+            )}
+          </div>
+        </div>
         {formData.generationMode === 'poc-to-production' ? (
           // POC-to-Production mode - only show file upload
           <div className="section-group">

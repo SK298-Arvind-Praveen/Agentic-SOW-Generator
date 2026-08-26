@@ -433,7 +433,8 @@ class DynamoDBHandlerOptimized:
                 "project_name_lower": project_name_lower,
                 # Mode and version
                 "mode": mode,
-                "version": version  # ✅ VERSION FIELD
+                "version": version,  # ✅ VERSION FIELD
+                "business_unit": metadata.get("business_unit"),
             }
 
             # ✅ NEW: Add account_id and project_id if provided
@@ -473,6 +474,7 @@ class DynamoDBHandlerOptimized:
                 "document_date": document_date,
                 "mode": mode,
                 "version": version,  # ✅ Return version
+                "business_unit": metadata.get("business_unit"),
                 "deduplication": {
                     "similar_found": len(similar_docs),
                     "kept_count": keep_duplicates,
@@ -491,7 +493,7 @@ class DynamoDBHandlerOptimized:
                 "error": str(e)
             }
 
-    def get_companies_grouped(self, limit=1000):
+    def get_companies_grouped(self, limit=1000, business_unit=None):
         """
         ✅ NEW: Get all documents grouped by company with project versions
         
@@ -524,6 +526,8 @@ class DynamoDBHandlerOptimized:
                 items.extend(response.get('Items', []))
 
             print(f"   📄 Processing {len(items)} documents...")
+            if business_unit:
+                items = [item for item in items if item.get('business_unit') == business_unit]
 
             # Group by company -> project -> mode -> versions
             grouped = {}
@@ -576,8 +580,9 @@ class DynamoDBHandlerOptimized:
             traceback.print_exc()
             return {}
 
-    def get_company_documents(self, company_name: str, project_name: str = None, 
-                             mode: str = None, version: str = None, limit=100):
+    def get_company_documents(self, company_name: str, project_name: str = None,
+                             mode: str = None, version: str = None, limit=100,
+                             business_unit=None):
         """
         ✅ NEW: Get documents for a company with optional filters
         
@@ -628,6 +633,11 @@ class DynamoDBHandlerOptimized:
 
             # Apply filters
             filtered_items = items
+            if business_unit:
+                filtered_items = [
+                    item for item in filtered_items
+                    if item.get('business_unit') == business_unit
+                ]
             
             if project_name:
                 project_name_lower = project_name.lower().strip()

@@ -23,6 +23,7 @@ from app.core.sow_section_preferences import (
     SECTION_LABELS,
     excluded_section_labels,
     parse_selected_section_ids,
+    section_catalogue,
     section_category,
 )
 
@@ -82,6 +83,29 @@ class POCWriterAgent:
         self.template_raw = self._load_template()
         self.global_template_contract = self._extract_global_template_contract(self.template_raw)
         self.sections = self._parse_template()
+        for item in section_catalogue():
+            category_id = str(item.get("id") or "")
+            if not category_id:
+                continue
+            matching = [section for section in self.sections if self._section_category(section) == category_id]
+            if matching:
+                custom_instruction = str(item.get("prompt") or "").strip()
+                if custom_instruction:
+                    for section in matching:
+                        section.content = f"{section.content}\n\nAdministrator instruction: {custom_instruction}".strip()
+                continue
+            label = str(item.get("label") or category_id.replace("_", " ").title())
+            prompt = str(item.get("prompt") or f"Write a concise, source-grounded {label} section.")
+            self.sections.append(TemplateSection(
+                label,
+                prompt,
+                {"type": "GENERATED", "category_id": category_id, "_explicit": True},
+                len(self.sections),
+            ))
+
+    @staticmethod
+    def _section_category(section: TemplateSection) -> Optional[str]:
+        return section.metadata.get("category_id") or section_category(section.name)
 
     def _load_template(self) -> str:
         if self.template_type == "PROD":
@@ -211,8 +235,8 @@ class POCWriterAgent:
         eligible_sections = [
             section for section in self.sections
             if (
-                section_category(section.name) is None
-                or section_category(section.name) in selected_set
+                self._section_category(section) is None
+                or self._section_category(section) in selected_set
             ) and (
                 req.get("ui_required") or section.name not in {
                     "User Interaction Layer", "User Access & Interaction Layer", "UI Development"
@@ -328,8 +352,8 @@ class POCWriterAgent:
         print(f"✅ Assembly complete - {len(output)} sections")
         return output
 
-    @staticmethod
     def _order_sections_by_preference(
+        self,
         sections: List[TemplateSection],
         selected_preferences: List[str],
     ) -> List[TemplateSection]:
@@ -340,7 +364,7 @@ class POCWriterAgent:
         }
 
         for section in sections:
-            category = section_category(section.name)
+            category = self._section_category(section)
             if category is None:
                 front_matter.append(section)
             elif category in sections_by_category:
@@ -572,7 +596,7 @@ PREVIOUS DRAFT:
             "POC_TO_PROD": "POC-to-production transition",
         }.get(self.template_type, self.template_type.lower())
         company_research_context = "(not applicable to this section)"
-        if section_category(section.name) == "about_client":
+        if self._section_category(section) == "about_client":
             company_research_context = (
                 metadata.get("company_description")
                 or "No separate company research was available; use only the confirmed project context."

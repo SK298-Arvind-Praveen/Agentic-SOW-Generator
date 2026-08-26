@@ -1,9 +1,21 @@
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import apiService from '../services/apiService';
+
+export const BUSINESS_UNITS = ['GenAI', 'Database Management', 'Data Engineering', 'Cloud', 'MLOps'] as const;
+export type BusinessUnit = typeof BUSINESS_UNITS[number];
+
+export interface AuthUser {
+  email: string;
+  name: string;
+  role: 'ADMIN' | 'GENAI' | 'DATABASE_MANAGEMENT' | 'DATA_ENGINEERING' | 'CLOUD' | 'MLOPS';
+  business_unit: BusinessUnit | null;
+}
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  user: string | null;
-  login: (username: string, password: string) => boolean;
+  user: AuthUser | null;
+  isAdmin: boolean;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
 }
 
@@ -11,63 +23,53 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Load authentication state from localStorage on mount
-  useEffect(() => {
-    const storedAuth = localStorage.getItem('isAuthenticated');
-    const storedUser = localStorage.getItem('user');
-    
-    if (storedAuth === 'true' && storedUser) {
-      setIsAuthenticated(true);
-      setUser(storedUser);
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    try {
+      const stored = localStorage.getItem('authUser');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
     }
-    setIsLoading(false);
-  }, []);
-
-  const login = (username: string, password: string): boolean => {
-    // Simple authentication - in real app, this would be an API call
-    if (username === 'admin' && password === 'shellkode123') {
-      setIsAuthenticated(true);
-      setUser(username);
-      localStorage.setItem('isAuthenticated', 'true');
-      localStorage.setItem('user', username);
-      return true;
-    }
-    return false;
-  };
+  });
 
   const logout = () => {
-    setIsAuthenticated(false);
     setUser(null);
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('user');
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('authUser');
   };
 
-  const value = {
-    isAuthenticated,
-    user,
-    login,
-    logout,
+  useEffect(() => {
+    const expired = () => logout();
+    window.addEventListener('sow-auth-expired', expired);
+    return () => window.removeEventListener('sow-auth-expired', expired);
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    try {
+      const response = await apiService.login(email, password);
+      localStorage.setItem('authToken', response.token);
+      localStorage.setItem('authUser', JSON.stringify(response.user));
+      setUser(response.user);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unable to sign in' };
+    }
   };
 
-  // Don't render until we've checked localStorage
-  if (isLoading) {
-    return <div>Loading...</div>;
-  }
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{
+      isAuthenticated: Boolean(user && localStorage.getItem('authToken')),
+      user,
+      isAdmin: user?.role === 'ADMIN',
+      login,
+      logout,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
 };

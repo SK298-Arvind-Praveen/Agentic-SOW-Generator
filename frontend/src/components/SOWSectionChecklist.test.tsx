@@ -2,15 +2,18 @@ import React, { useState } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import SOWSectionChecklist from './SOWSectionChecklist';
+import { AuthProvider } from '../contexts/AuthContext';
 
 const Harness: React.FC<{ initial?: string[] }> = ({ initial = [] }) => {
   const [selected, setSelected] = useState(initial);
   return (
-    <SOWSectionChecklist
-      mode="poc"
-      selected={selected}
-      onChange={setSelected}
-    />
+    <AuthProvider>
+      <SOWSectionChecklist
+        mode="poc"
+        selected={selected}
+        onChange={setSelected}
+      />
+    </AuthProvider>
   );
 };
 

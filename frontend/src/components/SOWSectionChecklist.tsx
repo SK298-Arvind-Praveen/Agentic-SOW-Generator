@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { GripVertical } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { GripVertical, Plus, Settings, Trash2 } from 'lucide-react';
 import './SOWSectionChecklist.css';
+import apiService from '../services/apiService';
+import { useAuth } from '../contexts/AuthContext';
 
 export type GeneratorMode = 'poc' | 'production' | 'poc-to-production';
 
@@ -8,6 +10,8 @@ type SectionOption = {
   id: string;
   label: string;
   modes: GeneratorMode[];
+  prompt?: string;
+  custom?: boolean;
 };
 
 const ALL_MODES: GeneratorMode[] = ['poc', 'production', 'poc-to-production'];
@@ -37,9 +41,6 @@ export const SOW_SECTION_OPTIONS: SectionOption[] = [
 export const availableSowSectionIds = (mode: GeneratorMode): string[] =>
   SOW_SECTION_OPTIONS.filter(option => option.modes.includes(mode)).map(option => option.id);
 
-const labelFor = (id: string): string =>
-  SOW_SECTION_OPTIONS.find(option => option.id === id)?.label || id;
-
 interface SOWSectionChecklistProps {
   mode: GeneratorMode;
   selected: string[];
@@ -51,7 +52,26 @@ interface SOWSectionChecklistProps {
 type DragPayload = { source: 'available' | 'order'; id: string };
 
 const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selected, onChange }) => {
-  const availableOptions = SOW_SECTION_OPTIONS.filter(option => option.modes.includes(mode));
+  const { isAdmin } = useAuth();
+  const [options, setOptions] = useState<SectionOption[]>(SOW_SECTION_OPTIONS);
+  const [showManager, setShowManager] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [sectionLabel, setSectionLabel] = useState('');
+  const [sectionPrompt, setSectionPrompt] = useState('');
+  const [catalogueError, setCatalogueError] = useState('');
+
+  const loadSections = async () => {
+    try {
+      const response = await apiService.fetchSowSections();
+      if (response.success && Array.isArray(response.sections)) setOptions(response.sections);
+    } catch (error) {
+      console.warn('Using bundled SOW section catalogue:', error);
+    }
+  };
+
+  useEffect(() => { void loadSections(); }, []);
+
+  const availableOptions = options.filter(option => option.modes.includes(mode));
   const availableIds = availableOptions.map(option => option.id);
   const selectedSet = new Set(selected);
 
@@ -65,6 +85,47 @@ const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selecte
 
   const [dragPayload, setDragPayload] = useState<DragPayload | null>(null);
   const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
+  const labelFor = (id: string): string => options.find(option => option.id === id)?.label || id;
+
+  const resetEditor = () => {
+    setEditingId(null);
+    setSectionLabel('');
+    setSectionPrompt('');
+    setCatalogueError('');
+  };
+
+  const saveCatalogueSection = async () => {
+    if (!sectionLabel.trim()) return setCatalogueError('Section name is required.');
+    try {
+      if (editingId) {
+        await apiService.updateSowSection(editingId, { label: sectionLabel, prompt: sectionPrompt });
+      } else {
+        await apiService.createSowSection({ label: sectionLabel, prompt: sectionPrompt });
+      }
+      resetEditor();
+      await loadSections();
+    } catch (error) {
+      setCatalogueError(error instanceof Error ? error.message : 'Unable to save section');
+    }
+  };
+
+  const editCatalogueSection = (option: SectionOption) => {
+    setEditingId(option.id);
+    setSectionLabel(option.label);
+    setSectionPrompt(option.prompt || '');
+    setCatalogueError('');
+  };
+
+  const deleteCatalogueSection = async (option: SectionOption) => {
+    if (!window.confirm(`Delete “${option.label}” from the SOW section catalogue?`)) return;
+    try {
+      await apiService.deleteSowSection(option.id);
+      onChange(orderedSelected.filter(id => id !== option.id));
+      await loadSections();
+    } catch (error) {
+      setCatalogueError(error instanceof Error ? error.message : 'Unable to delete section');
+    }
+  };
 
   const addToOrder = (sectionId: string) => {
     if (selectedSet.has(sectionId)) return;
@@ -145,9 +206,50 @@ const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selecte
         </div>
         <div className="checklist-actions" aria-label="Section selection actions">
           <span className="checklist-count">{orderedSelected.length} selected</span>
+          {isAdmin && (
+            <button type="button" onClick={() => setShowManager(value => !value)}>
+              <Settings size={14} /> Manage sections
+            </button>
+          )}
           <button type="button" onClick={clearSelected} disabled={orderedSelected.length === 0}>Clear selected</button>
         </div>
       </div>
+
+      {isAdmin && showManager && (
+        <div className="section-catalogue-manager">
+          <div className="catalogue-editor">
+            <input
+              value={sectionLabel}
+              onChange={event => setSectionLabel(event.target.value)}
+              placeholder="Section name"
+              aria-label="Section name"
+            />
+            <input
+              value={sectionPrompt}
+              onChange={event => setSectionPrompt(event.target.value)}
+              placeholder="Generation instruction (optional)"
+              aria-label="Section generation instruction"
+            />
+            <button type="button" onClick={saveCatalogueSection}>
+              <Plus size={14} /> {editingId ? 'Save changes' : 'Add section'}
+            </button>
+            {editingId && <button type="button" onClick={resetEditor}>Cancel</button>}
+          </div>
+          {catalogueError && <p className="catalogue-error">{catalogueError}</p>}
+          <div className="catalogue-items">
+            {options.map(option => (
+              <div className="catalogue-item" key={option.id}>
+                <button type="button" className="catalogue-item-name" onClick={() => editCatalogueSection(option)}>
+                  {option.label}
+                </button>
+                <button type="button" className="catalogue-delete" onClick={() => deleteCatalogueSection(option)} aria-label={`Delete ${option.label}`}>
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="checklist-two-panel">
         <div className="checklist-panel">

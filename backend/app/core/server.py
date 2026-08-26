@@ -41,7 +41,7 @@ _backend_root = str(Path(__file__).resolve().parents[2])  # backend/
 if _backend_root not in sys.path:
     sys.path.insert(0, _backend_root)
 
-from flask import Flask, render_template, request, jsonify, send_file, Response
+from flask import Flask, render_template, request, jsonify, send_file, Response, g
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
@@ -73,6 +73,21 @@ from app.preview.preview_handler import (
 )
 from app.rag.content_editor import SmartContentEditor
 from app.api.account_handler import AccountHandler
+from app.core.access_control import (
+    BUSINESS_UNITS,
+    DEFAULT_SECTION_CATALOGUE,
+    Identity,
+    RBACStore,
+    current_identity,
+    filter_visible_items,
+    issue_token,
+    item_is_visible,
+    normalise_business_unit,
+    scoped_business_unit,
+    slugify_section_id,
+    verify_token,
+)
+from itsdangerous import BadSignature, SignatureExpired
 
 load_dotenv(Path(__file__).resolve().parents[2] / "config" / ".env")
 
@@ -108,6 +123,158 @@ UPLOAD_FOLDER = Path(os.getcwd()) / "uploads"
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB max
+
+rbac_store = RBACStore()
+
+
+@app.before_request
+def enforce_api_authentication():
+    """Authenticate every API request; authorization is enforced by each resource route."""
+    if request.method == "OPTIONS" or request.path in {"/api/auth/login", "/health"}:
+        return None
+    if not request.path.startswith("/api/"):
+        return None
+    if app.config.get("TESTING") and not request.headers.get("Authorization"):
+        g.current_identity = Identity("test-admin@shellkode.com", "Test Admin", "ADMIN")
+        return None
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Bearer "):
+        return jsonify({"success": False, "error": "Authentication required"}), 401
+    try:
+        g.current_identity = verify_token(header[7:].strip())
+    except SignatureExpired:
+        return jsonify({"success": False, "error": "Session expired"}), 401
+    except (BadSignature, KeyError, ValueError):
+        return jsonify({"success": False, "error": "Invalid session"}), 401
+    return None
+
+
+def _requested_business_unit() -> str | None:
+    value = request.args.get("business_unit")
+    if not value and request.is_json:
+        value = (request.get_json(silent=True) or {}).get("business_unit")
+    if not value:
+        value = request.form.get("business_unit")
+    return scoped_business_unit(current_identity(), value)
+
+
+def _require_admin_response():
+    if not current_identity().is_admin:
+        return jsonify({"success": False, "error": "Administrator access required"}), 403
+    return None
+
+
+@app.errorhandler(ValueError)
+def invalid_request_value(error):
+    return jsonify({"success": False, "error": str(error)}), 400
+
+
+def _business_unit_for_new_record():
+    """Resolve ownership for a new object; admins must choose a BU explicitly."""
+    business_unit = _requested_business_unit()
+    if current_identity().is_admin and not business_unit:
+        return None, (jsonify({
+            "success": False,
+            "error": "business_unit is required when an administrator creates a record",
+        }), 400)
+    return business_unit, None
+
+
+def _resource_denied(item):
+    if not item:
+        return jsonify({"success": False, "error": "Resource not found"}), 404
+    if not item_is_visible(item, current_identity(), request.args.get("business_unit")):
+        return jsonify({"success": False, "error": "You do not have access to this business unit"}), 403
+    return None
+
+
+def _preview_denied(preview_data):
+    return _resource_denied((preview_data or {}).get("metadata") if preview_data else None)
+
+
+def _visible_documents(items):
+    """Scope both persisted documents and active-task wrapper objects."""
+    requested = request.args.get("business_unit")
+    visible = []
+    for item in items or []:
+        candidate = item.get("document", item)
+        if item_is_visible(candidate, current_identity(), requested):
+            visible.append(item)
+    return visible
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def login_user():
+    data = request.get_json(silent=True) or {}
+    identity = rbac_store.authenticate(str(data.get("email", "")), str(data.get("password", "")))
+    if not identity:
+        return jsonify({"success": False, "error": "Invalid email or password"}), 401
+    return jsonify({
+        "success": True,
+        "token": issue_token(identity),
+        "user": identity.public_dict(),
+        "business_units": list(BUSINESS_UNITS),
+    })
+
+
+@app.route('/api/auth/me', methods=['GET'])
+def get_current_user():
+    return jsonify({
+        "success": True,
+        "user": current_identity().public_dict(),
+        "business_units": list(BUSINESS_UNITS),
+    })
+
+
+@app.route('/api/sow-sections', methods=['GET', 'POST'])
+def manage_sow_sections():
+    if request.method == 'GET':
+        return jsonify({"success": True, "sections": rbac_store.list_sections()})
+    denied = _require_admin_response()
+    if denied:
+        return denied
+    data = request.get_json(silent=True) or {}
+    label = str(data.get("label", "")).strip()
+    if not label:
+        return jsonify({"success": False, "error": "label is required"}), 400
+    sections = rbac_store.list_sections()
+    section_id = slugify_section_id(str(data.get("id") or label))
+    if any(item.get("id") == section_id for item in sections):
+        return jsonify({"success": False, "error": "A section with this id already exists"}), 409
+    modes = data.get("modes") or ["poc", "production", "poc-to-production"]
+    section = {
+        "id": section_id,
+        "label": label,
+        "modes": modes,
+        "prompt": str(data.get("prompt", "")).strip() or f"Write a concise, source-grounded {label} section.",
+        "custom": True,
+    }
+    sections.append(section)
+    rbac_store.save_sections(sections, current_identity().email)
+    return jsonify({"success": True, "section": section, "sections": sections}), 201
+
+
+@app.route('/api/sow-sections/<section_id>', methods=['PUT', 'DELETE'])
+def update_sow_section(section_id):
+    denied = _require_admin_response()
+    if denied:
+        return denied
+    sections = rbac_store.list_sections()
+    index = next((i for i, item in enumerate(sections) if item.get("id") == section_id), None)
+    if index is None:
+        return jsonify({"success": False, "error": "Section not found"}), 404
+    if request.method == 'DELETE':
+        sections.pop(index)
+    else:
+        data = request.get_json(silent=True) or {}
+        sections[index] = {
+            **sections[index],
+            "label": str(data.get("label", sections[index].get("label", ""))).strip(),
+            "modes": data.get("modes", sections[index].get("modes", [])),
+            "prompt": str(data.get("prompt", sections[index].get("prompt", ""))).strip(),
+        }
+    rbac_store.save_sections(sections, current_identity().email)
+    return jsonify({"success": True, "sections": sections})
 
 # Folder mapping for cloud storage
 FOLDER_MAPPING = {
@@ -286,7 +453,8 @@ def get_active_tasks_as_documents(mode_filter=None):
                         "metadata": {
                             "company_name": metadata.get('company_name', 'Unknown'),
                             "project_name": metadata.get('project_name', 'Generating...'),
-                            "author_name": metadata.get('author_name', 'Unknown')
+                        "author_name": metadata.get('author_name', 'Unknown')
+                        ,"business_unit": metadata.get('business_unit')
                         }
                     },
                     
@@ -306,6 +474,7 @@ def get_active_tasks_as_documents(mode_filter=None):
                         "s3_url": None,  # Will be populated on completion
                         "drive_link": None,  # ✅ Will be populated on completion
                         "file_size": None  # Will be populated on completion
+                        ,"business_unit": metadata.get('business_unit')
                     }
                 }
                 
@@ -898,6 +1067,7 @@ def process_document_generation(task_id, task_data):
             "timezone": "IST",
             "project_title": project_name or "To be extracted from document",
             "selected_sow_sections": task_data.get("selected_sow_sections", []),
+            "business_unit": task_data.get("business_unit"),
         }
 
         update_task(task_id, progress=10, current_step="Extracting metadata")
@@ -1084,7 +1254,8 @@ def process_document_generation(task_id, task_data):
                             "author_name": metadata["author_name"],
                             "project_name": metadata["project_title"],
                             "document_date": metadata["document_date"],
-                            "mode": mode
+                            "mode": mode,
+                            "business_unit": metadata.get("business_unit"),
                         },
                         s3_url=s3_url,
                         s3_result=s3_result,
@@ -1200,6 +1371,9 @@ def generate_document():
     
     try:
         print("\n[API] Processing FormData request...")
+        business_unit, denied = _business_unit_for_new_record()
+        if denied:
+            return denied
         mode = request.form.get('mode', '').upper()
 
         if not mode or mode not in ["POC", "PROD", "POC_TO_PROD"]:
@@ -1306,7 +1480,8 @@ def generate_document():
         task = create_task(task_id, mode, {
             "company_name": company_name,
             "project_name": project_name,
-            "author_name": author_name
+            "author_name": author_name,
+            "business_unit": business_unit,
         })
 
         # Verify task was created successfully
@@ -1332,6 +1507,7 @@ def generate_document():
             'uploaded_file_path': uploaded_file_path,
             'supporting_files': supporting_files,  # List of supporting document paths
             'selected_sow_sections': selected_sow_sections,
+            'business_unit': business_unit,
         }
 
         # Start background processing AFTER task is confirmed to exist
@@ -1400,6 +1576,9 @@ def get_task_status(task_id):
     task = get_task(task_id)
     
     if task:
+        denied = _resource_denied(task.get("metadata"))
+        if denied:
+            return denied
         # Task found in memory
         response_data = {
             "success": True,
@@ -1413,6 +1592,9 @@ def get_task_status(task_id):
                 handler = DynamoDBHandler()
                 document = handler.query_by_task_id(task_id)
                 if document:
+                    denied = _resource_denied(document)
+                    if denied:
+                        return denied
                     response_data['document'] = document
                     print(f"[DEBUG] Found document in DB for task {task_id}")
             except Exception as e:
@@ -1429,6 +1611,9 @@ def get_task_status(task_id):
         document = handler.query_by_task_id(task_id)
         
         if document:
+            denied = _resource_denied(document)
+            if denied:
+                return denied
             # Found in database - task completed and cleaned from memory
             print(f"[DEBUG] Found completed task in DynamoDB: {task_id}")
             return jsonify({
@@ -1475,6 +1660,21 @@ def proxy_download():
             return jsonify({
                 "error": "s3_url is required"
             }), 400
+
+        # The URL alone is not an authority boundary. Confirm that it belongs
+        # to a document visible to the current user before reading from S3.
+        handler = DynamoDBHandler()
+        lookup = handler.table.scan(
+            FilterExpression='s3_url = :url',
+            ExpressionAttributeValues={':url': s3_url},
+            Limit=10,
+        ).get('Items', [])
+        if document_id:
+            lookup = [item for item in lookup if item.get('document_id') == document_id]
+        if not lookup:
+            return jsonify({"success": False, "error": "Document not found"}), 404
+        if not any(item_is_visible(item, current_identity()) for item in lookup):
+            return jsonify({"success": False, "error": "You do not have access to this document"}), 403
 
         print(f"[API] Proxy downloading from S3: {s3_url}")
 
@@ -1600,6 +1800,8 @@ def get_history():
         if filter_type != 'all' and results:
             results = merge_with_active_tasks(results, mode_filter=None, limit=limit)
 
+        results = _visible_documents(results)
+
         print(f"      ✓ Found {len(results)} documents (with drive links)")
 
         return jsonify({
@@ -1642,6 +1844,7 @@ def get_recent_pocs():
         
         # ✅ MERGE WITH ACTIVE POC TASKS (returns full task structure with drive_link)
         merged_docs = merge_with_active_tasks(poc_docs, mode_filter='POC', limit=50)
+        merged_docs = _visible_documents(merged_docs)
         
         print(f"[API] Returning {len(merged_docs)} POC task objects (with drive links)")
         
@@ -1684,6 +1887,7 @@ def get_recent_prods():
         
         # ✅ MERGE WITH ACTIVE PROD TASKS (returns full task structure with drive_link)
         merged_docs = merge_with_active_tasks(prod_docs, mode_filter='PROD', limit=50)
+        merged_docs = _visible_documents(merged_docs)
         
         print(f"[API] Returning {len(merged_docs)} PROD task objects (with drive links)")
         
@@ -1726,6 +1930,7 @@ def get_recent_poc_to_prods():
         
         # ✅ MERGE WITH ACTIVE POC_TO_PROD TASKS (returns full task structure with drive_link)
         merged_docs = merge_with_active_tasks(poc_to_prod_docs, mode_filter='POC_TO_PROD', limit=50)
+        merged_docs = _visible_documents(merged_docs)
         
         print(f"[API] Returning {len(merged_docs)} POC_TO_PROD task objects (with drive links)")
         
@@ -1776,7 +1981,7 @@ def get_search_suggestions():
                 "message": "Query too short (minimum 2 characters)"
             }), 200
 
-        all_docs = handler.list_all_documents(limit=1000)
+        all_docs = _visible_documents(handler.list_all_documents(limit=1000))
 
         if not all_docs:
             return jsonify({
@@ -1872,7 +2077,10 @@ def get_companies_grouped():
         handler = DynamoDBHandler()
         
         # Get grouped data
-        companies = handler.get_companies_grouped(limit=1000)
+        companies = handler.get_companies_grouped(
+            limit=1000,
+            business_unit=_requested_business_unit(),
+        )
         
         # Calculate totals
         total_companies = len(companies)
@@ -1958,7 +2166,8 @@ def get_company_documents(company_name):
             project_name=project_name,
             mode=mode,
             version=version,
-            limit=limit
+            limit=limit,
+            business_unit=_requested_business_unit(),
         )
         
         print(f"\n✓ Found {result['total_documents']} documents for {company_name}")
@@ -2003,6 +2212,8 @@ def get_project_full_data(company_name, project_name):
         # ✅ STEP 2: Filter by project
         filtered_docs = []
         for doc in company_docs:
+            if not item_is_visible(doc, current_identity(), request.args.get("business_unit")):
+                continue
             if doc.get('project_name', '').lower().strip() != project_name_lower:
                 continue
 
@@ -2066,6 +2277,9 @@ def generate_preview():
     
     try:
         print("\n[API] POST /api/preview - Generating content preview...")
+        business_unit, denied = _business_unit_for_new_record()
+        if denied:
+            return denied
         
         mode = request.form.get('mode', '').upper()
         
@@ -2211,6 +2425,7 @@ def generate_preview():
             "timezone": "IST",
             "project_title": project_name,
             "selected_sow_sections": selected_sow_sections,
+            "business_unit": business_unit,
         }
         
         # ✅ NEW: Capture project_id and account_id if provided (for linking SOW to project later)
@@ -2556,6 +2771,9 @@ def get_preview_status_api(preview_id):
                 }), 404
             
             preview_data = preview_storage[preview_id]
+            denied = _preview_denied(preview_data)
+            if denied:
+                return denied
             status = preview_data.get("status", "initializing")
             metadata = preview_data.get("metadata", {})
             
@@ -2571,6 +2789,7 @@ def get_preview_status_api(preview_id):
                 "version": metadata.get("version", "1.0"),
                 "timezone": metadata.get("timezone", "IST"),
                 "author_org_description": metadata.get("author_org_description", "Shellkode specializes in developing advanced data and AI solutions for businesses.")
+                ,"business_unit": metadata.get("business_unit")
             }
             
             # Base response structure
@@ -2632,6 +2851,9 @@ def update_preview_architecture_diagram(preview_id):
             preview_data = preview_storage.get(preview_id)
             if not preview_data:
                 return jsonify({"success": False, "error": "Preview not found"}), 404
+            denied = _preview_denied(preview_data)
+            if denied:
+                return denied
             if preview_data.get("status") != "ready":
                 return jsonify({"success": False, "error": "Preview is not ready"}), 409
             content = preview_data.get("content")
@@ -2704,6 +2926,9 @@ def update_preview_content(preview_id):
         preview_data = preview_storage.get(preview_id)
         if not preview_data:
             return jsonify({"success": False, "error": "Preview not found"}), 404
+        denied = _preview_denied(preview_data)
+        if denied:
+            return denied
         if preview_data.get("status") != "ready":
             return jsonify({"success": False, "error": "Preview is not ready"}), 409
 
@@ -2825,6 +3050,8 @@ def get_active_previews():
             for preview_id, preview_data in preview_storage.items():
                 status = preview_data.get("status", "initializing")
                 metadata = preview_data.get("metadata", {})
+                if not item_is_visible(metadata, current_identity(), request.args.get("business_unit")):
+                    continue
 
                 # Filter by project_id if provided
                 if project_id and metadata.get("project_id") != project_id:
@@ -2848,6 +3075,7 @@ def get_active_previews():
                             "author_name": metadata.get("author_name", "Unknown"),
                             "project_id": metadata.get("project_id"),
                             "account_id": metadata.get("account_id"),
+                            "business_unit": metadata.get("business_unit"),
                         },
                         "created_at": preview_data.get("created_at", datetime.now().isoformat()),
                     }
@@ -2882,6 +3110,9 @@ def get_preview_storage_stats():
     API: Get preview storage statistics and health - UPDATED for finalize-only cleanup
     """
     try:
+        denied = _require_admin_response()
+        if denied:
+            return denied
         from app.preview.preview_config import PreviewConfig
         from app.preview.preview_handler import get_preview_stats
 
@@ -3008,6 +3239,10 @@ def edit_preview():
                 "success": False,
                 "error": f"Preview not found: {preview_id}. It may have expired."
             }), 404
+
+        denied = _preview_denied(preview_data)
+        if denied:
+            return denied
         
         print(f"   ✅ Preview data retrieved successfully")
         print(f"      Status: {preview_data.get('status', 'unknown')}")
@@ -3218,6 +3453,10 @@ def finalize_document():
         # ✅ IDEMPOTENCY CHECK: If task already exists and is completed, return cached result
         task_id = preview_id
         existing_task = get_task(task_id)
+        if existing_task:
+            denied = _resource_denied(existing_task.get("metadata"))
+            if denied:
+                return denied
         
         if existing_task and existing_task.get('status') == TaskStatus.COMPLETED:
             print(f"   ⚡ Task already completed, returning cached result")
@@ -3269,6 +3508,10 @@ def finalize_document():
                 "success": False,
                 "error": f"Preview not found: {preview_id}. It may have expired."
             }), 404
+
+        denied = _preview_denied(preview_data)
+        if denied:
+            return denied
         
         mode = preview_data.get("mode")
         metadata = preview_data.get("metadata")
@@ -3285,6 +3528,7 @@ def finalize_document():
                 "company_name": metadata.get("company_name"),
                 "project_name": metadata.get("project_title"),
                 "author_name": metadata.get("author_name")
+                ,"business_unit": metadata.get("business_unit")
             })
         
         update_task(task_id, status=TaskStatus.PROCESSING, progress=10, current_step="Building document")
@@ -3370,7 +3614,8 @@ def finalize_document():
                         "author_name": metadata["author_name"],
                         "project_name": metadata["project_title"],
                         "document_date": metadata["document_date"],
-                        "mode": mode
+                        "mode": mode,
+                        "business_unit": metadata.get("business_unit"),
                     },
                     s3_url=s3_url,
                     s3_result=s3_result,
@@ -3397,6 +3642,7 @@ def finalize_document():
                                 'sow_db_id': sow_id,
                                 'document_date': metadata.get("document_date"),
                                 'created_at': datetime.now().isoformat()
+                                ,'business_unit': metadata.get("business_unit")
                             }
                             account_handler.link_sow_to_project(project_id, sow_id, sow_data)
                             print(f"   ✅ Linked SOW {sow_id} to project {project_id}")
@@ -3623,6 +3869,9 @@ def get_accounts():
             priority=priority,
             limit=limit
         )
+        accounts = filter_visible_items(
+            accounts, current_identity(), request.args.get('business_unit')
+        )
 
         return jsonify({
             "success": True,
@@ -3641,7 +3890,23 @@ def get_accounts():
 def get_account_statistics():
     """Get account statistics for dashboard"""
     try:
-        stats = account_handler.get_account_statistics()
+        accounts = filter_visible_items(
+            account_handler.list_accounts(limit=1000),
+            current_identity(),
+            request.args.get('business_unit'),
+        )
+        stats = {
+            'total': len(accounts),
+            'with_projects': sum(1 for account in accounts if account.get('project_count', 0) > 0),
+            'without_projects': sum(1 for account in accounts if account.get('project_count', 0) <= 0),
+            'by_segment': {},
+            'by_priority': {},
+        }
+        for account in accounts:
+            segment = account.get('segment', 'Others')
+            priority = account.get('priority', 'P3')
+            stats['by_segment'][segment] = stats['by_segment'].get(segment, 0) + 1
+            stats['by_priority'][priority] = stats['by_priority'].get(priority, 0) + 1
         return jsonify({
             "success": True,
             "statistics": stats
@@ -3664,6 +3929,9 @@ def get_account(account_id):
                 "success": False,
                 "error": "Account not found"
             }), 404
+        denied = _resource_denied(account)
+        if denied:
+            return denied
 
         return jsonify({
             "success": True,
@@ -3682,6 +3950,9 @@ def create_account():
     """Create a new account"""
     try:
         data = request.json
+        business_unit, denied = _business_unit_for_new_record()
+        if denied:
+            return denied
         account_name = data.get('account_name')
 
         if not account_name:
@@ -3692,7 +3963,7 @@ def create_account():
 
         segment = data.get('segment', 'Others')
         priority = data.get('priority', 'P3')
-        metadata = data.get('metadata', {})
+        metadata = {**data.get('metadata', {}), 'business_unit': business_unit}
 
         account = account_handler.create_account(
             account_name=account_name,
@@ -3718,8 +3989,13 @@ def create_account():
 def update_account(account_id):
     """Update an account"""
     try:
+        existing = account_handler.get_account(account_id)
+        denied = _resource_denied(existing)
+        if denied:
+            return denied
         data = request.json
         updates = data.get('updates', {})
+        updates.pop('business_unit', None)
 
         account = account_handler.update_account(account_id, updates)
         if not account:
@@ -3745,6 +4021,10 @@ def update_account(account_id):
 def delete_account(account_id):
     """Delete an account (soft delete)"""
     try:
+        existing = account_handler.get_account(account_id)
+        denied = _resource_denied(existing)
+        if denied:
+            return denied
         success = account_handler.delete_account(account_id)
         if not success:
             return jsonify({
@@ -3774,7 +4054,14 @@ def get_projects_for_account(account_id):
     try:
         limit = int(request.args.get('limit', 100))
 
-        projects = account_handler.list_projects_for_account(account_id, limit=limit)
+        account = account_handler.get_account(account_id)
+        denied = _resource_denied(account)
+        if denied:
+            return denied
+        projects = filter_visible_items(
+            account_handler.list_projects_for_account(account_id, limit=limit),
+            current_identity(), request.args.get('business_unit')
+        )
 
         return jsonify({
             "success": True,
@@ -3800,6 +4087,9 @@ def get_project(project_id):
                 "success": False,
                 "error": "Project not found"
             }), 404
+        denied = _resource_denied(project)
+        if denied:
+            return denied
 
         return jsonify({
             "success": True,
@@ -3817,6 +4107,10 @@ def get_project(project_id):
 def create_project(account_id):
     """Create a new project within an account"""
     try:
+        account = account_handler.get_account(account_id)
+        denied = _resource_denied(account)
+        if denied:
+            return denied
         data = request.json
         project_name = data.get('project_name')
 
@@ -3827,7 +4121,7 @@ def create_project(account_id):
             }), 400
 
         description = data.get('description', '')
-        metadata = data.get('metadata', {})
+        metadata = {**data.get('metadata', {}), 'business_unit': account.get('business_unit')}
 
         project = account_handler.create_project(
             account_id=account_id,
@@ -3853,8 +4147,13 @@ def create_project(account_id):
 def update_project(project_id):
     """Update a project"""
     try:
+        existing = account_handler.get_project(project_id)
+        denied = _resource_denied(existing)
+        if denied:
+            return denied
         data = request.json
         updates = data.get('updates', {})
+        updates.pop('business_unit', None)
 
         project = account_handler.update_project(project_id, updates)
         if not project:
@@ -3880,6 +4179,10 @@ def update_project(project_id):
 def delete_project(project_id):
     """Delete a project (soft delete)"""
     try:
+        existing = account_handler.get_project(project_id)
+        denied = _resource_denied(existing)
+        if denied:
+            return denied
         success = account_handler.delete_project(project_id)
         if not success:
             return jsonify({
@@ -3910,6 +4213,9 @@ def debug_project(project_id):
     3. Showing all related entries (PK/SK combinations)
     """
     try:
+        denied = _require_admin_response()
+        if denied:
+            return denied
         from boto3.dynamodb.conditions import Attr
         
         debug_info = {
@@ -4085,9 +4391,13 @@ def get_sows_for_project(project_id):
                 "project_id": project_id,
                 "note": "Project not found"
             })
+        denied = _resource_denied(project)
+        if denied:
+            return denied
 
         # Get linked SOWs from agentic-sow-v2 table
         linked_sows = account_handler.list_sows_for_project(project_id, limit=limit)
+        linked_sows = filter_visible_items(linked_sows, current_identity())
         print(f"✅ Retrieved {len(linked_sows)} linked SOWs from agentic-sow-v2")
 
         # ✅ NEW: Query agentic-poc table by account_id
@@ -4126,7 +4436,8 @@ def get_sows_for_project(project_id):
                     doc for doc in all_documents 
                     if doc.get('project_id') == project_id
                 ]
-                all_documents = filtered_docs
+            all_documents = filtered_docs
+            all_documents = filter_visible_items(all_documents, current_identity())
             
             print(f"✅ Retrieved {len(all_documents)} documents from agentic-poc")
         except Exception as e:
@@ -4191,6 +4502,10 @@ def create_sow_for_project(project_id):
                 "success": False,
                 "error": "Project not found"
             }), 404
+        denied = _resource_denied(project)
+        if denied:
+            return denied
+        business_unit = project.get('business_unit')
 
         # Extract request data with enhanced fallbacks
         data = request.json
@@ -4231,6 +4546,7 @@ def create_sow_for_project(project_id):
             'objective': objective,
             'project_id': project_id,  # Link to project
             'account_id': project.get('account_id')  # Link to account
+            ,'business_unit': business_unit
         }
 
         create_task(task_id, mode, metadata)
@@ -4250,6 +4566,7 @@ def create_sow_for_project(project_id):
                         "project_name": project_name,
                         "mode": mode,
                         "task_id": task_id
+                        ,"business_unit": business_unit
                     },
                     "objective": objective,
                     "analyzed_requirements": None,
@@ -4315,6 +4632,7 @@ def create_sow_for_project(project_id):
                                 "project_name": project_name,
                                 "document_date": datetime.now().strftime("%d %B %Y"),
                                 "mode": mode
+                                ,"business_unit": business_unit
                             },
                             s3_url=s3_url,
                             s3_result={"https_url": s3_url, "s3_url": s3_url} if s3_url else None,
@@ -4334,6 +4652,7 @@ def create_sow_for_project(project_id):
                             'drive_link': drive_link,
                             's3_url': s3_url,
                             'sow_db_id': sow_id
+                            ,'business_unit': business_unit
                         }
                         account_handler.link_sow_to_project(project_id, sow_id, sow_data)
 
@@ -4389,6 +4708,23 @@ def delete_sow(sow_id):
     This marks the SOW as deleted in the agentic-sow-v2 table
     """
     try:
+        from boto3.dynamodb.conditions import Attr
+        linked = account_handler.table.scan(
+            FilterExpression=Attr('SK').begins_with('SOW#') & (
+                Attr('sow_db_id').eq(sow_id) | Attr('sow_id').eq(sow_id)
+            ),
+            Limit=10,
+        ).get('Items', [])
+        if not linked:
+            linked = DynamoDBHandler().table.scan(
+                FilterExpression='document_id = :id',
+                ExpressionAttributeValues={':id': sow_id},
+                Limit=10,
+            ).get('Items', [])
+        if not linked:
+            return jsonify({"success": False, "error": "SOW not found"}), 404
+        if not any(item_is_visible(item, current_identity()) for item in linked):
+            return jsonify({"success": False, "error": "You do not have access to this SOW"}), 403
         # Delete from agentic-sow-v2 (linked SOWs table)
         success = account_handler.delete_sow(sow_id)
 
@@ -4414,6 +4750,9 @@ def delete_sow(sow_id):
 def fix_account_counts_admin(account_id):
     """Admin endpoint to manually fix account counts"""
     try:
+        denied = _require_admin_response()
+        if denied:
+            return denied
         data = request.json or {}
         project_count = data.get('project_count', 0)
         sow_count = data.get('sow_count', 0)
@@ -4449,6 +4788,9 @@ def fix_account_counts_admin(account_id):
 def get_project_drafts(project_id):
     """Get all drafts for a project"""
     try:
+        denied = _resource_denied(account_handler.get_project(project_id))
+        if denied:
+            return denied
         print(f"📝 Fetching drafts for project: {project_id}")
         drafts = account_handler.list_drafts_for_project(project_id)
         print(f"📝 Found {len(drafts)} drafts")
@@ -4478,6 +4820,9 @@ def get_project_drafts(project_id):
 def get_draft(project_id, draft_id):
     """Get a specific draft"""
     try:
+        denied = _resource_denied(account_handler.get_project(project_id))
+        if denied:
+            return denied
         draft = account_handler.get_draft(project_id, draft_id)
         if not draft:
             return jsonify({
@@ -4500,6 +4845,9 @@ def get_draft(project_id, draft_id):
 def delete_draft(project_id, draft_id):
     """Delete a draft"""
     try:
+        denied = _resource_denied(account_handler.get_project(project_id))
+        if denied:
+            return denied
         success = account_handler.delete_draft(project_id, draft_id)
         if not success:
             return jsonify({

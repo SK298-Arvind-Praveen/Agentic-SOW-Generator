@@ -9,7 +9,7 @@ from app.db.dynamodb_handler_optimized import (
     DynamoDBHandlerOptimized,
     RAGSchemaHandlerOptimized,
 )
-from scripts.setup_dynamodb_table import table_definitions
+from scripts.setup_dynamodb_table import resource_tags, table_definitions
 
 
 class AWSConfigurationTests(unittest.TestCase):
@@ -21,6 +21,7 @@ class AWSConfigurationTests(unittest.TestCase):
             "DYNAMODB_TABLE_ACCOUNTS": "test-accounts",
             "DYNAMODB_TABLE_POC_DOCUMENTS": "test-documents",
             "DYNAMODB_TABLE_RAG_SCHEMA": "test-rag",
+            "DYNAMODB_TABLE_RBAC": "test-rbac",
             "S3_BUCKET_NAME": "test-sow-bucket",
         }
 
@@ -34,6 +35,7 @@ class AWSConfigurationTests(unittest.TestCase):
         self.assertEqual(config.DYNAMODB_TABLE_ACCOUNTS, "test-accounts")
         self.assertEqual(config.DYNAMODB_TABLE_POC_DOCUMENTS, "test-documents")
         self.assertEqual(config.DYNAMODB_TABLE_RAG_SCHEMA, "test-rag")
+        self.assertEqual(config.DYNAMODB_TABLE_RBAC, "test-rbac")
         self.assertEqual(config.S3_BUCKET_NAME, "test-sow-bucket")
 
     @patch("app.db.dynamodb_handler_optimized.boto3.resource")
@@ -76,7 +78,7 @@ class AWSConfigurationTests(unittest.TestCase):
             }
 
         self.assertEqual(
-            set(definitions), {"test-accounts", "test-documents", "test-rag"}
+            set(definitions), {"test-accounts", "test-documents", "test-rag", "test-rbac"}
         )
         document_indexes = {
             index["IndexName"]
@@ -99,6 +101,15 @@ class AWSConfigurationTests(unittest.TestCase):
         self.assertEqual(
             rag_indexes, {"client-project-mode-index", "mode-index"}
         )
+
+    def test_setup_supplies_organisation_required_creation_tags(self):
+        with patch.dict(os.environ, {
+            "RESOURCE_TAG_CUSTOMER": "shellkode",
+            "RESOURCE_TAG_CREATED_BY": "arnaav.a@shellkode.com",
+        }, clear=False):
+            tags = {tag["Key"]: tag["Value"] for tag in resource_tags()}
+        self.assertEqual(tags["customer"], "shellkode")
+        self.assertEqual(tags["createdby"], "arnaav.a@shellkode.com")
 
 
 if __name__ == "__main__":

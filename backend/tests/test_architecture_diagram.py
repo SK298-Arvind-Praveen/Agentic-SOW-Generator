@@ -207,10 +207,12 @@ class ArchitectureDiagramTests(unittest.TestCase):
         with server.preview_lock:
             server.preview_storage[preview_id] = {
                 "status": "ready",
+                "metadata": {"business_unit": "GenAI"},
                 "content": {ASSET_KEY: assets},
                 "edit_count": 0,
             }
         try:
+            server.app.config["TESTING"] = True
             response = server.app.test_client().put(
                 f"/api/preview/{preview_id}/architecture-diagram",
                 json={
@@ -224,6 +226,7 @@ class ArchitectureDiagramTests(unittest.TestCase):
             with server.preview_lock:
                 self.assertEqual(server.preview_storage[preview_id]["edit_count"], 1)
         finally:
+            server.app.config["TESTING"] = False
             with server.preview_lock:
                 server.preview_storage.pop(preview_id, None)
 

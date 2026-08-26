@@ -213,7 +213,17 @@ AWS_SECRET_ACCESS_KEY=your_secret_key
 DYNAMODB_TABLE_ACCOUNTS=agentic-sow-v2
 DYNAMODB_TABLE_POC_DOCUMENTS=agentic-poc
 DYNAMODB_TABLE_RAG_SCHEMA=rag-schema
+DYNAMODB_TABLE_RBAC=agentic-sow-rbac
 S3_BUCKET_NAME=your-globally-unique-sow-bucket
+
+# Use a long random value outside local development.
+AUTH_TOKEN_SECRET=replace-with-a-long-random-secret
+# Disable the built-in test-login fallback after testing.
+ENABLE_SAMPLE_USERS=true
+
+# Organisation-required resource creation tags (defaults shown).
+RESOURCE_TAG_CUSTOMER=shellkode
+RESOURCE_TAG_CREATED_BY=arnaav.a@shellkode.com
 
 # Optional: point generated edit links at a self-hosted draw.io instance.
 DRAWIO_EDITOR_URL=https://app.diagrams.net
@@ -222,6 +232,14 @@ DRAWIO_EDITOR_URL=https://app.diagrams.net
 Changing accounts only requires changing these values and running the AWS
 storage setup command in the target account. If the default table names are
 acceptable, only the credentials, region, and S3 bucket name need to change.
+
+The setup command creates the RBAC table, seeds one admin and five BU test
+users, and stores the administrator-managed SOW section catalogue. All seeded
+users initially use `Shellkode@123`; disable sample-user fallback and replace
+these credentials before deployment. Existing DynamoDB tables do not need a
+key-schema change: new records receive a `business_unit` attribute. Assign old
+records with the dry-run-first `backend/scripts/backfill_business_units.py`
+utility if BU users need to access them.
 
 ### Frontend — `frontend/.env`
 
