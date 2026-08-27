@@ -184,7 +184,7 @@ class DynamoDBHandlerOptimized:
 
         return True, [], ""
 
-    def find_similar_documents(self, company_name, project_name):
+    def find_similar_documents(self, company_name, project_name, owner_email=None):
         """
         ✅ OPTIMIZED: Find documents using Query on customer-index GSI
 
@@ -226,7 +226,12 @@ class DynamoDBHandlerOptimized:
                 stored_project = str(item.get('project_name', '')).lower().strip()
                 stored_project = ' '.join(stored_project.split())
 
-                if stored_project == project_name_lower:
+                same_owner = (
+                    not owner_email
+                    or str(item.get('owner_email', '')).casefold().strip()
+                    == str(owner_email).casefold().strip()
+                )
+                if stored_project == project_name_lower and same_owner:
                     matching_items.append(item)
                     print(f"   ✓ Match: {item.get('customer_name')} / {item.get('project_name')} ({item.get('timestamp')})")
 
@@ -238,7 +243,7 @@ class DynamoDBHandlerOptimized:
             error_code = e.response['Error']['Code']
             if error_code == 'ResourceNotFoundException':
                 print(f"⚠️  GSI 'customer-index' not found - falling back to scan")
-                return self._find_similar_documents_fallback(company_name, project_name)
+                return self._find_similar_documents_fallback(company_name, project_name, owner_email)
             else:
                 print(f"❌ Error querying documents: {e}")
                 return []
@@ -248,7 +253,7 @@ class DynamoDBHandlerOptimized:
             traceback.print_exc()
             return []
 
-    def _find_similar_documents_fallback(self, company_name, project_name):
+    def _find_similar_documents_fallback(self, company_name, project_name, owner_email=None):
         """Fallback to scan if GSI doesn't exist"""
         try:
             company_name_lower = str(company_name).lower().strip()
@@ -270,7 +275,12 @@ class DynamoDBHandlerOptimized:
                 stored_project = str(item.get('project_name', '')).lower().strip()
                 stored_project = ' '.join(stored_project.split())
 
-                if stored_company == company_name_lower and stored_project == project_name_lower:
+                same_owner = (
+                    not owner_email
+                    or str(item.get('owner_email', '')).casefold().strip()
+                    == str(owner_email).casefold().strip()
+                )
+                if stored_company == company_name_lower and stored_project == project_name_lower and same_owner:
                     matching_items.append(item)
 
             matching_items.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
@@ -408,7 +418,11 @@ class DynamoDBHandlerOptimized:
                 version = metadata.get('version', 'v1')
 
             # Find and cleanup similar documents
-            similar_docs = self.find_similar_documents(company_name, project_name)
+            similar_docs = self.find_similar_documents(
+                company_name,
+                project_name,
+                owner_email=metadata.get('owner_email'),
+            )
 
             cleanup_result = None
             if similar_docs and len(similar_docs) >= keep_duplicates:
@@ -435,6 +449,8 @@ class DynamoDBHandlerOptimized:
                 "mode": mode,
                 "version": version,  # ✅ VERSION FIELD
                 "business_unit": metadata.get("business_unit"),
+                "owner_email": metadata.get("owner_email"),
+                "owner_name": metadata.get("owner_name"),
             }
 
             # ✅ NEW: Add account_id and project_id if provided
@@ -475,6 +491,8 @@ class DynamoDBHandlerOptimized:
                 "mode": mode,
                 "version": version,  # ✅ Return version
                 "business_unit": metadata.get("business_unit"),
+                "owner_email": metadata.get("owner_email"),
+                "owner_name": metadata.get("owner_name"),
                 "deduplication": {
                     "similar_found": len(similar_docs),
                     "kept_count": keep_duplicates,
@@ -493,7 +511,7 @@ class DynamoDBHandlerOptimized:
                 "error": str(e)
             }
 
-    def get_companies_grouped(self, limit=1000, business_unit=None):
+    def get_companies_grouped(self, limit=1000, business_unit=None, owner_email=None):
         """
         ✅ NEW: Get all documents grouped by company with project versions
         
@@ -526,7 +544,13 @@ class DynamoDBHandlerOptimized:
                 items.extend(response.get('Items', []))
 
             print(f"   📄 Processing {len(items)} documents...")
-            if business_unit:
+            if owner_email:
+                owner_email = str(owner_email).casefold().strip()
+                items = [
+                    item for item in items
+                    if str(item.get('owner_email', '')).casefold().strip() == owner_email
+                ]
+            elif business_unit:
                 items = [item for item in items if item.get('business_unit') == business_unit]
 
             # Group by company -> project -> mode -> versions
@@ -582,7 +606,7 @@ class DynamoDBHandlerOptimized:
 
     def get_company_documents(self, company_name: str, project_name: str = None,
                              mode: str = None, version: str = None, limit=100,
-                             business_unit=None):
+                             business_unit=None, owner_email=None):
         """
         ✅ NEW: Get documents for a company with optional filters
         
@@ -633,7 +657,13 @@ class DynamoDBHandlerOptimized:
 
             # Apply filters
             filtered_items = items
-            if business_unit:
+            if owner_email:
+                owner_email = str(owner_email).casefold().strip()
+                filtered_items = [
+                    item for item in filtered_items
+                    if str(item.get('owner_email', '')).casefold().strip() == owner_email
+                ]
+            elif business_unit:
                 filtered_items = [
                     item for item in filtered_items
                     if item.get('business_unit') == business_unit

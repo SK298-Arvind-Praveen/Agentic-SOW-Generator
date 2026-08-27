@@ -8,6 +8,7 @@ from typing import Any, Dict
 
 import boto3
 
+from app.core.bedrock_llm import BedrockLLM
 from app.core.sow_quality import as_list, dedupe, is_known, normalize_requirements
 
 
@@ -21,6 +22,7 @@ class RuleEngineAgent:
             region_name=config.BEDROCK_REGION,
             config=config.BOTO_CONFIG,
         )
+        self.llm = BedrockLLM(config, self.bedrock)
         self.rules = self._load_rules()
 
     def _load_rules(self) -> Dict[str, Any]:
@@ -72,19 +74,15 @@ Respond with JSON only."""
 
         candidate: Dict[str, Any] = {}
         try:
-            response = self.bedrock.invoke_model(
-                modelId=self.config.MODEL_ID,
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": min(getattr(self.config, "MAX_TOKENS", 8192), 8192),
-                    "temperature": 0.1,
-                    "messages": [{"role": "user", "content": prompt}],
-                }),
+            result = self.llm.generate(
+                prompt,
+                task="analysis",
+                max_tokens=min(getattr(self.config, "MAX_TOKENS", 8192), 8192),
+                temperature=0.1,
+                call_name="Requirements Validation",
+                fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
             )
-            body = json.loads(response["body"].read())
-            from app.core.nodes import _track_tokens
-            _track_tokens(body, "Requirements Validation")
-            candidate = json.loads(self._clean_json_response(body["content"][0]["text"]))
+            candidate = json.loads(self._clean_json_response(result.text))
         except Exception as exc:
             print(f"⚠ Requirements validation used deterministic fallback: {exc}")
 

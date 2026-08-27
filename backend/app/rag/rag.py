@@ -24,6 +24,9 @@ from docx import Document
 from pinecone import Pinecone
 from dotenv import load_dotenv
 
+from app.core.bedrock_llm import BedrockLLM
+from app.core.config import Config
+
 
 # ============================================================================
 # PART 2: ENUMS & DATACLASSES
@@ -268,11 +271,13 @@ class TemplateRuleBuilder:
 class TemplateRuleClassifier:
     """
     Hybrid classifier using template-derived rules
-    Rule-based → LLM fallback (using AWS Claude)
+    Rule-based → lightweight Bedrock LLM fallback
     """
     
     def __init__(self, bedrock_client=None, confidence_threshold: float = 0.70):
         self.bedrock = bedrock_client
+        self.config = Config()
+        self.llm = BedrockLLM(self.config, bedrock_client) if bedrock_client else None
         self.confidence_threshold = confidence_threshold
         self.rule_builder = TemplateRuleBuilder()
         self._build_classification_index()
@@ -296,7 +301,7 @@ class TemplateRuleClassifier:
                 print(f"  ✓ Rule-based: {section_type.value} (confidence: {confidence:.2f})")
                 return section_type, confidence, "rule"
         
-        print(f"  → Confidence below threshold, using AWS Claude fallback...")
+        print(f"  → Confidence below threshold, using lightweight Bedrock fallback...")
         llm_result = self._llm_based_detection(text)
         
         if llm_result:
@@ -343,7 +348,7 @@ class TemplateRuleClassifier:
         return None
     
     def _llm_based_detection(self, text: str) -> Optional[Tuple[SectionType, float]]:
-        """LLM-based classification using AWS Claude"""
+        """LLM-based classification using the configured fast model."""
         if not self.bedrock:
             return None
         
@@ -359,18 +364,14 @@ TEXT:
 Return ONLY the exact section name:"""
 
         try:
-            response = self.bedrock.invoke_model(
-                modelId="anthropic.claude-3-5-sonnet-20241022",
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 50,
-                    "temperature": 0.3,
-                    "messages": [{"role": "user", "content": prompt}]
-                })
-            )
-            
-            response_body = json.loads(response['body'].read())
-            classification = response_body['content'][0]['text'].strip()
+            classification = self.llm.generate(
+                prompt,
+                task="fast",
+                max_tokens=50,
+                temperature=0.0,
+                call_name="RAG Section Classification",
+                fallback_model_id=self.config.ANALYSIS_MODEL_ID,
+            ).text.strip()
             
             for section in self.rule_builder.TEMPLATE_SECTIONS:
                 if classification.lower() in section.name.lower():

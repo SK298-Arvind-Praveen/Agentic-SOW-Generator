@@ -14,6 +14,7 @@ if _backend_root not in sys.path:
     sys.path.insert(0, _backend_root)
 
 from app.core.config import Config
+from app.core.bedrock_llm import BedrockLLM
 
 class SmartContentEditor:
     """Enhanced content editor with section selection and dependency management"""
@@ -25,6 +26,7 @@ class SmartContentEditor:
             region_name=self.config.BEDROCK_REGION,
             config=self.config.BOTO_CONFIG
         )
+        self.llm = BedrockLLM(self.config, self.bedrock)
         
         # Define section dependencies - when one section changes, these might need updates too
         self.section_dependencies = {
@@ -483,18 +485,15 @@ Return only the specific instruction for this section. If no specific instructio
 Keep it concise and actionable."""
 
         try:
-            response = self.bedrock.invoke_model(
-                modelId=self.config.MODEL_ID,
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 200,
-                    "temperature": 0.3,
-                    "messages": [{"role": "user", "content": prompt}]
-                })
+            result = self.llm.generate(
+                prompt,
+                task="fast",
+                max_tokens=200,
+                temperature=0.3,
+                call_name="Edit Instruction Classification",
+                fallback_model_id=getattr(self.config, "ANALYSIS_MODEL_ID", None),
             )
-            
-            response_body = json.loads(response['body'].read())
-            instruction = response_body['content'][0]['text'].strip()
+            instruction = result.text.strip()
             
             return instruction
             
@@ -528,18 +527,15 @@ Return JSON:
 }}"""
 
         try:
-            response = self.bedrock.invoke_model(
-                modelId=self.config.MODEL_ID,
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 300,
-                    "temperature": 0.3,
-                    "messages": [{"role": "user", "content": prompt}]
-                })
+            result = self.llm.generate(
+                prompt,
+                task="fast",
+                max_tokens=300,
+                temperature=0.3,
+                call_name="Edit Dependency Analysis",
+                fallback_model_id=getattr(self.config, "ANALYSIS_MODEL_ID", None),
             )
-            
-            response_body = json.loads(response['body'].read())
-            response_text = response_body['content'][0]['text'].strip()
+            response_text = result.text.strip()
             
             # Extract JSON from response
             import re
@@ -616,18 +612,15 @@ IMPORTANT:
 """
         
         try:
-            response = self.bedrock.invoke_model(
-                modelId=self.config.MODEL_ID,
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 1000,
-                    "temperature": 0.3,
-                    "messages": [{"role": "user", "content": prompt}]
-                })
+            result = self.llm.generate(
+                prompt,
+                task="analysis",
+                max_tokens=1000,
+                temperature=0.3,
+                call_name="Edit Request Analysis",
+                fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
             )
-            
-            response_body = json.loads(response['body'].read())
-            response_text = response_body['content'][0]['text'].strip()
+            response_text = result.text.strip()
             
             # Extract JSON from response
             import re
@@ -855,18 +848,15 @@ Apply the changes now:"""
             
             # Call Bedrock API for partial edits only
             print(f"   🤖 Calling Bedrock API for partial edit...")
-            response = self.bedrock.invoke_model(
-                modelId=self.config.MODEL_ID,
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 4000,  # Increased to prevent truncation
-                    "temperature": 0.1,
-                    "messages": [{"role": "user", "content": prompt}]
-                })
+            result = self.llm.generate(
+                prompt,
+                task="editor",
+                max_tokens=4000,
+                temperature=0.1,
+                call_name="SOW Content Edit",
+                fallback_model_id=getattr(self.config, "FALLBACK_MODEL_ID", None),
             )
-            
-            response_body = json.loads(response['body'].read())
-            new_content = response_body['content'][0]['text'].strip()
+            new_content = result.text.strip()
             
             print(f"   🤖 LLM raw response ({len(new_content)} chars): {new_content[:200]}...")
             

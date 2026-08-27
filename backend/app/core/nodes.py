@@ -16,6 +16,7 @@ if _backend_root not in sys.path:
 
 from app.core.state import AgentState
 from app.core.config import Config
+from app.core.bedrock_llm import BedrockLLM
 from app.agents.company_research_agent import CompanyResearchAgent
 from app.agents.objective_agent import ObjectiveAgent
 from app.agents.rule_engine_agent import RuleEngineAgent
@@ -42,11 +43,16 @@ _token_usage = {
     'total_input_tokens': 0,
     'total_output_tokens': 0,
     'total_tokens': 0,
-    'api_calls': 0
+    'api_calls': 0,
+    'models': {},
 }
 _token_usage_lock = threading.Lock()
 
-def _track_tokens(response_body: dict, call_name: str = "API Call"):
+def _track_tokens(
+    response_body: dict,
+    call_name: str = "API Call",
+    model_id: str = None,
+):
     """Track token usage from Bedrock API response"""
     global _token_usage
     
@@ -59,6 +65,8 @@ def _track_tokens(response_body: dict, call_name: str = "API Call"):
         _token_usage['total_output_tokens'] += output_tokens
         _token_usage['total_tokens'] += (input_tokens + output_tokens)
         _token_usage['api_calls'] += 1
+        if model_id:
+            _token_usage['models'][model_id] = _token_usage['models'].get(model_id, 0) + 1
     
     print(f"   🔢 {call_name} - Input: {input_tokens:,} | Output: {output_tokens:,} | Total: {input_tokens + output_tokens:,}")
 
@@ -75,7 +83,8 @@ def reset_token_usage():
             'total_input_tokens': 0,
             'total_output_tokens': 0,
             'total_tokens': 0,
-            'api_calls': 0
+            'api_calls': 0,
+            'models': {},
         }
 
 def print_token_summary():
@@ -88,6 +97,10 @@ def print_token_summary():
     print(f"Total Input Tokens:   {usage['total_input_tokens']:,}")
     print(f"Total Output Tokens:  {usage['total_output_tokens']:,}")
     print(f"Total Tokens:         {usage['total_tokens']:,}")
+    if usage['models']:
+        print("Calls by Model:")
+        for model_id, calls in sorted(usage['models'].items()):
+            print(f"  {calls:>3} × {model_id}")
     print("="*70 + "\n")
 
 def _clean_final_content(text: str) -> str:
@@ -732,19 +745,14 @@ Return format:
 {{"company_name": "...", "author_name": "...", "author_org": "...", "project_title": "...", "objective": "...", "document_date": "..."}}
 """
         
-        response = bedrock.invoke_model(
-            modelId=config.MODEL_ID,
-            body=json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 600,
-                "temperature": 0.05,  # Very low temperature for accurate extraction
-                "messages": [{"role": "user", "content": prompt}]
-            })
-        )
-        
-        response_body = json.loads(response['body'].read())
-        _track_tokens(response_body, "Metadata Extraction")
-        response_text = response_body['content'][0]['text'].strip()
+        response_text = BedrockLLM(config, bedrock).generate(
+            prompt,
+            task="fast",
+            max_tokens=600,
+            temperature=0.05,
+            call_name="Metadata Extraction",
+            fallback_model_id=config.ANALYSIS_MODEL_ID,
+        ).text
         
         # Extract JSON from response
         json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text, re.DOTALL)
@@ -1082,18 +1090,14 @@ Return JSON only. Use [] or null when absent. Do not infer production requiremen
   "poc_evidence": [],
   "open_clarifications": []
 }}"""
-            response = bedrock.invoke_model(
-                modelId=config.MODEL_ID,
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 4096,
-                    "temperature": 0.0,
-                    "messages": [{"role": "user", "content": prompt}]
-                })
-            )
-            body = json.loads(response['body'].read())
-            _track_tokens(body, f"Requirements Extraction {index}/{len(chunks)}")
-            raw = body['content'][0]['text'].strip()
+            raw = BedrockLLM(config, bedrock).generate(
+                prompt,
+                task="analysis",
+                max_tokens=4096,
+                temperature=0.0,
+                call_name=f"Requirements Extraction {index}/{len(chunks)}",
+                fallback_model_id=config.WRITER_MODEL_ID,
+            ).text
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
                 try:

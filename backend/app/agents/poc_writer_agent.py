@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
 
+from app.core.bedrock_llm import BedrockLLM
+from app.core.document_context import combined_source_text, select_section_evidence
 from app.core.sow_quality import (
     clean_markdown_preserving_structure,
     classify_complexity,
@@ -80,6 +82,7 @@ class POCWriterAgent:
             aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
             config=config.BOTO_CONFIG,
         )
+        self.llm = BedrockLLM(config, self.bedrock)
         self.template_raw = self._load_template()
         self.global_template_contract = self._extract_global_template_contract(self.template_raw)
         self.sections = self._parse_template()
@@ -248,7 +251,6 @@ class POCWriterAgent:
         )
         self.selected_section_preferences = selected_preferences
         self.excluded_section_preferences = excluded_section_labels(selected_preferences, mode)
-        source_context = self._context_excerpt(supporting_context, rag_context)
         output: Dict[str, str] = {}
         rendered: Dict[int, Tuple[str, str, bool]] = {}
         generation_jobs: List[Tuple[int, TemplateSection, str]] = []
@@ -284,6 +286,13 @@ class POCWriterAgent:
         def generate_job(job: Tuple[int, TemplateSection, str]) -> Tuple[int, str, str]:
             index, section, key = job
             print(f"  [{index}/{len(active_sections)}] {section.name}")
+            source_context = self._context_excerpt(
+                supporting_context,
+                rag_context,
+                section_name=section.name,
+                requirements=req,
+                limit=getattr(self.config, "SECTION_EVIDENCE_MAX_CHARS", 24_000),
+            )
             content = self._generate_section(
                 section, req, metadata, source_context, consistency_notes
             )
@@ -446,7 +455,11 @@ class POCWriterAgent:
             section, requirements, metadata, source_context,
             prior_context="\n".join(prior_summaries[-4:]),
         )
-        content = self._call_bedrock(prompt, max_tokens=self._section_token_budget(section))
+        content = self._call_bedrock(
+            prompt,
+            max_tokens=self._section_token_budget(section),
+            model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+        )
         issues = self._authoring_issues(content, section)
         if issues:
             retry = f"""The previous draft of the {section.name!r} section failed these checks:
@@ -460,7 +473,11 @@ ORIGINAL AUTHORING BRIEF:
 
 PREVIOUS DRAFT:
 {content[:8000]}"""
-            revised = self._call_bedrock(retry, max_tokens=self._section_token_budget(section))
+            revised = self._call_bedrock(
+                retry,
+                max_tokens=self._section_token_budget(section),
+                model_id=getattr(self.config, "FALLBACK_MODEL_ID", None),
+            )
             revised_issues = self._authoring_issues(revised, section)
             if not revised_issues:
                 content = revised
@@ -699,21 +716,22 @@ NON-NEGOTIABLE AUTHORING STANDARD
             for s in sections
         )
 
-    def _call_bedrock(self, prompt: str, max_tokens: int = 6000) -> str:
+    def _call_bedrock(
+        self,
+        prompt: str,
+        max_tokens: int = 6000,
+        model_id: Optional[str] = None,
+    ) -> str:
         try:
-            response = self.bedrock.invoke_model(
-                modelId=self.config.MODEL_ID,
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": min(max_tokens, 8192),
-                    "temperature": 0.15,
-                    "messages": [{"role": "user", "content": prompt}],
-                }),
+            result = self.llm.generate(
+                prompt,
+                task="writer",
+                max_tokens=min(max_tokens, 8192),
+                temperature=0.15,
+                call_name="SOW Section Generation",
+                model_id=model_id,
             )
-            body = json.loads(response["body"].read())
-            from app.core.nodes import _track_tokens
-            _track_tokens(body, "SOW Section Generation")
-            return body["content"][0]["text"].strip()
+            return result.text.strip()
         except Exception as exc:
             print(f"    ❌ Section generation error: {exc}")
             return ""
@@ -743,23 +761,18 @@ NON-NEGOTIABLE AUTHORING STANDARD
     def _context_excerpt(
         supporting_context: Optional[str],
         rag_context: Optional[Dict[str, Any]],
-        limit: int = 18000,
+        limit: int = 24000,
+        section_name: str = "Project Overview",
+        requirements: Optional[Dict[str, Any]] = None,
     ) -> str:
-        sources: List[str] = []
-        if supporting_context:
-            sources.append(str(supporting_context))
-        rag_data = (rag_context or {}).get("rag_data", {}) if isinstance(rag_context, dict) else {}
-        if isinstance(rag_data, dict) and rag_data.get("extracted_content"):
-            sources.append(str(rag_data["extracted_content"]))
-        text = "\n\n".join(sources)
+        text = combined_source_text(supporting_context, rag_context)
         if len(text) <= limit:
             return text
-        third = limit // 3
-        middle_start = max(0, len(text) // 2 - third // 2)
-        return (
-            text[:third] + "\n\n[...middle excerpt...]\n\n" +
-            text[middle_start:middle_start + third] + "\n\n[...final excerpt...]\n\n" +
-            text[-third:]
+        return select_section_evidence(
+            text,
+            section_name=section_name,
+            requirements=requirements,
+            max_chars=limit,
         )
 
     @staticmethod

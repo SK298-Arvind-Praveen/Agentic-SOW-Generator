@@ -26,7 +26,11 @@ const Layout: React.FC = () => {
     navigate('/login');
   };
 
-  const roleLabel = user?.role === 'ADMIN' ? 'Administrator' : `${user?.business_unit || 'BU'} Business Unit`;
+  const roleLabel = user?.role === 'ADMIN'
+    ? 'Administrator'
+    : user?.role === 'USER'
+      ? `${user?.business_unit || 'BU'} User`
+      : `${user?.business_unit || 'BU'} BU Head`;
 
   return (
     <div className="app-shell">

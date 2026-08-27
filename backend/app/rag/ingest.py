@@ -17,6 +17,10 @@ from langchain_aws import ChatBedrock
 from langchain_core.messages import HumanMessage
 import re
 
+from app.core.bedrock_llm import BedrockLLM
+from app.core.document_context import chunk_document
+from app.core.sow_quality import merge_requirement_extractions
+
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[2] / "config" / ".env")
@@ -636,9 +640,10 @@ class PDFToSchemaConverter:
         """Initialize PDF converter with schema manager"""
         from app.core.config import Config
         config = Config()
+        self.config = config
         
         # Use config model_id if none provided
-        self.model_id = model_id or config.MODEL_ID
+        self.model_id = model_id or config.ANALYSIS_MODEL_ID
         
         # Use explicit credentials for Bedrock client
         self.bedrock = boto3.client(
@@ -648,6 +653,7 @@ class PDFToSchemaConverter:
             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
             aws_session_token=os.getenv('AWS_SESSION_TOKEN')
         )
+        self.llm = BedrockLLM(config, self.bedrock)
         
         self.schema_manager = DynamicSchemaManager()
         print(f"✓ Initialized PDF Converter with model: {self.model_id}")
@@ -721,12 +727,12 @@ REQUIRED STRUCTURE:
 
 RULES:
 - Extract actual values from the document
-- If not found, use reasonable defaults
-- ALL arrays must have at least 1 item
+- If not found in this document excerpt, use an empty array, empty object, or null
+- Never invent a default merely to populate an array
 - Return ONLY the JSON, no markdown or explanations
 
 Document:
-{pdf_text[:4000]}
+{pdf_text}
 
 JSON:"""
     
@@ -765,83 +771,73 @@ REQUIRED STRUCTURE:
 
 RULES:
 - Extract actual values from the document
-- If not found, use reasonable defaults
-- ALL arrays must have at least 1 item
+- If not found in this document excerpt, use an empty array, empty object, or null
+- Never invent a default merely to populate an array
 - Return ONLY the JSON, no markdown or explanations
 
 Document:
-{pdf_text[:4000]}
+{pdf_text}
 
 JSON:"""
     
     def extract_structure_with_bedrock(self, pdf_text: str, mode: str) -> Dict:
         """Extract structured schema from PDF with mode-specific prompt"""
         try:
-            if len(pdf_text) > 8000:
-                pdf_text = pdf_text[:8000] + "\n... [content truncated] ..."
-            
             normalized_mode = self.schema_manager.normalize_mode(mode)
-            
-            if normalized_mode == "POC":
-                prompt = self.get_poc_extraction_prompt(pdf_text)
-                print("  Using POC extraction prompt")
-            else:
-                prompt = self.get_prod_extraction_prompt(pdf_text)
-                print("  Using PROD extraction prompt")
-            
-            # Use boto3 client instead of ChatBedrock
-            response = self.bedrock.invoke_model(
-                modelId=self.model_id,
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 60000,
-                    "temperature": 0.3,
-                    "messages": [{"role": "user", "content": prompt}]
-                })
-            )
-            
-            response_body = json.loads(response['body'].read())
-            response_text = response_body['content'][0]['text']
-            
-            json_str = self._extract_json_from_response(response_text)
-            
-            if json_str:
+            chunks = chunk_document(
+                pdf_text,
+                max_chars=getattr(self.config, "DOCUMENT_ANALYSIS_CHUNK_CHARS", 120_000),
+                overlap_chars=getattr(self.config, "DOCUMENT_ANALYSIS_OVERLAP_CHARS", 6_000),
+            ) or [pdf_text]
+            print(f"  Extracting {normalized_mode} schema from {len(chunks)} complete-document chunk(s)")
+            extractions = []
+            for index, chunk in enumerate(chunks, 1):
+                labelled_chunk = (
+                    f"DOCUMENT PART {index} OF {len(chunks)}. Extract every fact present here; "
+                    "absence from this part does not mean absence from the complete document.\n\n"
+                    f"{chunk}"
+                ) if len(chunks) > 1 else chunk
+                prompt = (
+                    self.get_poc_extraction_prompt(labelled_chunk)
+                    if normalized_mode == "POC"
+                    else self.get_prod_extraction_prompt(labelled_chunk)
+                )
                 try:
-                    extracted_data = json.loads(json_str)
-                    print(f"✓ Successfully extracted structure")
-                    extracted_data = self._ensure_metadata_populated(extracted_data, normalized_mode)
-                    return extracted_data
-                    
-                except json.JSONDecodeError as e:
-                    print(f"⚠️  JSON parsing error: {e}")
-                    print(f"   Error at position: {e.pos}")
-                    
-                    # Show context around error
-                    if e.pos and len(json_str) > e.pos:
-                        start = max(0, e.pos - 50)
-                        end = min(len(json_str), e.pos + 50)
-                        context = json_str[start:end]
-                        print(f"   Context: ...{context}...")
-                    
-                    # Try to fix JSON
-                    fixed_json = self._fix_json_errors(json_str)
-                    if fixed_json:
+                    result = self.llm.generate(
+                        prompt,
+                        task="analysis",
+                        max_tokens=min(getattr(self.config, "MAX_TOKENS", 8192), 8192),
+                        temperature=0.1,
+                        call_name=f"RAG Schema Extraction {index}/{len(chunks)}",
+                        model_id=getattr(self.config, "ANALYSIS_MODEL_ID", self.model_id),
+                        fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+                    )
+                except Exception as chunk_error:
+                    print(
+                        f"⚠️ Schema chunk {index}/{len(chunks)} failed after fallback; "
+                        f"continuing with the remaining evidence: {chunk_error}"
+                    )
+                    continue
+                json_str = self._extract_json_from_response(result.text)
+                if not json_str:
+                    print(f"⚠️ No JSON in schema chunk {index}/{len(chunks)}")
+                    continue
+                try:
+                    extractions.append(json.loads(json_str))
+                except json.JSONDecodeError:
+                    fixed = self._fix_json_errors(json_str)
+                    if fixed:
                         try:
-                            extracted_data = json.loads(fixed_json)
-                            extracted_data = self._ensure_metadata_populated(extracted_data, normalized_mode)
-                            print("✓ JSON fixed successfully")
-                            return extracted_data
-                        except json.JSONDecodeError as fix_error:
-                            print(f"❌ Could not fix JSON: {fix_error}")
-                            print(f"   Returning minimal schema as fallback")
-                            return self._get_minimal_schema(normalized_mode)
-                    else:
-                        print("❌ JSON fix failed, returning minimal schema")
-                        return self._get_minimal_schema(normalized_mode)
-            else:
-                print("⚠️  No JSON found in response")
-                print(f"   Response preview: {response_text[:200]}...")
+                            extractions.append(json.loads(fixed))
+                        except json.JSONDecodeError:
+                            print(f"⚠️ Invalid JSON in schema chunk {index}/{len(chunks)}")
+
+            if not extractions:
                 return self._get_minimal_schema(normalized_mode)
+            extracted_data = merge_requirement_extractions(extractions)
+            extracted_data = self._ensure_metadata_populated(extracted_data, normalized_mode)
+            print(f"✓ Merged schema evidence from {len(extractions)}/{len(chunks)} chunks")
+            return extracted_data
         
         except Exception as e:
             print(f"❌ Error extracting structure: {e}")

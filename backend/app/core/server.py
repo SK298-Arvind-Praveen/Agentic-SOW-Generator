@@ -50,6 +50,7 @@ from botocore.exceptions import ClientError
 
 from app.core.graph import create_graph, create_preview_graph, create_fast_preview_graph
 from app.core.config import Config
+from app.core.bedrock_llm import BedrockLLM
 from app.storage.upload import upload_generated_document
 from app.storage.upload1 import parse_s3_location, upload_to_s3
 from app.db.dynamodb_handler_optimized import (
@@ -141,7 +142,10 @@ def enforce_api_authentication():
     if not header.startswith("Bearer "):
         return jsonify({"success": False, "error": "Authentication required"}), 401
     try:
-        g.current_identity = verify_token(header[7:].strip())
+        token_identity = verify_token(header[7:].strip())
+        g.current_identity = rbac_store.active_identity(token_identity.email)
+        if not g.current_identity:
+            return jsonify({"success": False, "error": "Account is inactive or no longer exists"}), 401
     except SignatureExpired:
         return jsonify({"success": False, "error": "Session expired"}), 401
     except (BadSignature, KeyError, ValueError):
@@ -178,6 +182,16 @@ def _business_unit_for_new_record():
             "error": "business_unit is required when an administrator creates a record",
         }), 400)
     return business_unit, None
+
+
+def _ownership_metadata(business_unit=None):
+    """Return immutable ownership fields derived from the authenticated identity."""
+    identity = current_identity()
+    return {
+        "business_unit": business_unit if business_unit is not None else identity.business_unit,
+        "owner_email": identity.email,
+        "owner_name": identity.name,
+    }
 
 
 def _resource_denied(item):
@@ -224,6 +238,67 @@ def get_current_user():
         "user": current_identity().public_dict(),
         "business_units": list(BUSINESS_UNITS),
     })
+
+
+@app.route('/api/admin/users', methods=['GET', 'POST'])
+def manage_users():
+    denied = _require_admin_response()
+    if denied:
+        return denied
+    try:
+        if request.method == 'GET':
+            return jsonify({
+                "success": True,
+                "users": rbac_store.list_users(),
+                "business_units": list(BUSINESS_UNITS),
+            })
+        data = request.get_json(silent=True) or {}
+        user = rbac_store.create_user(
+            email=data.get("email", ""),
+            name=data.get("name", ""),
+            role=data.get("role", "USER"),
+            business_unit=data.get("business_unit"),
+            password=data.get("password", ""),
+            created_by=current_identity().email,
+        )
+        return jsonify({"success": True, "user": user}), 201
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logging.getLogger(__name__).exception("User management failed")
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@app.route('/api/admin/users/<path:email>', methods=['PUT', 'DELETE'])
+def manage_user(email):
+    denied = _require_admin_response()
+    if denied:
+        return denied
+    email = str(email).casefold().strip()
+    if request.method == 'DELETE' and email == current_identity().email.casefold():
+        return jsonify({"success": False, "error": "You cannot delete your own administrator account"}), 400
+    try:
+        if request.method == 'DELETE':
+            rbac_store.delete_user(email)
+            return jsonify({"success": True})
+        updates = request.get_json(silent=True) or {}
+        if email == current_identity().email.casefold():
+            requested_role = str(updates.get("role", "ADMIN")).upper()
+            requested_status = str(updates.get("status", "active")).casefold()
+            if requested_role != "ADMIN" or requested_status != "active":
+                return jsonify({
+                    "success": False,
+                    "error": "You cannot remove your own administrator access or deactivate your account",
+                }), 400
+        user = rbac_store.update_user(email, updates, current_identity().email)
+        return jsonify({"success": True, "user": user})
+    except LookupError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 404
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as exc:
+        logging.getLogger(__name__).exception("User management failed")
+        return jsonify({"success": False, "error": str(exc)}), 500
 
 
 @app.route('/api/sow-sections', methods=['GET', 'POST'])
@@ -453,8 +528,10 @@ def get_active_tasks_as_documents(mode_filter=None):
                         "metadata": {
                             "company_name": metadata.get('company_name', 'Unknown'),
                             "project_name": metadata.get('project_name', 'Generating...'),
-                        "author_name": metadata.get('author_name', 'Unknown')
-                        ,"business_unit": metadata.get('business_unit')
+                        "author_name": metadata.get('author_name', 'Unknown'),
+                        "business_unit": metadata.get('business_unit'),
+                        "owner_email": metadata.get('owner_email'),
+                        "owner_name": metadata.get('owner_name'),
                         }
                     },
                     
@@ -473,8 +550,10 @@ def get_active_tasks_as_documents(mode_filter=None):
                         "timestamp": task.get('created_at'),
                         "s3_url": None,  # Will be populated on completion
                         "drive_link": None,  # ✅ Will be populated on completion
-                        "file_size": None  # Will be populated on completion
-                        ,"business_unit": metadata.get('business_unit')
+                        "file_size": None,  # Will be populated on completion
+                        "business_unit": metadata.get('business_unit'),
+                        "owner_email": metadata.get('owner_email'),
+                        "owner_name": metadata.get('owner_name'),
                     }
                 }
                 
@@ -720,23 +799,14 @@ Return ONLY valid JSON, no markdown:
 {{"company_name": "...", "author_name": "...", "author_org": "...", "project_title": "...", "objective": "...", "document_date": "..."}}
 """
 
-        response = bedrock.invoke_model(
-            modelId=config.MODEL_ID,
-            body=json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 500,
-                "temperature": 0.3,
-                "messages": [{"role": "user", "content": prompt}]
-            })
-        )
-
-        response_body = json.loads(response['body'].read())
-        
-        # Track token usage
-        from app.core.nodes import _track_tokens
-        _track_tokens(response_body, "Metadata Extraction (App)")
-        
-        response_text = response_body['content'][0]['text'].strip()
+        response_text = BedrockLLM(config, bedrock).generate(
+            prompt,
+            task="fast",
+            max_tokens=500,
+            temperature=0.1,
+            call_name="Metadata Extraction (App)",
+            fallback_model_id=config.ANALYSIS_MODEL_ID,
+        ).text
 
         json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text, re.DOTALL)
         if json_match:
@@ -1068,6 +1138,8 @@ def process_document_generation(task_id, task_data):
             "project_title": project_name or "To be extracted from document",
             "selected_sow_sections": task_data.get("selected_sow_sections", []),
             "business_unit": task_data.get("business_unit"),
+            "owner_email": task_data.get("owner_email"),
+            "owner_name": task_data.get("owner_name"),
         }
 
         update_task(task_id, progress=10, current_step="Extracting metadata")
@@ -1256,6 +1328,8 @@ def process_document_generation(task_id, task_data):
                             "document_date": metadata["document_date"],
                             "mode": mode,
                             "business_unit": metadata.get("business_unit"),
+                            "owner_email": metadata.get("owner_email"),
+                            "owner_name": metadata.get("owner_name"),
                         },
                         s3_url=s3_url,
                         s3_result=s3_result,
@@ -1374,6 +1448,7 @@ def generate_document():
         business_unit, denied = _business_unit_for_new_record()
         if denied:
             return denied
+        ownership = _ownership_metadata(business_unit)
         mode = request.form.get('mode', '').upper()
 
         if not mode or mode not in ["POC", "PROD", "POC_TO_PROD"]:
@@ -1481,7 +1556,7 @@ def generate_document():
             "company_name": company_name,
             "project_name": project_name,
             "author_name": author_name,
-            "business_unit": business_unit,
+            **ownership,
         })
 
         # Verify task was created successfully
@@ -1507,7 +1582,7 @@ def generate_document():
             'uploaded_file_path': uploaded_file_path,
             'supporting_files': supporting_files,  # List of supporting document paths
             'selected_sow_sections': selected_sow_sections,
-            'business_unit': business_unit,
+            **ownership,
         }
 
         # Start background processing AFTER task is confirmed to exist
@@ -1663,14 +1738,31 @@ def proxy_download():
 
         # The URL alone is not an authority boundary. Confirm that it belongs
         # to a document visible to the current user before reading from S3.
+        # New clients send document_id, which is the DynamoDB partition key and
+        # must be queried directly. A limited Scan applies its limit before its
+        # filter and can therefore miss recent records.
         handler = DynamoDBHandler()
-        lookup = handler.table.scan(
-            FilterExpression='s3_url = :url',
-            ExpressionAttributeValues={':url': s3_url},
-            Limit=10,
-        ).get('Items', [])
         if document_id:
-            lookup = [item for item in lookup if item.get('document_id') == document_id]
+            lookup = handler.table.query(
+                KeyConditionExpression='document_id = :document_id',
+                ExpressionAttributeValues={':document_id': document_id},
+            ).get('Items', [])
+            lookup = [item for item in lookup if item.get('s3_url') == s3_url]
+        else:
+            # Compatibility for older records/clients that do not carry an ID.
+            # Paginate until the URL is found rather than inspecting an
+            # arbitrary first page of the table.
+            lookup = []
+            scan_kwargs = {
+                'FilterExpression': 's3_url = :url',
+                'ExpressionAttributeValues': {':url': s3_url},
+            }
+            while True:
+                page = handler.table.scan(**scan_kwargs)
+                lookup.extend(page.get('Items', []))
+                if lookup or 'LastEvaluatedKey' not in page:
+                    break
+                scan_kwargs['ExclusiveStartKey'] = page['LastEvaluatedKey']
         if not lookup:
             return jsonify({"success": False, "error": "Document not found"}), 404
         if not any(item_is_visible(item, current_identity()) for item in lookup):
@@ -2080,6 +2172,7 @@ def get_companies_grouped():
         companies = handler.get_companies_grouped(
             limit=1000,
             business_unit=_requested_business_unit(),
+            owner_email=current_identity().email if current_identity().is_user else None,
         )
         
         # Calculate totals
@@ -2168,6 +2261,7 @@ def get_company_documents(company_name):
             version=version,
             limit=limit,
             business_unit=_requested_business_unit(),
+            owner_email=current_identity().email if current_identity().is_user else None,
         )
         
         print(f"\n✓ Found {result['total_documents']} documents for {company_name}")
@@ -2280,6 +2374,7 @@ def generate_preview():
         business_unit, denied = _business_unit_for_new_record()
         if denied:
             return denied
+        ownership = _ownership_metadata(business_unit)
         
         mode = request.form.get('mode', '').upper()
         
@@ -2425,7 +2520,7 @@ def generate_preview():
             "timezone": "IST",
             "project_title": project_name,
             "selected_sow_sections": selected_sow_sections,
-            "business_unit": business_unit,
+            **ownership,
         }
         
         # ✅ NEW: Capture project_id and account_id if provided (for linking SOW to project later)
@@ -3527,8 +3622,10 @@ def finalize_document():
             task = create_task(task_id, mode, {
                 "company_name": metadata.get("company_name"),
                 "project_name": metadata.get("project_title"),
-                "author_name": metadata.get("author_name")
-                ,"business_unit": metadata.get("business_unit")
+                "author_name": metadata.get("author_name"),
+                "business_unit": metadata.get("business_unit"),
+                "owner_email": metadata.get("owner_email"),
+                "owner_name": metadata.get("owner_name"),
             })
         
         update_task(task_id, status=TaskStatus.PROCESSING, progress=10, current_step="Building document")
@@ -3616,6 +3713,8 @@ def finalize_document():
                         "document_date": metadata["document_date"],
                         "mode": mode,
                         "business_unit": metadata.get("business_unit"),
+                        "owner_email": metadata.get("owner_email"),
+                        "owner_name": metadata.get("owner_name"),
                     },
                     s3_url=s3_url,
                     s3_result=s3_result,
@@ -3641,8 +3740,10 @@ def finalize_document():
                                 's3_url': s3_url,
                                 'sow_db_id': sow_id,
                                 'document_date': metadata.get("document_date"),
-                                'created_at': datetime.now().isoformat()
-                                ,'business_unit': metadata.get("business_unit")
+                                'created_at': datetime.now().isoformat(),
+                                'business_unit': metadata.get("business_unit"),
+                                'owner_email': metadata.get("owner_email"),
+                                'owner_name': metadata.get("owner_name"),
                             }
                             account_handler.link_sow_to_project(project_id, sow_id, sow_data)
                             print(f"   ✅ Linked SOW {sow_id} to project {project_id}")
@@ -3963,7 +4064,10 @@ def create_account():
 
         segment = data.get('segment', 'Others')
         priority = data.get('priority', 'P3')
-        metadata = {**data.get('metadata', {}), 'business_unit': business_unit}
+        metadata = {
+            **data.get('metadata', {}),
+            **_ownership_metadata(business_unit),
+        }
 
         account = account_handler.create_account(
             account_name=account_name,
@@ -4121,7 +4225,10 @@ def create_project(account_id):
             }), 400
 
         description = data.get('description', '')
-        metadata = {**data.get('metadata', {}), 'business_unit': account.get('business_unit')}
+        metadata = {
+            **data.get('metadata', {}),
+            **_ownership_metadata(account.get('business_unit')),
+        }
 
         project = account_handler.create_project(
             account_id=account_id,
@@ -4506,6 +4613,7 @@ def create_sow_for_project(project_id):
         if denied:
             return denied
         business_unit = project.get('business_unit')
+        ownership = _ownership_metadata(business_unit)
 
         # Extract request data with enhanced fallbacks
         data = request.json
@@ -4545,8 +4653,8 @@ def create_sow_for_project(project_id):
             'mode': mode,
             'objective': objective,
             'project_id': project_id,  # Link to project
-            'account_id': project.get('account_id')  # Link to account
-            ,'business_unit': business_unit
+            'account_id': project.get('account_id'),  # Link to account
+            **ownership,
         }
 
         create_task(task_id, mode, metadata)
@@ -4565,8 +4673,8 @@ def create_sow_for_project(project_id):
                         "company_name": customer_name,  # Required by research_node
                         "project_name": project_name,
                         "mode": mode,
-                        "task_id": task_id
-                        ,"business_unit": business_unit
+                        "task_id": task_id,
+                        **ownership,
                     },
                     "objective": objective,
                     "analyzed_requirements": None,
@@ -4631,8 +4739,8 @@ def create_sow_for_project(project_id):
                                 "author_name": author_name,
                                 "project_name": project_name,
                                 "document_date": datetime.now().strftime("%d %B %Y"),
-                                "mode": mode
-                                ,"business_unit": business_unit
+                                "mode": mode,
+                                **ownership,
                             },
                             s3_url=s3_url,
                             s3_result={"https_url": s3_url, "s3_url": s3_url} if s3_url else None,
@@ -4651,8 +4759,8 @@ def create_sow_for_project(project_id):
                             'project_name': project_name,
                             'drive_link': drive_link,
                             's3_url': s3_url,
-                            'sow_db_id': sow_id
-                            ,'business_unit': business_unit
+                            'sow_db_id': sow_id,
+                            **ownership,
                         }
                         account_handler.link_sow_to_project(project_id, sow_id, sow_data)
 

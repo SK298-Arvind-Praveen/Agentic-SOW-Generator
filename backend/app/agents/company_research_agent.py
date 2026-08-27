@@ -1,9 +1,10 @@
 """
 Company Research Agent - Simplified without prompt caching
 """
-import json
 import boto3
 from typing import List
+
+from app.core.bedrock_llm import BedrockLLM
 
 # Static Shellkode description
 SHELLKODE_DESCRIPTION = "Shellkode specializes in developing advanced data and AI solutions for businesses. The company builds robust data foundations that transform raw inputs into actionable intelligence, creates self-improving machine learning systems, and offers AI-driven services to modernize applications and infrastructure for cloud environments. Shellkode's expertise lies in enhancing data processing, predictive modeling, and cloud migration capabilities."
@@ -18,6 +19,7 @@ class CompanyResearchAgent:
             'bedrock-runtime',
             region_name=config.BEDROCK_REGION
         )
+        self.llm = BedrockLLM(config, self.bedrock_client)
         
         # In-memory cache for companies researched in this session
         self.session_company_cache = {}
@@ -82,23 +84,15 @@ this engagement and connect its business context to the supplied project later i
 Professional tone, 35-70 words. Return only the paragraph."""
         
         try:
-            response = self.bedrock_client.invoke_model(
-                modelId=self.config.MODEL_ID,
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 256,
-                    "temperature": 0.3,
-                    "messages": [{"role": "user", "content": prompt}]
-                })
+            result = self.llm.generate(
+                prompt,
+                task="fast",
+                max_tokens=256,
+                temperature=0.3,
+                call_name=f"Company Context: {company_name}",
+                fallback_model_id=getattr(self.config, "ANALYSIS_MODEL_ID", None),
             )
-            
-            response_body = json.loads(response['body'].read())
-            
-            # Track token usage
-            from app.core.nodes import _track_tokens
-            _track_tokens(response_body, f"Company Research: {company_name}")
-            
-            return response_body['content'][0]['text'].strip()
+            return result.text.strip()
         except Exception as e:
             print(f"Error researching {company_name}: {e}")
             return (

@@ -55,10 +55,53 @@ class Config:
         # Bedrock inference profiles are region-specific. Keep its region
         # independent from DynamoDB/S3 so storage can live in another region.
         self.BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
-        # Using Claude Sonnet 4 - latest model with enhanced capabilities  
-        self.MODEL_ID = os.environ.get(
-            "BEDROCK_MODEL_ID",
-            "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        # Task-specific model routing. BEDROCK_MODEL_ID remains a backwards-
+        # compatible override for deployments that intentionally want one model
+        # everywhere. New deployments use inexpensive models for extraction and
+        # reserve Claude for customer-facing prose and exceptional retries.
+        legacy_model = os.environ.get("BEDROCK_MODEL_ID")
+        self.FAST_MODEL_ID = os.environ.get(
+            "BEDROCK_FAST_MODEL_ID",
+            legacy_model or "us.amazon.nova-micro-v1:0",
+        )
+        self.ANALYSIS_MODEL_ID = os.environ.get(
+            "BEDROCK_ANALYSIS_MODEL_ID",
+            legacy_model or "us.amazon.nova-2-lite-v1:0",
+        )
+        self.WRITER_MODEL_ID = os.environ.get(
+            "BEDROCK_WRITER_MODEL_ID",
+            legacy_model or "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        )
+        self.DIAGRAM_MODEL_ID = os.environ.get(
+            "BEDROCK_DIAGRAM_MODEL_ID",
+            self.ANALYSIS_MODEL_ID,
+        )
+        self.EDITOR_MODEL_ID = os.environ.get(
+            "BEDROCK_EDITOR_MODEL_ID",
+            self.WRITER_MODEL_ID,
+        )
+        self.FALLBACK_MODEL_ID = os.environ.get(
+            "BEDROCK_FALLBACK_MODEL_ID",
+            legacy_model or self.WRITER_MODEL_ID,
+        )
+        # To compare against Sonnet later, set this explicitly instead:
+        # BEDROCK_FALLBACK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
+        # Compatibility for older call sites while they migrate to task routing.
+        self.MODEL_ID = legacy_model or self.WRITER_MODEL_ID
+
+        # Character limits are deliberately conservative token approximations.
+        # Long documents are chunked and merged instead of silently truncated.
+        self.DOCUMENT_ANALYSIS_CHUNK_CHARS = max(
+            40_000,
+            int(os.environ.get("DOCUMENT_ANALYSIS_CHUNK_CHARS", "120000")),
+        )
+        self.DOCUMENT_ANALYSIS_OVERLAP_CHARS = max(
+            0,
+            int(os.environ.get("DOCUMENT_ANALYSIS_OVERLAP_CHARS", "6000")),
+        )
+        self.SECTION_EVIDENCE_MAX_CHARS = max(
+            8_000,
+            int(os.environ.get("SECTION_EVIDENCE_MAX_CHARS", "24000")),
         )
         
         # Model parameters
@@ -306,6 +349,12 @@ class Config:
         return {
             "region": self.BEDROCK_REGION,
             "model_id": self.MODEL_ID,
+            "fast_model_id": self.FAST_MODEL_ID,
+            "analysis_model_id": self.ANALYSIS_MODEL_ID,
+            "writer_model_id": self.WRITER_MODEL_ID,
+            "diagram_model_id": self.DIAGRAM_MODEL_ID,
+            "editor_model_id": self.EDITOR_MODEL_ID,
+            "fallback_model_id": self.FALLBACK_MODEL_ID,
             "max_tokens": self.MAX_TOKENS,
             "temperature": self.TEMPERATURE
         }
@@ -411,7 +460,11 @@ class Config:
         print(f"\n✓ AWS Configuration:")
         print(f"  Storage Region: {self.AWS_REGION}")
         print(f"  Bedrock Region: {self.BEDROCK_REGION}")
-        print(f"  Model: {self.MODEL_ID}")
+        print(f"  Fast Model: {self.FAST_MODEL_ID}")
+        print(f"  Analysis Model: {self.ANALYSIS_MODEL_ID}")
+        print(f"  Writer Model: {self.WRITER_MODEL_ID}")
+        print(f"  Diagram Model: {self.DIAGRAM_MODEL_ID}")
+        print(f"  Fallback Model: {self.FALLBACK_MODEL_ID}")
         print(f"  Max Tokens: {self.MAX_TOKENS}")
         print(f"  Temperature: {self.TEMPERATURE}")
         

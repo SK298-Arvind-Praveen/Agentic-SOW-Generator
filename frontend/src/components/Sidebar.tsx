@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ChevronRight, FileText, BarChart3, Database } from 'lucide-react';
+import { ChevronRight, FileText, BarChart3, Database, UsersRound } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 import ShellkodeLogo from './ShellkodeLogo';
 import './Sidebar.css';
 
@@ -10,6 +11,7 @@ interface NavItem {
   description: string;
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   color: string;
+  adminOnly?: boolean;
   isActive: (pathname: string) => boolean;
 }
 
@@ -37,12 +39,22 @@ const NAV_ITEMS: NavItem[] = [
     icon: BarChart3,
     color: '#10b981',
     isActive: (p) => p.startsWith('/sow-tracker')
+  },
+  {
+    path: '/user-management',
+    label: 'User Management',
+    description: 'Manage users and BU heads',
+    icon: UsersRound,
+    color: '#f59e0b',
+    adminOnly: true,
+    isActive: (p) => p.startsWith('/user-management')
   }
 ];
 
 const Sidebar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { isAdmin } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -62,7 +74,7 @@ const Sidebar: React.FC = () => {
 
       <div className="sidebar-content">
         <nav className="sidebar-nav">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter(item => !item.adminOnly || isAdmin).map((item) => {
             const IconComponent = item.icon;
             const isActive = item.isActive(location.pathname);
 

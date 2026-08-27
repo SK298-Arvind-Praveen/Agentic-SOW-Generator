@@ -92,6 +92,8 @@ class AccountHandler:
         timestamp = datetime.now().isoformat()
         metadata = metadata or {}
         business_unit = metadata.get('business_unit')
+        owner_email = metadata.get('owner_email')
+        owner_name = metadata.get('owner_name')
 
         account_data = {
             'PK': f'ACCOUNT#{account_id}',
@@ -108,6 +110,8 @@ class AccountHandler:
             'updated_at': timestamp,
             'status': 'active',
             'business_unit': business_unit,
+            'owner_email': owner_email,
+            'owner_name': owner_name,
             'metadata': metadata,
         }
 
@@ -314,6 +318,8 @@ class AccountHandler:
         metadata = metadata or {}
         account = self.get_account(account_id) or {}
         business_unit = metadata.get('business_unit') or account.get('business_unit')
+        owner_email = metadata.get('owner_email')
+        owner_name = metadata.get('owner_name')
 
         project_data = {
             'PK': f'ACCOUNT#{account_id}',
@@ -328,6 +334,8 @@ class AccountHandler:
             'updated_at': timestamp,
             'status': 'active',
             'business_unit': business_unit,
+            'owner_email': owner_email,
+            'owner_name': owner_name,
             'metadata': metadata,
         }
 
@@ -617,6 +625,8 @@ class AccountHandler:
                 'account_id': account_id,
                 'linked_at': timestamp,
                 'business_unit': sow_data.get('business_unit') or project.get('business_unit'),
+                'owner_email': sow_data.get('owner_email'),
+                'owner_name': sow_data.get('owner_name'),
                 **sow_data
             }
 

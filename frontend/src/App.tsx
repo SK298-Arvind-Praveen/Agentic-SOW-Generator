@@ -11,12 +11,18 @@ import Accounts from './components/Accounts';
 import AccountDetail from './components/AccountDetail';
 import ProjectDetail from './components/ProjectDetail';
 import SOWTracker from './components/SOWTracker';
+import UserManagement from './components/UserManagement';
 import Layout from './components/Layout';
 import './App.css';
 
 const ProtectedLayout: React.FC = () => {
   const { isAuthenticated } = useAuth();
   return isAuthenticated ? <Layout /> : <Navigate to="/login" />;
+};
+
+const AdminOnly: React.FC<{ children: React.ReactElement }> = ({ children }) => {
+  const { isAdmin } = useAuth();
+  return isAdmin ? children : <Navigate to="/dashboard" replace />;
 };
 
 const App: React.FC = () => {
@@ -43,6 +49,10 @@ const App: React.FC = () => {
             <Route element={<ProtectedLayout />}>
               {/* SOW Tracker Route */}
               <Route path="/sow-tracker" element={<SOWTracker />} />
+              <Route
+                path="/user-management"
+                element={<AdminOnly><UserManagement /></AdminOnly>}
+              />
 
               {/* Account Management Routes */}
               <Route path="/accounts" element={<Accounts />} />

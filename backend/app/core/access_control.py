@@ -17,7 +17,7 @@ from botocore.config import Config as BotoConfig
 from dotenv import load_dotenv
 from flask import g, jsonify, request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 
 load_dotenv(Path(__file__).resolve().parents[2] / "config" / ".env")
@@ -42,6 +42,7 @@ BU_ROLE_BY_NAME = {
     "MLOps": "MLOPS",
 }
 BUSINESS_UNIT_BY_ROLE = {role: unit for unit, role in BU_ROLE_BY_NAME.items()}
+USER_ROLES = ("ADMIN", *BU_ROLE_BY_NAME.values(), "USER")
 
 DEFAULT_SECTION_CATALOGUE = [
     {"id": "document_version_control", "label": "Document Version Control"},
@@ -78,6 +79,9 @@ SAMPLE_USERS = {
     "dataengineering@shellkode.com": {"name": "Data Engineering User", "role": "DATA_ENGINEERING", "business_unit": "Data Engineering"},
     "cloud@shellkode.com": {"name": "Cloud User", "role": "CLOUD", "business_unit": "Cloud"},
     "mlops@shellkode.com": {"name": "MLOps User", "role": "MLOPS", "business_unit": "MLOps"},
+    "ananya.user@shellkode.com": {"name": "Ananya Rao", "role": "USER", "business_unit": "GenAI"},
+    "rohan.user@shellkode.com": {"name": "Rohan Mehta", "role": "USER", "business_unit": "Cloud"},
+    "priya.user@shellkode.com": {"name": "Priya Nair", "role": "USER", "business_unit": "Data Engineering"},
 }
 SAMPLE_PASSWORD = "Shellkode@123"
 
@@ -101,6 +105,14 @@ class Identity:
     @property
     def is_admin(self) -> bool:
         return self.role == "ADMIN"
+
+    @property
+    def is_user(self) -> bool:
+        return self.role == "USER"
+
+    @property
+    def is_bu_head(self) -> bool:
+        return self.role in BUSINESS_UNIT_BY_ROLE
 
     def public_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -144,11 +156,157 @@ class RBACStore:
                     ),
                 )
 
-        if os.getenv("ENABLE_SAMPLE_USERS", "true").casefold() == "true":
+        if os.getenv("ENABLE_SAMPLE_USERS", "false").casefold() == "true":
             sample = SAMPLE_USERS.get(email)
             if sample and password == SAMPLE_PASSWORD:
                 return Identity(email=email, **sample)
         return None
+
+    def active_identity(self, email: str) -> Optional[Identity]:
+        """Load the current role and status so account changes revoke access immediately."""
+        email = email.casefold().strip()
+        user = self.get_user(email)
+        if user:
+            if user.get("status", "active") != "active":
+                return None
+            return Identity(
+                email=email,
+                name=str(user.get("name") or email),
+                role=str(user.get("role", "")).upper(),
+                business_unit=(
+                    normalise_business_unit(user.get("business_unit"))
+                    or BUSINESS_UNIT_BY_ROLE.get(str(user.get("role", "")).upper())
+                ),
+            )
+        if os.getenv("ENABLE_SAMPLE_USERS", "false").casefold() == "true":
+            sample = SAMPLE_USERS.get(email)
+            if sample:
+                return Identity(email=email, **sample)
+        return None
+
+    @staticmethod
+    def _normalise_email(email: str) -> str:
+        email = str(email).casefold().strip()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            raise ValueError("A valid email address is required")
+        return email
+
+    @staticmethod
+    def _normalise_role_and_unit(role: str, business_unit: Optional[str]) -> tuple[str, Optional[str]]:
+        role = str(role).upper().strip()
+        if role not in USER_ROLES:
+            raise ValueError(f"Unknown role: {role}")
+        if role == "ADMIN":
+            return role, None
+        if role in BUSINESS_UNIT_BY_ROLE:
+            return role, BUSINESS_UNIT_BY_ROLE[role]
+        unit = normalise_business_unit(business_unit)
+        if not unit:
+            raise ValueError("business_unit is required for a User")
+        return role, unit
+
+    @staticmethod
+    def _public_user(item: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "email": str(item.get("email", "")),
+            "name": str(item.get("name", "")),
+            "role": str(item.get("role", "")).upper(),
+            "business_unit": normalise_business_unit(item.get("business_unit")),
+            "status": str(item.get("status", "active")),
+            "created_at": item.get("created_at"),
+            "updated_at": item.get("updated_at"),
+        }
+
+    def list_users(self) -> List[Dict[str, Any]]:
+        response = self.table.scan()
+        items = list(response.get("Items", []))
+        while response.get("LastEvaluatedKey"):
+            response = self.table.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
+            items.extend(response.get("Items", []))
+        users = [
+            self._public_user(item)
+            for item in items
+            if str(item.get("PK", "")).startswith("USER#") and item.get("SK") == "PROFILE"
+        ]
+        return sorted(users, key=lambda item: (item["role"] != "ADMIN", item["name"].casefold()))
+
+    def create_user(
+        self,
+        *,
+        email: str,
+        name: str,
+        role: str,
+        business_unit: Optional[str],
+        password: str,
+        created_by: str,
+    ) -> Dict[str, Any]:
+        email = self._normalise_email(email)
+        name = str(name).strip()
+        if not name:
+            raise ValueError("name is required")
+        if len(str(password)) < 8:
+            raise ValueError("password must contain at least 8 characters")
+        role, business_unit = self._normalise_role_and_unit(role, business_unit)
+        timestamp = datetime.now().isoformat()
+        item = {
+            "PK": f"USER#{email}",
+            "SK": "PROFILE",
+            "email": email,
+            "name": name,
+            "role": role,
+            "business_unit": business_unit or "",
+            "password_hash": generate_password_hash(str(password)),
+            "status": "active",
+            "created_at": timestamp,
+            "updated_at": timestamp,
+            "updated_by": created_by,
+        }
+        try:
+            self.table.put_item(
+                Item=item,
+                ConditionExpression="attribute_not_exists(PK)",
+            )
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                raise ValueError("A user with this email already exists") from exc
+            raise
+        return self._public_user(item)
+
+    def update_user(self, email: str, updates: Dict[str, Any], updated_by: str) -> Dict[str, Any]:
+        email = self._normalise_email(email)
+        item = self.get_user(email)
+        if not item:
+            raise LookupError("User not found")
+        name = str(updates.get("name", item.get("name", ""))).strip()
+        if not name:
+            raise ValueError("name is required")
+        role, business_unit = self._normalise_role_and_unit(
+            updates.get("role", item.get("role", "")),
+            updates.get("business_unit", item.get("business_unit")),
+        )
+        status = str(updates.get("status", item.get("status", "active"))).casefold()
+        if status not in {"active", "inactive"}:
+            raise ValueError("status must be active or inactive")
+        item.update({
+            "name": name,
+            "role": role,
+            "business_unit": business_unit or "",
+            "status": status,
+            "updated_at": datetime.now().isoformat(),
+            "updated_by": updated_by,
+        })
+        if updates.get("password"):
+            if len(str(updates["password"])) < 8:
+                raise ValueError("password must contain at least 8 characters")
+            item["password_hash"] = generate_password_hash(str(updates["password"]))
+        self.table.put_item(Item=item)
+        return self._public_user(item)
+
+    def delete_user(self, email: str) -> None:
+        email = self._normalise_email(email)
+        if not self.get_user(email):
+            raise LookupError("User not found")
+        self.table.delete_item(Key={"PK": f"USER#{email}", "SK": "PROFILE"})
 
     def list_sections(self) -> List[Dict[str, Any]]:
         try:
@@ -205,7 +363,10 @@ def require_auth(view):
         if not header.startswith("Bearer "):
             return jsonify({"success": False, "error": "Authentication required"}), 401
         try:
-            g.current_identity = verify_token(header[7:].strip())
+            token_identity = verify_token(header[7:].strip())
+            g.current_identity = RBACStore().active_identity(token_identity.email)
+            if not g.current_identity:
+                return jsonify({"success": False, "error": "Account is inactive or no longer exists"}), 401
         except SignatureExpired:
             return jsonify({"success": False, "error": "Session expired"}), 401
         except (BadSignature, KeyError, ValueError):
@@ -234,6 +395,9 @@ def item_is_visible(item: Dict[str, Any], identity: Identity, requested: Optiona
     target = scoped_business_unit(identity, requested)
     if identity.is_admin and target is None:
         return True
+    if identity.is_user:
+        owner_email = str(item.get("owner_email") or item.get("created_by_email") or "").casefold().strip()
+        return bool(owner_email) and owner_email == identity.email.casefold().strip()
     try:
         return normalise_business_unit(item.get("business_unit")) == target
     except ValueError:

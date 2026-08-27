@@ -73,6 +73,16 @@ export interface DocumentsResponse {
   };
 }
 
+export interface ManagedUser {
+  email: string;
+  name: string;
+  role: 'ADMIN' | 'GENAI' | 'DATABASE_MANAGEMENT' | 'DATA_ENGINEERING' | 'CLOUD' | 'MLOPS' | 'USER';
+  business_unit: string | null;
+  status: 'active' | 'inactive';
+  created_at?: string;
+  updated_at?: string;
+}
+
 class APIService {
   private async authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
     const token = localStorage.getItem('authToken');
@@ -96,6 +106,31 @@ class APIService {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Unable to sign in');
     return data;
+  }
+
+  async fetchManagedUsers(): Promise<{ success: boolean; users: ManagedUser[]; business_units: string[] }> {
+    return this.makeRequest('/api/admin/users', 'GET') as Promise<{ success: boolean; users: ManagedUser[]; business_units: string[] }>;
+  }
+
+  async createManagedUser(data: {
+    email: string;
+    name: string;
+    role: ManagedUser['role'];
+    business_unit?: string | null;
+    password: string;
+  }): Promise<{ success: boolean; user: ManagedUser }> {
+    return this.makeRequest('/api/admin/users', 'POST', data) as Promise<{ success: boolean; user: ManagedUser }>;
+  }
+
+  async updateManagedUser(
+    email: string,
+    data: Partial<Pick<ManagedUser, 'name' | 'role' | 'business_unit' | 'status'>> & { password?: string },
+  ): Promise<{ success: boolean; user: ManagedUser }> {
+    return this.makeRequest(`/api/admin/users/${encodeURIComponent(email)}`, 'PUT', data) as Promise<{ success: boolean; user: ManagedUser }>;
+  }
+
+  async deleteManagedUser(email: string): Promise<{ success: boolean }> {
+    return this.makeRequest(`/api/admin/users/${encodeURIComponent(email)}`, 'DELETE') as Promise<{ success: boolean }>;
   }
 
   async fetchSowSections(): Promise<any> {
@@ -877,7 +912,14 @@ class APIService {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to download: ${response.statusText}`);
+        let message = response.statusText || `HTTP ${response.status}`;
+        try {
+          const payload = await response.json();
+          message = payload?.error || payload?.message || message;
+        } catch {
+          // Keep the HTTP status text when the server did not return JSON.
+        }
+        throw new Error(message);
       }
 
       return await response.blob();

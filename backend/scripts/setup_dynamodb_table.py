@@ -296,24 +296,50 @@ def seed_rbac_data():
     region = os.getenv("AWS_REGION", "us-east-1")
     table_name = os.getenv("DYNAMODB_TABLE_RBAC", "agentic-sow-rbac")
     table = boto3.resource("dynamodb", region_name=region, **aws_client_kwargs()).Table(table_name)
+    created_users = 0
     for email, profile in SAMPLE_USERS.items():
-        table.put_item(Item={
-            "PK": f"USER#{email}",
-            "SK": "PROFILE",
-            "email": email,
-            "name": profile["name"],
-            "role": profile["role"],
-            "business_unit": profile.get("business_unit") or "",
-            "password_hash": generate_password_hash(SAMPLE_PASSWORD),
-            "status": "active",
-        })
-    table.put_item(Item={
-        "PK": "CONFIG",
-        "SK": "SOW_SECTIONS",
-        "sections": DEFAULT_SECTION_CATALOGUE,
-        "updated_by": "setup_dynamodb_table.py",
-    })
-    print(f"✅ Seeded {len(SAMPLE_USERS)} test users and the SOW section catalogue")
+        try:
+            table.put_item(
+                Item={
+                    "PK": f"USER#{email}",
+                    "SK": "PROFILE",
+                    "email": email,
+                    "name": profile["name"],
+                    "role": profile["role"],
+                    "business_unit": profile.get("business_unit") or "",
+                    "password_hash": generate_password_hash(SAMPLE_PASSWORD),
+                    "status": "active",
+                },
+                ConditionExpression="attribute_not_exists(PK)",
+            )
+            created_users += 1
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+                raise
+    created_catalogue = True
+    try:
+        table.put_item(
+            Item={
+                "PK": "CONFIG",
+                "SK": "SOW_SECTIONS",
+                "sections": DEFAULT_SECTION_CATALOGUE,
+                "updated_by": "setup_dynamodb_table.py",
+            },
+            ConditionExpression="attribute_not_exists(PK)",
+        )
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+            raise
+        created_catalogue = False
+    print(
+        f"✅ Seeded {created_users} new test user(s); "
+        f"preserved {len(SAMPLE_USERS) - created_users} existing user(s)"
+    )
+    print(
+        "✅ Seeded the SOW section catalogue"
+        if created_catalogue
+        else "✅ Preserved the existing SOW section catalogue"
+    )
 
 
 def main():

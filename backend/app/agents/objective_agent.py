@@ -6,8 +6,11 @@ import json
 import os
 import re
 import boto3
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any
-from app.core.sow_quality import normalize_requirements
+from app.core.bedrock_llm import BedrockLLM
+from app.core.document_context import chunk_document
+from app.core.sow_quality import merge_requirement_extractions, normalize_requirements
 
 
 class ObjectiveAgent:
@@ -30,6 +33,7 @@ class ObjectiveAgent:
             aws_session_token=os.getenv('AWS_SESSION_TOKEN'),
             config=config.BOTO_CONFIG
         )
+        self.llm = BedrockLLM(config, self.bedrock)
 
     def analyze_objective(self, objective: str, supporting_context: str = None) -> Dict[str, Any]:
         """
@@ -61,51 +65,44 @@ class ObjectiveAgent:
                 if value:
                     print(f"   {key}: {value}")
 
-        prompt = self._build_analysis_prompt(objective, supporting_context)
-
-        response = self.bedrock.invoke_model(
-            modelId=self.config.MODEL_ID,
-            body=json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": self.config.MAX_TOKENS,
-                "temperature": self.config.TEMPERATURE,
-                "messages": [{"role": "user", "content": prompt}]
-            })
+        chunks = chunk_document(
+            supporting_context or "",
+            max_chars=getattr(self.config, "DOCUMENT_ANALYSIS_CHUNK_CHARS", 120_000),
+            overlap_chars=getattr(self.config, "DOCUMENT_ANALYSIS_OVERLAP_CHARS", 6_000),
         )
+        if not chunks:
+            chunks = [""]
 
-        response_body = json.loads(response['body'].read())
-        
-        # Track token usage
-        from app.core.nodes import _track_tokens
-        _track_tokens(response_body, "Objective Analysis")
-        
-        content = response_body['content'][0]['text']
+        if len(chunks) > 1:
+            print(
+                f"📚 Analysing the complete supporting corpus in {len(chunks)} "
+                "overlapping evidence chunks"
+            )
 
-        # Strip markdown code fences if present
-        content = content.strip()
-        for prefix in ('```json', '```'):
-            if content.startswith(prefix):
-                content = content[len(prefix):]
-        if content.endswith('```'):
-            content = content[:-3]
-        content = content.strip()
-
-        try:
-            requirements = json.loads(content)
-            print("✅ ObjectiveAgent: JSON parsed successfully")
-        except json.JSONDecodeError as e:
-            print(f"⚠️  JSON parse error: {e} — attempting extraction")
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if json_match:
+        extractions = []
+        worker_count = min(4, len(chunks))
+        with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="requirements") as executor:
+            futures = {
+                executor.submit(self._analyze_chunk, objective, chunk, index, len(chunks)): index
+                for index, chunk in enumerate(chunks, 1)
+            }
+            ordered: Dict[int, Dict[str, Any]] = {}
+            for future in as_completed(futures):
+                index = futures[future]
                 try:
-                    requirements = json.loads(json_match.group())
-                    print("✅ ObjectiveAgent: JSON extracted from response")
-                except json.JSONDecodeError:
-                    print("❌ ObjectiveAgent: JSON extraction failed — using fallback")
-                    requirements = self._get_fallback_requirements(objective)
-            else:
-                print("❌ ObjectiveAgent: No JSON found — using fallback")
-                requirements = self._get_fallback_requirements(objective)
+                    parsed = future.result()
+                    if parsed:
+                        ordered[index] = parsed
+                except Exception as exc:
+                    print(f"⚠ Requirements chunk {index}/{len(chunks)} failed: {exc}")
+            extractions = [ordered[index] for index in sorted(ordered)]
+
+        if extractions:
+            requirements = merge_requirement_extractions(extractions)
+            print(f"✅ ObjectiveAgent: merged {len(extractions)}/{len(chunks)} complete-document analyses")
+        else:
+            print("❌ ObjectiveAgent: no valid analysis JSON — using fallback")
+            requirements = self._get_fallback_requirements(objective)
 
         # ✅ NEW: Override LLM-generated data with user-provided specific data
         if extracted_data:
@@ -134,6 +131,53 @@ class ObjectiveAgent:
 
         self._log_analysis_summary(requirements)
         return requirements
+
+    def _analyze_chunk(
+        self,
+        objective: str,
+        supporting_context: str,
+        index: int,
+        total: int,
+    ) -> Dict[str, Any]:
+        chunk_context = supporting_context
+        if total > 1:
+            chunk_context = (
+                f"SUPPORTING CORPUS PART {index} OF {total}. Extract every fact present in "
+                "this part. Do not interpret absence from this part as absence from the complete corpus.\n\n"
+                f"{supporting_context}"
+            )
+        prompt = self._build_analysis_prompt(objective, chunk_context)
+        result = self.llm.generate(
+            prompt,
+            task="analysis",
+            max_tokens=min(getattr(self.config, "MAX_TOKENS", 8192), 8192),
+            temperature=getattr(self.config, "TEMPERATURE", 0.2),
+            call_name=f"Objective Analysis {index}/{total}",
+            fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+        )
+        return self._parse_json(result.text)
+
+    @staticmethod
+    def _parse_json(content: str) -> Dict[str, Any]:
+        content = (content or "").strip()
+        for prefix in ("```json", "```"):
+            if content.startswith(prefix):
+                content = content[len(prefix):]
+        if content.endswith("```"):
+            content = content[:-3]
+        content = content.strip()
+        try:
+            value = json.loads(content)
+            return value if isinstance(value, dict) else {}
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", content, re.DOTALL)
+            if not match:
+                return {}
+            try:
+                value = json.loads(match.group())
+                return value if isinstance(value, dict) else {}
+            except json.JSONDecodeError:
+                return {}
 
     # ------------------------------------------------------------------
     # Private helpers

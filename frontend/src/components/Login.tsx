@@ -119,7 +119,8 @@ const Login: React.FC = () => {
 
           <div className="login-footer">
             <p className="demo-info">Test password: Shellkode@123</p>
-            <p className="demo-info">Admin: admin@shellkode.com · BU example: genai@shellkode.com</p>
+            <p className="demo-info">Admin: admin@shellkode.com · BU head: genai@shellkode.com</p>
+            <p className="demo-info">User example: ananya.user@shellkode.com</p>
           </div>
         </div>
       </div>

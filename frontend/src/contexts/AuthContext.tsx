@@ -7,7 +7,7 @@ export type BusinessUnit = typeof BUSINESS_UNITS[number];
 export interface AuthUser {
   email: string;
   name: string;
-  role: 'ADMIN' | 'GENAI' | 'DATABASE_MANAGEMENT' | 'DATA_ENGINEERING' | 'CLOUD' | 'MLOPS';
+  role: 'ADMIN' | 'GENAI' | 'DATABASE_MANAGEMENT' | 'DATA_ENGINEERING' | 'CLOUD' | 'MLOPS' | 'USER';
   business_unit: BusinessUnit | null;
 }
 

@@ -23,6 +23,8 @@ import boto3
 from PIL import Image, ImageDraw, ImageFont
 from lxml import etree as LET
 
+from app.core.bedrock_llm import BedrockLLM
+
 
 ASSET_KEY = "architecture_diagram_assets"
 LEGACY_ASSET_KEY = "architecture_diagram_asset"
@@ -452,6 +454,7 @@ class DiagramService:
             aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
             config=config.BOTO_CONFIG,
         )
+        self.llm = BedrockLLM(config, self.bedrock)
 
     @staticmethod
     def _eligible_types(requirements: Dict[str, Any], narrative: str) -> List[str]:
@@ -565,23 +568,15 @@ SOURCE:
         title = f"{metadata.get('project_title', 'Solution')} — Proposed Architecture"
         eligible_types = self._eligible_types(requirements, narrative)
         try:
-            response = self.bedrock.invoke_model(
-                modelId=self.config.MODEL_ID,
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 5200,
-                    "temperature": 0.05,
-                    "messages": [{"role": "user", "content": self._prompt(requirements, metadata, narrative, eligible_types)}],
-                }),
+            result = self.llm.generate(
+                self._prompt(requirements, metadata, narrative, eligible_types),
+                task="diagram",
+                max_tokens=5200,
+                temperature=0.05,
+                call_name="Architecture Diagram",
+                fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
             )
-            body = json.loads(response["body"].read())
-            text = body["content"][0]["text"]
-            try:
-                from app.core.nodes import _track_tokens
-                _track_tokens(body, "Architecture Diagram")
-            except Exception:
-                pass
-            raw = _extract_json(text)
+            raw = _extract_json(result.text)
             raw_diagrams = raw.get("diagrams") if isinstance(raw.get("diagrams"), list) else [raw]
             accepted: Dict[str, Tuple[str, str, DiagramSpec]] = {}
             for item in raw_diagrams:
