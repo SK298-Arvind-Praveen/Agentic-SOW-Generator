@@ -143,7 +143,10 @@ def section_category(title: str) -> Optional[str]:
         return "document_version_control"
     if "acceptance and signator" in normalised:
         return "acceptance_signatories"
-    if "about author organisation" in normalised:
+    if (
+        "about author organisation" in normalised
+        or normalised in {"about shellkode", "about shellkode pvt ltd"}
+    ):
         return "about_shellkode"
     if "about customer" in normalised:
         return "about_client"

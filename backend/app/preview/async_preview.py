@@ -3,7 +3,6 @@ Async Preview Processing for Better User Experience
 """
 import sys
 import threading
-import time
 from pathlib import Path
 from typing import Dict, Any
 
@@ -24,39 +23,24 @@ def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fa
             from app.core.nodes import reset_token_usage
             reset_token_usage()
             
-            # Phase 1: Initializing (0-10%)
-            with preview_lock:
-                if preview_id in preview_storage:
-                    preview_storage[preview_id]["status"] = "initializing"
-                    preview_storage[preview_id]["progress"] = 5
-                    preview_storage[preview_id]["current_step"] = "Setting up preview generation..."
-            
-            time.sleep(0.2)  # Brief pause for initialization
-            
-            # Phase 2: Research (10-30%)
-            with preview_lock:
-                if preview_id in preview_storage:
-                    preview_storage[preview_id]["status"] = "researching"
-                    preview_storage[preview_id]["progress"] = 15
-                    preview_storage[preview_id]["current_step"] = "Researching company and project data..."
-            
-            time.sleep(0.5)
-            
-            # Phase 3: Analysis (30-60%)
-            with preview_lock:
-                if preview_id in preview_storage:
-                    preview_storage[preview_id]["status"] = "analyzing"
-                    preview_storage[preview_id]["progress"] = 35
-                    preview_storage[preview_id]["current_step"] = "Analyzing requirements and objectives..."
-            
-            time.sleep(0.5)
-            
-            # Phase 4: Generation (60-90%)
-            with preview_lock:
-                if preview_id in preview_storage:
-                    preview_storage[preview_id]["status"] = "generating"
-                    preview_storage[preview_id]["progress"] = 65
-                    preview_storage[preview_id]["current_step"] = "Generating document content..."
+            def report_progress(progress: int, step: str) -> None:
+                with preview_lock:
+                    if preview_id not in preview_storage:
+                        return
+                    current = int(preview_storage[preview_id].get("progress", 0) or 0)
+                    progress = max(current, min(int(progress), 99))
+                    preview_storage[preview_id]["progress"] = progress
+                    preview_storage[preview_id]["current_step"] = step
+                    preview_storage[preview_id]["status"] = (
+                        "researching" if progress < 30 else
+                        "analyzing" if progress < 50 else
+                        "validating" if progress < 60 else
+                        "generating"
+                    )
+
+            report_progress(5, "Preparing preview workflow")
+            graph_state = dict(initial_state)
+            graph_state["progress_callback"] = report_progress
             
             # Import here to avoid circular imports
             from app.core.graph import create_fast_preview_graph, create_preview_graph
@@ -68,16 +52,14 @@ def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fa
                 preview_graph = create_preview_graph()
             
             # Run the actual graph
-            final_state = preview_graph.invoke(initial_state)
+            final_state = preview_graph.invoke(graph_state)
             
             # Phase 5: Finalizing (90-100%)
             with preview_lock:
                 if preview_id in preview_storage:
                     preview_storage[preview_id]["status"] = "finalizing"
-                    preview_storage[preview_id]["progress"] = 90
+                    preview_storage[preview_id]["progress"] = 96
                     preview_storage[preview_id]["current_step"] = "Finalizing content structure..."
-            
-            time.sleep(0.3)
             
             # Get the generated content
             poc_content = final_state.get("poc_content", {})

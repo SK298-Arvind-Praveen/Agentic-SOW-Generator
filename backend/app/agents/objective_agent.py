@@ -46,18 +46,26 @@ class ObjectiveAgent:
         Returns:
             Dictionary containing all analyzed requirements for template generation
         """
-        if not objective or not objective.strip():
+        objective = (objective or "").strip()
+        has_supporting_context = bool((supporting_context or "").strip())
+        document_only = not objective and has_supporting_context
+        if document_only:
+            print("📄 Empty project-details box — supporting documents are the authoritative source")
+        elif not objective:
             print("⚠️  Empty objective provided — preserving the gap for clarification")
-            objective = "Project objective was not provided and must be confirmed during discovery."
-
-        objective = objective.strip()
 
         if len(objective) < 10:
             print(f"⚠️  Very short objective ({len(objective)} chars) — analyzing without inventing scope")
 
-        # ✅ NEW: Extract specific data from objective before LLM analysis
-        print("🔍 Extracting specific data from objective...")
-        extracted_data = self._extract_specific_data_from_objective(objective)
+        # Deterministic extraction is appropriate only when typed details are
+        # the sole baseline. With an upload, typed text is generation guidance
+        # and must not be directly mapped into confirmed requirements.
+        print("🔍 Extracting specific data from typed baseline..." if not has_supporting_context else
+              "🧭 Applying typed text as guidance over uploaded evidence...")
+        extracted_data = (
+            self._extract_specific_data_from_objective(objective)
+            if objective and not has_supporting_context else {}
+        )
         
         if extracted_data:
             print(f"✅ Found specific data in objective:")
@@ -102,7 +110,7 @@ class ObjectiveAgent:
             print(f"✅ ObjectiveAgent: merged {len(extractions)}/{len(chunks)} complete-document analyses")
         else:
             print("❌ ObjectiveAgent: no valid analysis JSON — using fallback")
-            requirements = self._get_fallback_requirements(objective)
+            requirements = self._get_fallback_requirements(objective, supporting_context)
 
         # ✅ NEW: Override LLM-generated data with user-provided specific data
         if extracted_data:
@@ -110,7 +118,12 @@ class ObjectiveAgent:
             requirements = self._merge_extracted_data(requirements, extracted_data)
 
         # Ensure all required fields are present (fill gaps with defaults)
-        requirements = self._ensure_complete_fields(requirements, objective)
+        requirements = self._ensure_complete_fields(
+            requirements,
+            "" if has_supporting_context else objective,
+        )
+        if objective:
+            requirements["_generation_guidance"] = objective
 
         # ✅ NEW: Override UI detection if negative context is present
         negative_indicators = [
@@ -184,23 +197,45 @@ class ObjectiveAgent:
     # ------------------------------------------------------------------
 
     def _build_analysis_prompt(self, objective: str, supporting_context: str = None) -> str:
+        objective = (objective or "").strip()
+        has_objective = bool(objective)
+        has_supporting_context = bool((supporting_context or "").strip())
         context_section = ""
         if supporting_context:
             context_section = f"""
 
-ADDITIONAL SUPPORTING CONTEXT:
-The following documents provide additional context and requirements for this project:
+SOURCE 1 - SUPPORTING DOCUMENT CORPUS (primary factual and scope authority):
+The following extracted documents provide requirements and project context:
 
 {supporting_context}
 
-Use this supporting information to enrich your analysis and extract more detailed requirements.
+Extract the complete named workflows, modules, deliverables, requirements, systems, roles,
+data fields, rules, dependencies, exclusions, and acceptance evidence. Preserve identifiers,
+numbers, and customer terminology. Do not replace specifics with generic summaries.
 """
+
+        guidance_section = objective if has_objective else "(No additional generation guidance supplied.)"
+        typed_baseline = objective if has_objective else "(No typed project details supplied.)"
+
+        source_intro = (
+            f"""{context_section}
+
+USER GENERATION GUIDANCE (applies across the complete SOW):
+{guidance_section}
+
+Treat this as instructions for interpreting and presenting the uploaded evidence, not as a
+replacement factual objective. It may prioritise deliverables, exclude or defer capabilities,
+change scope treatment, or specify tone and structure. Follow explicit instructions such as
+moving a document capability to future scope, while preserving traceability to the document.
+Do not convert casual guidance into an unstated customer fact."""
+            if has_supporting_context else
+            f"""SOURCE 1 - TYPED PROJECT DETAILS (primary source because no document was uploaded):
+{typed_baseline}"""
+        )
 
         return f"""You are the requirements analyst for a professional AWS Statement of Work.
 
-SOURCE 1 - USER'S PRODUCT DETAILS (highest authority):
-{objective}
-{context_section}
+{source_intro}
 
 Extract facts and produce a useful solution hypothesis, while keeping the two separate.
 Never turn an absent number, integration, compliance framework, service, SLA, date, data
@@ -253,6 +288,9 @@ Rules:
 - ui_required is true only for an explicitly positive UI/dashboard/portal requirement.
 - Do not automatically add CloudWatch, CloudTrail, IAM, KMS, Lambda, S3, or any other service.
 - Proposed services must be justified by the workflow and presented as proposed.
+- When supporting documents are supplied, their explicit facts, scope and deliverables are
+  authoritative. User guidance controls prioritisation, inclusion, deferral and presentation;
+  it does not silently replace the evidence baseline.
 - Extract all useful detail from short input, but express unknowns as clarifications rather than fake precision.
 - Respond with JSON only, beginning with {{ and ending with }}.
 """
@@ -279,14 +317,36 @@ Rules:
         print(f"  MRR Estimate:      {f'${mrr:,}/month' if isinstance(mrr, (int, float)) else 'not provided'}")
         print(f"  Accuracy Target:   {req.get('accuracy_metrics', {}).get('target_percentage', '?')}%\n")
 
-    def _get_fallback_requirements(self, objective: str) -> Dict[str, Any]:
+    def _get_fallback_requirements(
+        self, objective: str, supporting_context: str = None
+    ) -> Dict[str, Any]:
         """
         Minimal fallback requirements when AI analysis fails entirely.
         All downstream code must handle these defaults gracefully.
         """
+        source_lines = [
+            re.sub(r"\s+", " ", line).strip(" |-:")
+            for line in str(supporting_context or "").splitlines()
+            if line.strip() and not re.fullmatch(r"[-= ]+", line.strip())
+        ]
+        specific_lines = []
+        for line in source_lines:
+            lowered = line.casefold()
+            if any(token in lowered for token in (
+                "requirement", "deliverable", "module", "workflow", "acceptance",
+                "output", "must", "shall", "integration", "data",
+            )):
+                specific_lines.append(line)
+        overview = (
+            " ".join(source_lines[:3])[:1200]
+            if supporting_context
+            else f"The stated project need is: {objective}"
+        )
         return normalize_requirements({
-            "project_overview": f"The stated project need is: {objective}",
-            "source_basis": ["User product details"],
+            "project_overview": overview,
+            "functional_requirements": specific_lines[:30],
+            "key_deliverables": specific_lines[:20],
+            "source_basis": ["Supporting document corpus"] if supporting_context else ["User product details"],
             "requirements_provenance": {"project_overview": "confirmed"},
             "planning_assumptions": [
                 "The draft will use a proposed AWS architecture until discovery confirms the target environment and constraints."
@@ -296,7 +356,8 @@ Rules:
             ],
             "industry": "generic",
             "ui_required": False,
-        }, objective=objective, mode="POC")
+            "_generation_guidance": objective if objective else "",
+        }, objective="" if supporting_context else objective, mode="POC")
     def _extract_specific_data_from_objective(self, objective: str) -> Dict[str, Any]:
         """
         Extract specific data like pricing, timelines, SKUs, etc. from the objective text

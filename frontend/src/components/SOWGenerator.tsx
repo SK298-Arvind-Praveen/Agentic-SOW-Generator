@@ -7,7 +7,7 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import apiService from '../services/apiService';
 import SOWSectionChecklist from './SOWSectionChecklist';
-import { hasProjectScopeSource, MIN_PROJECT_SCOPE_LENGTH } from './sowInputValidation';
+import { hasProjectScopeSource } from './sowInputValidation';
 import DiagramEditorModal, { ArchitectureDiagramAsset } from './DiagramEditorModal';
 import {
   EditableMarkdownSection,
@@ -47,8 +47,7 @@ interface SOWGeneratorProps {
 }
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_FILE_TYPES = ['.pdf', '.doc', '.docx', '.txt'];
-const MIN_OBJECTIVE_LENGTH = MIN_PROJECT_SCOPE_LENGTH;
+const ALLOWED_FILE_TYPES = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt'];
 
 // Helper function to determine the best company name
 const getCompanyName = (accountName?: string, projectName?: string, currentValue?: string): string => {
@@ -451,11 +450,44 @@ Date                                         Date`
       return (
         companyNameValid &&
         formData.authorName.trim() !== '' &&
+        formData.authorOrganization.trim() !== '' &&
         formData.documentDate !== '' &&
         hasProjectScopeSource(formData.projectObjective, formData.uploadedFiles)
       );
     }
   }, [formData, selectedSowSections]);
+
+  const getMissingFormFields = useCallback((): string[] => {
+    const missing: string[] = [];
+    if (selectedSowSections.length === 0) missing.push('at least one SOW section');
+    if (!formData.businessUnit) {
+      missing.push(isAdmin ? 'SOW owner/business unit' : 'business unit assignment for your profile');
+    }
+    if (formData.generationMode === 'poc-to-production') {
+      if (!formData.uploadedFiles?.length) missing.push('a POC document');
+      return missing;
+    }
+    if (!formData.companyName.trim() || ['Loading...', 'Auto-populated from project context'].includes(formData.companyName.trim())) {
+      missing.push('company name');
+    }
+    if (!formData.authorName.trim()) missing.push('author name');
+    if (!formData.authorOrganization.trim()) missing.push('project name');
+    if (!formData.documentDate) missing.push('document date');
+    if (!hasProjectScopeSource(formData.projectObjective, formData.uploadedFiles)) {
+      missing.push('a supporting document or additional details');
+    }
+    return missing;
+  }, [formData, isAdmin, selectedSowSections]);
+
+  const showMissingFields = useCallback(() => {
+    const missing = getMissingFormFields();
+    if (missing.length) {
+      toast.error(`Please provide: ${missing.join(', ')}.`, {
+        position: 'top-right',
+        autoClose: 6000,
+      });
+    }
+  }, [getMissingFormFields]);
 
   const validateFile = (file: File): string | null => {
     if (file.size > MAX_FILE_SIZE) {
@@ -464,7 +496,7 @@ Date                                         Date`
 
     const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
     if (!ALLOWED_FILE_TYPES.includes(fileExtension)) {
-      return `File type "${fileExtension}" is not supported`;
+      return 'Unsupported file type. Supported files: PDF, Word, Excel, and TXT.';
     }
 
     return null;
@@ -535,6 +567,7 @@ Date                                         Date`
 
   const handleGenerateSOW = async () => {
     if (!isFormValid()) {
+      showMissingFields();
       return;
     }
 
@@ -729,7 +762,7 @@ Date                                         Date`
 
   const handlePreview = async () => {
     if (!isFormValid()) {
-      toast.error('Complete the required fields and provide project scope text or a BRD/supporting document');
+      showMissingFields();
       return;
     }
 
@@ -819,59 +852,26 @@ Date                                         Date`
           closeButton: true,
         });
 
-        // Track progress with smart increments based on steps
+        // Report only backend milestones and completed-section counts. The
+        // backend owns the percentage; the UI must not fabricate progress.
         let currentProgressToast: any = null;
-        const progressMap: { [key: string]: number } = {
-          'Validating inputs': 10,
-          'Extracting metadata': 15,
-          'Retrieving RAG data': 20,
-          'Retrieving POC RAG data': 20,
-          'Retrieving PROD RAG data': 20,
-          'Generating document': 30,
-          'Researching': 35,
-          'Research': 35,
-          'Analyzing': 45,
-          'Analyze': 45,
-          'Validating': 55,
-          'Validate': 55,
-          'Generating content': 70,
-          'Generate': 70,
-          'Building document': 85,
-          'Build': 85,
-          'Document generated': 95,
-          'Uploading': 98,
-          'Completed': 100,
+        let pollInterval: ReturnType<typeof setInterval> | null = null;
+        let safetyTimeout: ReturnType<typeof setTimeout> | null = null;
+        let pollingFinished = false;
+        const stopPolling = () => {
+          pollingFinished = true;
+          if (pollInterval) clearInterval(pollInterval);
+          if (safetyTimeout) clearTimeout(safetyTimeout);
         };
 
-        const getProgressFromStep = (step: string): number => {
-          // Try exact match first
-          if (progressMap[step]) return progressMap[step];
-
-          // Try partial match
-          for (const [key, value] of Object.entries(progressMap)) {
-            if (step.toLowerCase().includes(key.toLowerCase())) {
-              return value;
-            }
-          }
-
-          // Default based on backend progress or 50%
-          return 50;
-        };
-
-        // Start polling the status API every 10 seconds
-        const pollInterval = setInterval(async () => {
+        const pollPreviewStatus = async () => {
+          if (pollingFinished) return;
           try {
             console.log('Polling status for preview_id:', response.preview_id);
             const statusResponse = await apiService.checkPreviewStatus(response.preview_id);
             console.log('Status API Response:', statusResponse);
 
-            // Calculate smart progress based on current step
-            let displayProgress = statusResponse.progress || 50;
-            if (statusResponse.current_step) {
-              const stepProgress = getProgressFromStep(statusResponse.current_step);
-              // Use the higher of backend progress or step-based progress
-              displayProgress = Math.max(displayProgress, stepProgress);
-            }
+            const displayProgress = Number(statusResponse.progress ?? 0);
 
             // Update or create progress toast
             if (statusResponse.current_step) {
@@ -894,7 +894,7 @@ Date                                         Date`
             // Check for error conditions FIRST
             if (statusResponse.has_error || statusResponse.status === 'failed' || statusResponse.status === 'error') {
               // Stop polling on error
-              clearInterval(pollInterval);
+              stopPolling();
 
               const errorMsg = statusResponse.error || statusResponse.message || 'Preview generation failed';
               console.error('Preview generation failed:', {
@@ -929,7 +929,7 @@ Date                                         Date`
               }
 
               // Stop polling
-              clearInterval(pollInterval);
+              stopPolling();
 
               // Verify we have valid content before showing modal
               if (hasContent) {
@@ -955,24 +955,33 @@ Date                                         Date`
             }
           } catch (error) {
             console.error('Status polling error:', error);
-            clearInterval(pollInterval);
+            stopPolling();
             toast.error('❌ Failed to check preview status', {
               position: 'bottom-right',
               autoClose: 5000,
               closeButton: true,
             });
           }
-        }, 10000); // Poll every 10 seconds
+        };
+
+        // Fetch once immediately, then poll often enough to expose real node
+        // and section milestones without creating excessive API traffic.
+        await pollPreviewStatus();
+        if (!pollingFinished) {
+          pollInterval = setInterval(pollPreviewStatus, 4000);
+        }
 
         // Set a timeout to stop polling after 5 minutes (safety measure)
-        setTimeout(() => {
-          clearInterval(pollInterval);
-          toast.warning('⏱️ Preview timed out. Please try again.', {
-            position: 'bottom-right',
-            autoClose: 5000,
-            closeButton: true,
-          });
-        }, 300000); // 5 minutes timeout
+        if (!pollingFinished) {
+          safetyTimeout = setTimeout(() => {
+            stopPolling();
+            toast.warning('⏱️ Preview timed out. Please try again.', {
+              position: 'bottom-right',
+              autoClose: 5000,
+              closeButton: true,
+            });
+          }, 300000); // 5 minutes timeout
+        }
 
       } else {
         console.error('Preview API failed:', response);
@@ -1091,6 +1100,19 @@ Date                                         Date`
     setEditableMarkdownSections(editable.sections);
     setShowPreviewModal(false);
     setShowEditModal(true);
+  };
+
+  const handleCloseEditor = () => {
+    setShowEditModal(false);
+    setShowPreviewModal(true);
+  };
+
+  const handleReviewPreview = () => {
+    if (!previewData) {
+      toast.error('The generated preview is no longer available');
+      return;
+    }
+    setShowPreviewModal(true);
   };
 
   const renderPreviewSection = (section: string, content: unknown) => {
@@ -1277,13 +1299,13 @@ Date                                         Date`
                   <div className="upload-text">
                     <h3>Drop your POC documents here</h3>
                     <p>or <label htmlFor="file-input" className="upload-link">browse files</label> from your device</p>
-                    <span className="upload-hint">Supports PDF, DOC, DOCX, TXT • Max 10MB per file</span>
+                    <span className="upload-hint">Only PDF, Word (DOC/DOCX), Excel (XLS/XLSX), and TXT files are supported • Max 10MB per file</span>
                   </div>
                   <input
                     id="file-input"
                     type="file"
                     multiple
-                    accept=".pdf,.doc,.docx,.txt"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.txt"
                     onChange={(e) => handleFileUpload(e.target.files)}
                     className="file-input-hidden"
                     aria-label="Upload POC documents"
@@ -1346,9 +1368,16 @@ Date                                         Date`
 
             {/* Smart Single Button for POC_TO_PROD */}
             <div className="button-container" style={{ marginTop: '24px' }}>
+              {hasPreviewGenerated && previewData && (
+                <button type="button" onClick={handleReviewPreview} className="review-preview-button">
+                  <Eye className="button-icon" />
+                  <span className="button-text">Review Preview</span>
+                </button>
+              )}
               <button
                 onClick={hasPreviewGenerated ? handleGenerateSOW : handlePreview}
-                disabled={!isFormComplete || isGenerating}
+                disabled={isGenerating}
+                aria-disabled={!isFormComplete || isGenerating}
                 className={`smart-generate-button ${isGenerating ? 'generating' : ''} ${!isFormComplete ? 'disabled' : ''}`}
                 aria-busy={isGenerating}
                 aria-label={
@@ -1518,45 +1547,14 @@ Date                                         Date`
                 onChange={setSelectedSowSections}
               />
               
-              {/* Project scope text — either this or a supporting document is required. */}
-              <div className="field-group full-width">
-                <label htmlFor="projectObjective" className="field-label">
-                  Project Scope &amp; Details
-                </label>
-                <textarea
-                  id="projectObjective"
-                  name="projectObjective"
-                  value={formData.projectObjective}
-                  onChange={handleInputChange}
-                  placeholder="Describe the project scope, objectives, deliverables, constraints, and expected outcomes..."
-                  className="field-textarea"
-                  rows={5}
-                  style={{
-                    height: '120px',
-                    minHeight: '120px',
-                    maxHeight: '120px',
-                    resize: 'none'
-                  }}
-                />
-                <div className="textarea-info">
-                  <span className="char-count">
-                    {formData.projectObjective.length} / {MIN_OBJECTIVE_LENGTH} characters when using text
-                  </span>
-                </div>
-              </div>
-
-              <div className="scope-source-divider" role="separator" aria-label="or">
-                <span>OR</span>
-              </div>
-
-              {/* BRD/supporting document — either this or scope text is required. */}
+              {/* Supporting documents are the primary requirements source. */}
               <div className="field-group full-width" style={{ marginTop: '20px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                   <Upload className="section-icon" style={{ width: '20px', height: '20px' }} />
                   <label className="field-label" style={{ marginBottom: 0 }}>Business Requirements Document (BRD) or Supporting Document</label>
                 </div>
                 <p style={{ fontSize: '14px', color: '#666', marginBottom: '12px', marginTop: '4px' }}>
-                  Provide at least one source: enter project scope above or upload a document here. You may provide both.
+                  Uploads are treated as the primary requirements source. Add optional generation guidance below to refine scope, priorities, or treatment of specific capabilities.
                 </p>
                 <div
                   className={`upload-area ${dragActive ? 'drag-active' : ''}`}
@@ -1572,13 +1570,13 @@ Date                                         Date`
                     <div className="upload-text">
                       <h3>Drop supporting documents here</h3>
                       <p>or <label htmlFor="file-input-support" className="upload-link">browse files</label> from your device</p>
-                      <span className="upload-hint">Supports PDF, DOC, DOCX, TXT • Max 10MB per file</span>
+                      <span className="upload-hint">Only PDF, Word (DOC/DOCX), Excel (XLS/XLSX), and TXT files are supported • Max 10MB per file</span>
                     </div>
                     <input
                       id="file-input-support"
                       type="file"
                       multiple
-                      accept=".pdf,.doc,.docx,.txt"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.txt"
                       onChange={(e) => handleFileUpload(e.target.files)}
                       className="file-input-hidden"
                       aria-label="Upload supporting documents"
@@ -1621,13 +1619,45 @@ Date                                         Date`
                   </div>
                 )}
               </div>
+
+              {/* Guidance influences the full document without replacing uploaded evidence. */}
+              <div className="field-group full-width" style={{ marginTop: '24px' }}>
+                <label htmlFor="projectObjective" className="field-label">
+                  Additional Details &amp; Generation Guidance
+                </label>
+                <p style={{ fontSize: '14px', color: '#666', marginBottom: '10px', marginTop: '4px' }}>
+                  Use this to guide the AI across the SOW—for example, prioritise selected deliverables or move a capability to future scope. If no document is uploaded, these details become the primary project source.
+                </p>
+                <textarea
+                  id="projectObjective"
+                  name="projectObjective"
+                  value={formData.projectObjective}
+                  onChange={handleInputChange}
+                  placeholder="Example: Treat voice capability as future scope, and make workflow automation the primary deliverable..."
+                  className="field-textarea"
+                  rows={5}
+                  style={{
+                    height: '120px',
+                    minHeight: '120px',
+                    maxHeight: '120px',
+                    resize: 'none'
+                  }}
+                />
+              </div>
             </div>
 
             {/* Smart Single Button for POC/PROD */}
             <div className="button-container" style={{ marginTop: '24px' }}>
+              {hasPreviewGenerated && previewData && (
+                <button type="button" onClick={handleReviewPreview} className="review-preview-button">
+                  <Eye className="button-icon" />
+                  <span className="button-text">Review Preview</span>
+                </button>
+              )}
               <button
                 onClick={hasPreviewGenerated ? handleGenerateSOW : handlePreview}
-                disabled={!isFormComplete || isGenerating}
+                disabled={isGenerating}
+                aria-disabled={!isFormComplete || isGenerating}
                 className={`smart-generate-button ${isGenerating ? 'generating' : ''} ${!isFormComplete ? 'disabled' : ''}`}
                 aria-busy={isGenerating}
                 aria-label={
@@ -1639,7 +1669,7 @@ Date                                         Date`
                 }
                 title={
                   !isFormComplete
-                    ? 'Complete the required fields and provide project scope text or a BRD/supporting document'
+                    ? 'Complete the required fields and provide a supporting document or sufficient additional details'
                     : isGenerating
                       ? 'Creating your professional SOW...'
                       : hasPreviewGenerated
@@ -1941,14 +1971,14 @@ Date                                         Date`
 
       {/* Direct Markdown editor — uses the generated preview content itself. */}
       {showEditModal && editData && ReactDOM.createPortal(
-        <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
+        <div className="modal-overlay" onClick={handleCloseEditor}>
           <div className="modal-content modal-large markdown-edit-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div>
                 <h2>Edit SOW Markdown</h2>
                 <p className="markdown-editor-subtitle">Edit the complete generated body in one place. The front page, table of contents, page numbers, and diagram assets remain managed automatically.</p>
               </div>
-              <button className="modal-close" onClick={() => setShowEditModal(false)}>
+              <button className="modal-close" onClick={handleCloseEditor}>
                 <X size={20} />
               </button>
             </div>
@@ -1980,7 +2010,7 @@ Date                                         Date`
               </div>
             </div>
             <div className="modal-footer">
-              <button className="modal-btn modal-btn-secondary" onClick={() => setShowEditModal(false)}>
+              <button className="modal-btn modal-btn-secondary" onClick={handleCloseEditor}>
                 Close
               </button>
               <button 

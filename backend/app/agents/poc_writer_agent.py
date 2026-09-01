@@ -8,7 +8,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import boto3
 
@@ -95,6 +95,8 @@ class POCWriterAgent:
                 custom_instruction = str(item.get("prompt") or "").strip()
                 if custom_instruction:
                     for section in matching:
+                        if section.section_type in {SectionType.STATIC, SectionType.STATIC_TABLE}:
+                            continue
                         section.content = f"{section.content}\n\nAdministrator instruction: {custom_instruction}".strip()
                 continue
             label = str(item.get("label") or category_id.replace("_", " ").title())
@@ -221,6 +223,7 @@ class POCWriterAgent:
         rag_context: Optional[Dict[str, Any]] = None,
         supporting_context: Optional[str] = None,
         selected_sow_sections: Optional[List[str]] = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> Dict[str, Any]:
         mode = self.template_type
         selected_preferences = parse_selected_section_ids(selected_sow_sections, mode)
@@ -291,7 +294,7 @@ class POCWriterAgent:
                 rag_context,
                 section_name=section.name,
                 requirements=req,
-                limit=getattr(self.config, "SECTION_EVIDENCE_MAX_CHARS", 24_000),
+                limit=getattr(self.config, "SECTION_EVIDENCE_MAX_CHARS", 48_000),
             )
             content = self._generate_section(
                 section, req, metadata, source_context, consistency_notes
@@ -310,9 +313,13 @@ class POCWriterAgent:
             return index, key, cleaned
 
         if worker_count == 1:
+            completed = 0
             for job in generation_jobs:
                 index, key, content = generate_job(job)
                 rendered[index] = (key, content, True)
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, len(generation_jobs), job[1].name)
         else:
             with ThreadPoolExecutor(
                 max_workers=worker_count,
@@ -336,10 +343,15 @@ class POCWriterAgent:
                         )
                     rendered[result_index] = (result_key, content, True)
                     completed += 1
+                    if progress_callback:
+                        progress_callback(completed, len(generation_jobs), section.name)
                     print(
                         f"   ✓ Completed LLM section {completed}/{len(generation_jobs)}: "
                         f"{section.name}"
                     )
+
+        if not generation_jobs and progress_callback:
+            progress_callback(1, 1, "Static document sections")
 
         # Reassemble strictly in the user's selected order; concurrent completion
         # order must never affect the document or preview sequence.
@@ -432,15 +444,8 @@ class POCWriterAgent:
                 continue
             title = self._replace_placeholders(section.name, metadata)
             title = re.sub(r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", title).strip()
-            unnumbered_poc_title = self.template_type == "POC" and (
-                title.casefold().startswith(("document control", "document version control"))
-                or "acceptance and signator" in title.casefold()
-            )
-            if unnumbered_poc_title:
-                lines.append(title)
-            else:
-                counter += 1
-                lines.append(f"{counter}. {title}")
+            counter += 1
+            lines.append(f"{counter}. {title}")
         return "\n".join(lines)
 
     def _generate_section(
@@ -517,6 +522,8 @@ PREVIOUS DRAFT:
         # Section-specific contract checks turn the detailed Markdown template
         # into an enforceable generation gate rather than optional guidance.
         normalized = (content or "").casefold()
+        direct_headings = re.findall(r"(?m)^###\s+.+$", content or "")
+        nested_headings = re.findall(r"(?m)^####+\s+.+$", content or "")
         table_lines = [
             line.casefold() for line in (content or "").splitlines()
             if re.match(r"^\s*\|.+\|\s*$", line)
@@ -537,14 +544,18 @@ PREVIOUS DRAFT:
             if "revision basis" not in normalized:
                 issues.append("Document Control is missing Revision Basis")
         elif name in {"deliverables", "deliverable scope at a glance"}:
-            if not any(all(label in line for label in ("module/workstream", "core outcome", "depends on")) for line in table_lines):
-                issues.append("Scope at a Glance is missing the required module dependency table")
+            if not any(all(label in line for label in ("module/workstream", "core outcome")) for line in table_lines):
+                issues.append("Deliverables is missing the required module and outcome table")
+            if any("depends on" in line for line in table_lines):
+                issues.append("Deliverables must not contain a Depends On column")
         elif name in {"scope of work", "detailed scope of work"}:
             module_headings = re.findall(r"(?m)^###\s+4\.\d+\s+.+$", content or "")
             if len(module_headings) < 2:
                 issues.append("Detailed Scope needs at least two numbered module/workstream subsections")
             if len(module_headings) > 6:
                 issues.append("Detailed Scope has more than six modules; consolidate supporting layers unless the source explicitly requires them")
+            if len(nested_headings) > max(2, len(module_headings)):
+                issues.append("Detailed Scope has too many nested subsections; use concise bullets under each module")
             if not any(all(label in line for label in ("id", "requirement", "detail")) for line in table_lines):
                 issues.append("Detailed Scope is missing a compact ID / Requirement / Detail table")
             if "dependencies and validation" not in normalized:
@@ -565,7 +576,7 @@ PREVIOUS DRAFT:
             if total_workflow_steps > 30:
                 issues.append("Detailed Scope contains more than thirty workflow steps across modules; remove sparse or non-sequential workflows")
         elif name.startswith("solution architecture"):
-            for required in ("high-level architecture", "end-to-end data flow", "low-level architecture", "security and observability"):
+            for required in ("architecture and flow", "decisions, controls and open boundaries"):
                 if required not in normalized:
                     issues.append(f"Architecture is missing {required}")
         elif name.startswith("open clarifications"):
@@ -577,6 +588,9 @@ PREVIOUS DRAFT:
         elif name.endswith("project team effort"):
             if not any(all(label in line for label in ("resource", "resource count", "effort duration in weeks")) for line in table_lines):
                 issues.append("Project Team Effort is missing the required staffing table")
+        if name not in {"scope of work", "detailed scope of work"}:
+            if len(direct_headings) > 2 or nested_headings:
+                issues.append("contains too many subsections; retain at most two direct subsections and use bullets")
         return issues
 
     @staticmethod
@@ -592,12 +606,14 @@ PREVIOUS DRAFT:
         if name.startswith("about "):
             return 220
         if any(term in name for term in ("detailed scope", "technical specification")):
-            return 1200
+            return 900
+        if name == "scope of work":
+            return 900
         if "architecture" in name:
-            return 800
+            return 550
         if any(term in name for term in ("terms and conditions", "testing and acceptance")):
-            return 650
-        return 450
+            return 450
+        return 320
 
     def _build_individual_prompt(
         self,
@@ -629,6 +645,13 @@ DOCUMENT CONTEXT
 
 AUTHORITATIVE REQUIREMENTS BASELINE
 {json.dumps(requirements, indent=2, default=str)}
+
+USER GENERATION GUIDANCE
+{requirements.get('_generation_guidance') or '(none)'}
+- Apply this guidance consistently across every section, including scope, deliverables,
+  exclusions, future scope, assumptions and acceptance treatment.
+- When supporting evidence is present, guidance controls how evidence is prioritised or
+  scoped but does not authorise unrelated facts or deliverables.
 
 SOURCE EXCERPT (supporting evidence; may be empty)
 {supporting_context or '(none)'}
@@ -677,19 +700,29 @@ NON-NEGOTIABLE AUTHORING STANDARD
 - Preserve supplied compliance and regulatory wording exactly, including regulator names,
   disclaimer language, residency constraints, qualifications, and human-review boundaries.
   Never turn an expectation, design intent, or pending confirmation into a compliance claim.
+- Carry every source-named deliverable, module, workflow, requirement identifier, business
+  rule, integration, data element, and acceptance condition into the relevant section.
+  Do not replace specific BRD language with generic cloud activities or vague summaries.
 - Prefer one short orienting paragraph followed by the lightest useful structure. Do not
   restate the project objective, customer context, or the same requirement in multiple forms.
-- Avoid more than two consecutive prose paragraphs. Use concise bullets for three or more
-  non-comparable items and Markdown tables only for genuinely comparable records.
-- Use ### and #### for real subsection headings, standard '-' bullets, and '1.' numbered steps.
-- Put every bullet on its own Markdown line. Use one idea per bullet, normally one sentence,
-  and keep lists to three-to-seven items unless the source requires more. Use two leading
+- Default to no subsection headings. Use a single opening paragraph of no more than 60 words,
+  followed by concise bullets. Convert labels such as Roles, Data, Dependencies, Controls,
+  Validation, or Risks into bold lead-in bullets instead of separate headings.
+- Outside Scope of Work, use at most two direct subsections and no nested subsections. Scope of
+  Work may use one direct subsection per genuine module/workstream, but normally no nested
+  subsections; add one Workflow subheading only when sequence materially improves understanding.
+- Avoid more than one consecutive prose paragraph. Use concise bullets for three or more
+  non-comparable items and Markdown tables only for genuinely comparable records. Aim for at
+  least 60% of non-table content after the opening to be concise bullet points.
+- Use ### and #### for real subsection headings and standard '-' bullets only.
+- Put every bullet on its own Markdown line. Use one idea per bullet, normally one sentence
+  of no more than 25 words, and keep lists to three-to-seven items unless the source requires more. Use two leading
   spaces for a nested bullet and never embed bullet symbols inside a prose paragraph.
 - Keep heading hierarchy complete and consistent. The DOCX renderer normalizes every
   generated heading to 1.1 / 1.2 / 4.1 / 4.1.1 form; never use a bold Normal paragraph
   as a substitute for a heading and never skip from a module heading to an unstructured label.
-- Use numbered workflows only for genuine sequences, keep each to four-to-eight stages,
-  and never continue numbering across separate modules or workflow blocks.
+- Use bullet lists for workflows and sequences; never emit Markdown ordered lists.
+  Keep each workflow to four-to-eight concise bullet stages.
 - For tables, emit a valid pipe table with one separator row; use <br> only for multiple items in a cell.
 - Use no more than five table columns, and prefer two to four. Put explanatory detail below
   the table or split it into sequential compact tables instead of creating narrow columns.
@@ -761,7 +794,7 @@ NON-NEGOTIABLE AUTHORING STANDARD
     def _context_excerpt(
         supporting_context: Optional[str],
         rag_context: Optional[Dict[str, Any]],
-        limit: int = 24000,
+        limit: int = 48000,
         section_name: str = "Project Overview",
         requirements: Optional[Dict[str, Any]] = None,
     ) -> str:
@@ -795,14 +828,36 @@ NON-NEGOTIABLE AUTHORING STANDARD
 
     @staticmethod
     def _deterministic_fallback(section: TemplateSection, requirements: Dict[str, Any]) -> str:
-        if "clarification" in section.name.lower():
+        name = re.sub(
+            r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", section.name
+        ).casefold()
+        if "clarification" in name:
             items = requirements.get("open_clarifications", [])
             return "\n".join(f"- {item}" for item in items) or "- Scope baseline requires customer confirmation."
-        overview = requirements.get("project_overview") or "The section requires completion from the approved requirements baseline."
-        return (
-            f"{overview}\n\n"
-            "This draft section could not be expanded by the generation service. Its detailed baseline must be completed during review."
-        )
+
+        # If Bedrock is unavailable, retain extracted BRD facts instead of
+        # replacing them with a generic failure paragraph.
+        evidence: List[str] = []
+        for field in (
+            "key_deliverables", "functional_requirements", "key_features",
+            "workflow_steps", "integration_details", "success_metrics",
+        ):
+            value = requirements.get(field, [])
+            values = value if isinstance(value, list) else ([value] if value else [])
+            for item in values:
+                item = re.sub(r"\s+", " ", str(item)).strip()
+                if item and item.casefold() not in {seen.casefold() for seen in evidence}:
+                    evidence.append(item)
+
+        overview = requirements.get("project_overview") or ""
+        if any(token in name for token in ("deliverable", "scope at a glance")) and evidence:
+            rows = ["| Module/Workstream | Core Outcome |", "|---|---|"]
+            rows.extend(f"| Source requirement | {item.replace('|', '/')} |" for item in evidence[:12])
+            return "\n".join(rows)
+        if evidence:
+            prefix = f"{overview}\n\n" if overview else ""
+            return prefix + "\n".join(f"- {item}" for item in evidence[:20])
+        return overview or ""
 
     def _enrich_requirements(self, req: Dict[str, Any]) -> Dict[str, Any]:
         return normalize_requirements(req, req.get("_original_objective", ""), self.template_type)
@@ -817,15 +872,28 @@ NON-NEGOTIABLE AUTHORING STANDARD
     def _clean_content(self, content: str, section_name: str) -> str:
         content = clean_markdown_preserving_structure(content or "")
         lines = content.splitlines()
-        while lines and re.match(r"^#{1,2}\s+", lines[0]):
-            heading = re.sub(r"^#{1,2}\s+", "", lines[0]).strip()
-            if heading.casefold() == section_name.casefold():
-                lines.pop(0)
-                while lines and not lines[0].strip():
-                    lines.pop(0)
-            else:
-                break
-        return clean_markdown_preserving_structure("\n".join(lines))
+        section_label = re.sub(r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", section_name).strip()
+
+        def heading_key(value: str) -> str:
+            value = re.sub(r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", value).strip().casefold()
+            # Treat a plural-only restatement (Objective/Objectives) as the same
+            # heading, while leaving genuinely distinct headings untouched.
+            return value[:-1] if value.endswith("s") and not value.endswith("ss") else value
+
+        # Models sometimes insert a short orienting paragraph before repeating
+        # the section title (for example Objective -> ### Objectives).  The old
+        # cleaner only inspected line 1, so that duplicate survived.  Remove a
+        # heading equivalent to its owning section wherever it occurs, while
+        # preserving genuinely distinct subsections.
+        filtered: List[str] = []
+        for line in lines:
+            match = re.match(r"^#{1,4}\s+(.+?)\s*$", line)
+            if match and heading_key(match.group(1)) == heading_key(section_label):
+                if filtered and not filtered[-1].strip():
+                    filtered.pop()
+                continue
+            filtered.append(line)
+        return clean_markdown_preserving_structure("\n".join(filtered))
 
     def _clean_markdown_artifacts(self, text: str) -> str:
         return clean_markdown_preserving_structure(text)
@@ -853,11 +921,11 @@ NON-NEGOTIABLE AUTHORING STANDARD
             "AUTHOR_NAME": metadata.get("author_name", ""),
             "DOCUMENT_DATE": metadata.get("document_date", ""),
             "VERSION": metadata.get("version", "1.0"),
-            "START_DATE": metadata.get("start_date") or "To be confirmed",
-            "END_DATE": metadata.get("end_date") or "To be confirmed",
+            "START_DATE": metadata.get("start_date") or "",
+            "END_DATE": metadata.get("end_date") or "",
             "AUTHOR_ORG_DESCRIPTION": metadata.get("author_org_description", ""),
             "COMPANY_DESCRIPTION": metadata.get("company_description", ""),
-            "PLANNING_DURATION_WEEKS": req.get("planning_duration_weeks", "To be confirmed"),
+            "PLANNING_DURATION_WEEKS": req.get("planning_duration_weeks") or "",
         }
         result = content or ""
         for placeholder, value in replacements.items():

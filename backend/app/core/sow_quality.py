@@ -269,6 +269,37 @@ def clean_markdown_preserving_structure(text: str) -> str:
     text = re.sub(r"^```\s*$", "", text, flags=re.M)
     text = re.sub(r"(?m)^\s*(?:\*{3,}|_{3,})\s*$", "", text)
     text = re.sub(r"(?m)^\s*-{4,}\s*$", "", text)
+    # Blank editable placeholders instead of printing synthetic values. Keep
+    # narrative statements such as "the threshold is not specified in the BRD"
+    # intact; only standalone values, list items, and table cells are cleared.
+    display_unknowns = {
+        "unknown", "not specified", "not provided", "n/a", "na", "none",
+        "null", "tbd", "to be determined", "to be confirmed",
+    }
+    cleaned_lines: List[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("|") and stripped.endswith("|"):
+            cells = line.strip().strip("|").split("|")
+            cleaned_cells = []
+            for cell in cells:
+                normalised = re.sub(r"[`*_]", "", cell).strip().casefold()
+                cleaned_cells.append("" if normalised in display_unknowns else cell.strip())
+            line = "| " + " | ".join(cleaned_cells) + " |"
+        else:
+            bullet = re.match(r"^(\s*[-*•]\s+)(.+?)\s*$", line)
+            if bullet and re.sub(r"[`*_]", "", bullet.group(2)).strip().casefold() in display_unknowns:
+                continue
+            if re.sub(r"[`*_]", "", stripped).strip().casefold() in display_unknowns:
+                line = ""
+            else:
+                line = re.sub(
+                    r"(?i)(:\s*)(?:unknown|not specified|not provided|n/?a|none|null|tbd|to be determined|to be confirmed)\s*$",
+                    r"\1",
+                    line,
+                )
+        cleaned_lines.append(line)
+    text = "\n".join(cleaned_lines)
     text = re.sub(r"[ \t]+$", "", text, flags=re.M)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()

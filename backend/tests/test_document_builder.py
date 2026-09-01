@@ -1,4 +1,6 @@
 import re
+import os
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -7,10 +9,12 @@ from unittest.mock import patch
 
 from docx import Document
 from docx.oxml.ns import qn
+from pypdf import PdfReader
 
 from app.document.document_builder import (
     CHROME_INSET_IN,
     DocumentBuilder,
+    SectionBuilder,
     _bookmark_name,
     _find_libreoffice_binary,
     _pageref_results_from_xml,
@@ -22,10 +26,20 @@ class _Config:
         backend = Path(__file__).resolve().parents[1]
         self.OUTPUT_DIR = Path(output_dir)
         self.ASSETS_DIR = backend / "assets"
+        self.TEMPLATES_DIR = backend / "templates"
+        self.COVER_PAGE_TEMPLATE = self.TEMPLATES_DIR / "sow_coverpage_template.docx"
         self.COVER_PAGE_IMAGE = backend / "assets" / "coverpage.png"
+        self.PRECOMPUTE_DOCUMENT_FIELDS = False
 
 
 class DocumentBuilderTests(unittest.TestCase):
+    def test_open_clarifications_table_reserves_readable_area_column(self):
+        widths = SectionBuilder._column_widths([
+            ["Module/Area", "Open Item", "Status / Note"],
+            ["Performance Requirements", "Confirm concurrent users", "Required for sizing"],
+        ])
+        self.assertEqual(widths, [2450, 5000, 2832])
+
     def test_bookmark_names_stay_within_word_limit_and_remain_unique(self):
         title = "10.2 Effort Basis and Key Assumptions Affecting Delivery"
         first = _bookmark_name(title, 1034)
@@ -47,6 +61,12 @@ class DocumentBuilderTests(unittest.TestCase):
             bundled.chmod(0o755)
             with patch("app.document.document_builder.shutil.which", return_value=None), patch(
                 "app.document.document_builder.Path.home", return_value=fake_home
+            ), patch.dict(
+                os.environ,
+                {
+                    "ProgramFiles": str(fake_home / "Program Files"),
+                    "ProgramFiles(x86)": str(fake_home / "Program Files (x86)"),
+                },
             ):
                 self.assertEqual(
                     _find_libreoffice_binary(_Config(temp_dir)), str(bundled)
@@ -90,6 +110,15 @@ class DocumentBuilderTests(unittest.TestCase):
             self.assertTrue(Path(output).exists())
 
             document = Document(output)
+            self.assertEqual(document.styles["Normal"].font.size.pt, 11.0)
+            self.assertEqual(document.styles["Heading 1"].font.size.pt, 20.0)
+            self.assertEqual(document.styles["Normal"].paragraph_format.alignment, 3)
+            self.assertEqual(document.styles["Normal"].paragraph_format.space_after.pt, 8.0)
+            self.assertAlmostEqual(
+                document.styles["Normal"].paragraph_format.line_spacing,
+                1.25,
+                places=2,
+            )
             text = "\n".join(paragraph.text for paragraph in document.paragraphs)
             self.assertIn("Table of Contents", text)
             self.assertIn("Text after the first table must remain visible.", text)
@@ -109,8 +138,14 @@ class DocumentBuilderTests(unittest.TestCase):
                 if any(label in paragraph.text for label in ("Business Need", "Module A", "Module B"))
             ]
             self.assertTrue(subtopic_rows)
-            self.assertTrue(all("\t" not in paragraph.text for paragraph in subtopic_rows))
+            self.assertTrue(all("\t" in paragraph.text for paragraph in subtopic_rows))
             self.assertGreaterEqual(len(document.tables), 2)
+            self.assertTrue(all(table.style.name == "SOW Table" for table in document.tables))
+            for table in document.tables:
+                spacer = table._tbl.getnext()
+                self.assertEqual(spacer.tag, qn("w:p"))
+                spacing = spacer.find(qn("w:pPr")).find(qn("w:spacing"))
+                self.assertEqual(spacing.get(qn("w:after")), "100")
             self.assertTrue(all(
                 paragraph.alignment == 0
                 for table in document.tables
@@ -118,12 +153,18 @@ class DocumentBuilderTests(unittest.TestCase):
                 for cell in row.cells
                 for paragraph in cell.paragraphs
             ))
-            table_captions = [
-                paragraph for paragraph in document.paragraphs
-                if re.match(r"^Table \d+:", paragraph.text)
-            ]
-            self.assertEqual(len(table_captions), len(document.tables))
-            self.assertTrue(all(paragraph.style.font.italic for paragraph in table_captions))
+            self.assertFalse(any(
+                re.match(r"^(Table|Figure) \d+:", paragraph.text)
+                for paragraph in document.paragraphs
+            ))
+            self.assertTrue(all(
+                run.font.size and run.font.size.pt == 11.0
+                for table in document.tables
+                for row in table.rows
+                for cell in row.cells
+                for paragraph in cell.paragraphs
+                for run in paragraph.runs
+            ))
             self.assertTrue(any(p.style.name == "Heading 2" and p.text == "1.1 Business Need" for p in document.paragraphs))
             self.assertTrue(any(p.style.name == "Heading 2" and p.text == "2.1 Module A" for p in document.paragraphs))
             self.assertTrue(any(p.style.name == "Heading 3" and p.text == "2.1.1 Workflow" for p in document.paragraphs))
@@ -136,9 +177,7 @@ class DocumentBuilderTests(unittest.TestCase):
                 paragraph._p.pPr.numPr.numId.val
                 for paragraph in numbered
             ]
-            self.assertEqual(num_ids[0], num_ids[1])
-            self.assertEqual(num_ids[2], num_ids[3])
-            self.assertNotEqual(num_ids[0], num_ids[2])
+            self.assertEqual(num_ids, [91, 91, 91, 91])
 
             bullets = [
                 paragraph for paragraph in document.paragraphs
@@ -161,6 +200,25 @@ class DocumentBuilderTests(unittest.TestCase):
             section = document.sections[-1]
             self.assertEqual(round(section.page_width.inches, 2), 8.5)
             self.assertEqual(round(section.page_height.inches, 2), 11.0)
+            cover_section = document.sections[0]
+            self.assertEqual(round(cover_section.page_width.inches, 2), 8.27)
+            self.assertEqual(round(cover_section.page_height.inches, 2), 11.69)
+
+            # Dynamic cover labels remain native w:t runs, while the section
+            # break shares the final cover text paragraph. There is no separate
+            # empty break carrier or page-sized inline cover image for Word
+            # Online/SharePoint to promote to a blank page.
+            self.assertIn("Example Customer", paragraph_texts)
+            self.assertIn("Agentic CRM Platform", paragraph_texts)
+            self.assertIn("Test Author", paragraph_texts)
+            self.assertNotIn("Client Name", paragraph_texts)
+            self.assertNotIn("<Author Name>", paragraph_texts)
+            date_paragraph = next(
+                paragraph for paragraph in document.paragraphs
+                if paragraph.text == "18 August 2026"
+            )
+            self.assertIsNotNone(date_paragraph._p.pPr.sectPr)
+            self.assertEqual(len(document.inline_shapes), 0)
 
             with zipfile.ZipFile(output) as package:
                 document_xml_bytes = package.read("word/document.xml")
@@ -170,17 +228,21 @@ class DocumentBuilderTests(unittest.TestCase):
             self.assertIn('<w:tblW', xml)
             self.assertIn('w:w="10282"', xml)
             self.assertIn('w:numId="91"', numbering)
-            self.assertIn('w:numId="92"', numbering)
-            self.assertIn("w:startOverride", numbering)
+            self.assertNotIn('w:numId="92"', numbering)
             self.assertIn("1.1 Business Need", xml)
             pageref_targets = re.findall(r"PAGEREF\s+([^\s<]+)\s+\\h", xml)
             bookmark_names = set(re.findall(r'<w:bookmarkStart[^>]+w:name="([^"]+)"', xml))
             self.assertTrue(pageref_targets)
-            self.assertEqual(len(pageref_targets), 2)
+            toc_rows = [
+                paragraph
+                for paragraph in document.paragraphs[toc_index + 1:first_body_index]
+                if paragraph.text.strip()
+            ]
+            self.assertEqual(len(pageref_targets), len(toc_rows))
             self.assertTrue(set(pageref_targets).issubset(bookmark_names))
             cached_page_numbers = _pageref_results_from_xml(document_xml_bytes)
             self.assertTrue(cached_page_numbers)
-            self.assertTrue(all(value.isdigit() for value in cached_page_numbers.values()))
+            self.assertTrue(all(not value or value.isdigit() for value in cached_page_numbers.values()))
 
     def test_singular_timeline_title_resolves_shared_timeline_content_key(self):
         builder = DocumentBuilder.__new__(DocumentBuilder)
@@ -242,9 +304,9 @@ class DocumentBuilderTests(unittest.TestCase):
             output = builder.build_document(sections, metadata, mode="POC")
             document = Document(output)
             body_text = [paragraph.text for paragraph in document.paragraphs]
-            self.assertLess(body_text.index("Document Version Control"), body_text.index("Table of Contents"))
-            self.assertLess(body_text.index("Table of Contents"), body_text.index("1. Objective"))
-            self.assertEqual(len(document.tables), 4)  # 1 control + 2 split wide + 1 signature table
+            self.assertLess(body_text.index("Table of Contents"), body_text.index("Document Version Control"))
+            self.assertLess(body_text.index("Document Version Control"), body_text.index("1. Objective"))
+            self.assertEqual(len(document.tables), 4)
 
             signature_table = document.tables[-1]
             shading = signature_table.cell(0, 0)._tc.tcPr.find(qn("w:shd"))
@@ -318,13 +380,46 @@ class DocumentBuilderTests(unittest.TestCase):
             self.assertIn("word/fonts/DMSans-Regular.odttf", package_names)
             self.assertIn("word/fonts/DMSans-Bold.odttf", package_names)
 
-            cover_extents = [
-                int(value) for value in re.findall(r'<wp:extent[^>]+cy="(\d+)"', document_xml)
-            ]
-            self.assertTrue(cover_extents)
-            self.assertEqual(max(cover_extents), round(11 * 914400))
+            # The approved template keeps its decorative background and logo as
+            # native floating artwork. Text remains in editable paragraphs.
             self.assertIn('behindDoc="1"', document_xml)
             self.assertIn('relativeFrom="page"', document_xml)
+            self.assertIn("wp:anchor", document_xml)
+            self.assertNotIn("Client Name", document_xml)
+            self.assertNotIn("Project Name", document_xml)
+            self.assertNotIn("&lt;Author Name&gt;", document_xml)
+            self.assertNotIn("&lt;Today’s Date&gt;", document_xml)
+            self.assertNotIn("&lt;Date&gt;", document_xml)
+            self.assertNotIn("wp:inline", document_xml)
+            self.assertIn("word/media/image1.png", package_names)
+
+            # LibreOffice uses a separate layout engine from desktop Word and
+            # catches the same class of section-boundary issue seen in Word
+            # Online. The TOC must be the page immediately after the cover.
+            office_binary = _find_libreoffice_binary(builder.config)
+            if office_binary:
+                profile_dir = Path(temp_dir) / "lo-profile"
+                profile_dir.mkdir()
+                completed = subprocess.run(
+                    [
+                        office_binary,
+                        "--headless",
+                        f"-env:UserInstallation={profile_dir.resolve().as_uri()}",
+                        "--convert-to",
+                        "pdf",
+                        "--outdir",
+                        temp_dir,
+                        output,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=90,
+                    check=False,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                pdf = PdfReader(str(Path(output).with_suffix(".pdf")))
+                self.assertIn("Example Customer", pdf.pages[0].extract_text())
+                self.assertIn("Table of Contents", pdf.pages[1].extract_text())
 
 
 if __name__ == "__main__":

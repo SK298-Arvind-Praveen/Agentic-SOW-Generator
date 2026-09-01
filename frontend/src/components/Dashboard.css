@@ -265,13 +265,15 @@
 .records-table tbody tr:hover { background: var(--bg-surface); }
 .records-table tbody tr:last-child td { border-bottom: none; }
 
-/* Version table */
-.version-table { width: calc(100% - 56px); margin: 0 28px; border-collapse: separate; border-spacing: 0; font-size: 11px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); overflow: hidden; }
-.version-table thead { background: var(--bg-surface); }
-.version-table th { padding: 8px 12px; text-align: left; font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--border-subtle); }
-.version-table td { padding: 8px 12px; font-size: 11px; color: var(--text-secondary); background: var(--bg-elevated); border-bottom: 1px solid var(--border-subtle); }
-.version-table tbody tr:hover { background: var(--bg-surface); }
-.version-table tbody tr:last-child td { border-bottom: none; }
+/* Older versions remain part of the parent records table so all columns align. */
+.records-table .version-history-row td {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+.records-table .version-history-row td:nth-child(2) { padding-left: 28px; }
+.version-download-unavailable { opacity: 0.3; cursor: not-allowed; display: flex; }
 
 .no-records { text-align: center; color: var(--text-muted); padding: 48px !important; font-style: italic; }
 

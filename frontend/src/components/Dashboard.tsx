@@ -23,6 +23,8 @@ import SOWGenerator from './SOWGenerator';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import apiService, { Document } from '../services/apiService';
+import { downloadWithNativeSaveAs } from '../utils/downloadFile';
+import { latestDocumentForVersion, sortVersionKeysNewestFirst } from '../utils/versionOrdering';
 import './Dashboard.css';
 import './SOWGenerator.css';
 import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
@@ -214,14 +216,12 @@ const Dashboard: React.FC = () => {
             if (!versionMap || typeof versionMap !== 'object') return;
 
             // Each key is a version string (v1, v2...), value is array of docs
-            const versionKeys = Object.keys(versionMap).sort(
-              (a, b) => parseFloat(b.replace('v', '')) - parseFloat(a.replace('v', ''))
-            );
+            const versionKeys = sortVersionKeysNewestFirst(versionMap);
             if (versionKeys.length === 0) return;
 
             const latestKey = versionKeys[0];
             const latestDocs = versionMap[latestKey];
-            const doc = Array.isArray(latestDocs) ? latestDocs[0] : latestDocs;
+            const doc = latestDocumentForVersion(latestDocs);
             if (!doc) return;
 
             const docId = doc.document_id || `${companyName}-${projectName}-${latestKey}`;
@@ -248,7 +248,7 @@ const Dashboard: React.FC = () => {
             if (versionKeys.length > 1) {
               newRowVersions[docId] = versionKeys.slice(1).map(vk => {
                 const vDocs = versionMap[vk];
-                const vDoc = Array.isArray(vDocs) ? vDocs[0] : vDocs;
+                const vDoc = latestDocumentForVersion(vDocs);
                 return {
                   version: vk,
                   date: vDoc?.document_date || vDoc?.timestamp?.split('T')[0] || 'N/A',
@@ -378,7 +378,11 @@ const Dashboard: React.FC = () => {
 
   const getSortedRecords = (records: Document[]) => {
     if (!sortConfig) {
-      return records;
+      return [...records].sort((a, b) => {
+        const aDate = new Date(a.timestamp || a.created_at || a.date || 0).getTime();
+        const bDate = new Date(b.timestamp || b.created_at || b.date || 0).getTime();
+        return (Number.isFinite(bDate) ? bDate : 0) - (Number.isFinite(aDate) ? aDate : 0);
+      });
     }
 
     const sortedRecords = [...records].sort((a, b) => {
@@ -467,28 +471,18 @@ const Dashboard: React.FC = () => {
     try {
       console.log('Downloading document:', { s3Url, documentId, projectName });
 
-      // Use the proxy download method
-      const blob = await apiService.downloadDocument(s3Url, documentId);
-
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      
       // Extract filename from S3 URL or use project name
       const urlParts = s3Url.split('/');
       const s3Filename = urlParts[urlParts.length - 1].split('?')[0];
       const filename = s3Filename || `${projectName}.pdf`;
-      
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      const saved = await downloadWithNativeSaveAs(
+        () => apiService.downloadDocument(s3Url, documentId),
+        filename,
+      );
 
       toast.update(toastId, {
-        render: 'Document downloaded successfully!',
-        type: 'success',
+        render: saved ? 'Document downloaded successfully!' : 'Download cancelled',
+        type: saved ? 'success' : 'info',
         isLoading: false,
         autoClose: 3000,
       });
@@ -844,13 +838,13 @@ const Dashboard: React.FC = () => {
           
           // If mode data exists, get only the latest version
           if (modeData && typeof modeData === 'object') {
-            const versions = Object.keys(modeData).sort();
+            const versions = sortVersionKeysNewestFirst(modeData);
             if (versions.length > 0) {
               const latestVersion = versions[0];
               const documents = modeData[latestVersion];
               
               if (Array.isArray(documents) && documents.length > 0) {
-                const doc = documents[0];
+              const doc = latestDocumentForVersion(documents);
                 
                 companyRecords.push({
                   id: doc.document_id || `${companyName}-${projectName}-${latestVersion}`,
@@ -872,7 +866,7 @@ const Dashboard: React.FC = () => {
                 if (versions.length > 1) {
                   const otherVersions = versions.slice(1).map((v) => {
                     const versionDocs = modeData[v];
-                    const vDoc = Array.isArray(versionDocs) ? versionDocs[0] : null;
+                    const vDoc = latestDocumentForVersion(versionDocs);
                     return {
                       version: v,
                       date: vDoc?.document_date || vDoc?.timestamp?.split('T')[0] || 'N/A',
@@ -1273,72 +1267,32 @@ const Dashboard: React.FC = () => {
                                   </div>
                                 </td>
                               </tr>
-                              {isExpanded && (
-                                <tr>
-                                  <td colSpan={6} style={{ padding: '0', backgroundColor: '#f9fafb', border: 'none' }}>
-                                    <div style={{ padding: '8px 0' }}>
-                                      <table className="version-table">
-                                        <thead>
-                                          <tr>
-                                            <th style={{ width: '40px' }}></th>
-                                            <th>Project Name</th>
-                                            <th>Author Name</th>
-                                            <th>Date</th>
-                                            <th>Status</th>
-                                            <th style={{ textAlign: 'center' }}>Actions</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {versions.map((version, index) => (
-                                            <tr key={index}>
-                                              <td style={{ width: '40px' }}></td>
-                                              <td>
-                                                {getDocumentProperty(record, 'name')} - {version.version}
-                                              </td>
-                                              <td>
-                                                {version.author}
-                                              </td>
-                                              <td>
-                                                {version.date}
-                                              </td>
-                                              <td>
-                                                <span className="status-badge completed">Completed</span>
-                                              </td>
-                                              <td style={{ textAlign: 'center' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
-                                                  {version.s3_url ? (
-                                                    <button
-                                                      onClick={() => handleDownload({ s3_url: version.s3_url, project_name: version.version } as Document)}
-                                                      className="download-icon-btn"
-                                                      title="Download document"
-                                                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center' }}
-                                                    >
-                                                      <Download width={"16px"} height={"16px"} className="download-icon" />
-                                                    </button>
-                                                  ) : (
-                                                    <span style={{ opacity: 0.3, cursor: 'not-allowed', display: 'flex' }} title="No document available">
-                                                      <Download width={"16px"} height={"16px"} className="download-icon" />
-                                                    </span>
-                                                  )}
-                                                  {selectedSOW === 'poc' && (
-                                                    <button 
-                                                      className="action-btn production-btn"
-                                                      onClick={() => handleToProduction(record as any)}
-                                                      title="Convert to Production"
-                                                    >
-                                                      <ArrowUpCircle width={"16px"} height={"16px"} />
-                                                    </button>
-                                                  )}
-                                                </div>
-                                              </td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
+                              {isExpanded && versions.map((version) => (
+                                <tr key={`${documentId}-${version.version}`} className="version-history-row">
+                                  <td aria-hidden="true"></td>
+                                  <td>{getDocumentProperty(record, 'name')} - {version.version}</td>
+                                  <td>{version.author}</td>
+                                  <td>{version.date}</td>
+                                  <td><span className="status-badge completed">Completed</span></td>
+                                  <td style={{ textAlign: 'center' }}>
+                                    <div className="action-buttons" style={{ justifyContent: 'center' }}>
+                                      {version.s3_url ? (
+                                        <button
+                                          onClick={() => handleDownload({ s3_url: version.s3_url, project_name: version.version } as Document)}
+                                          className="download-icon-btn"
+                                          title={`Download ${version.version}`}
+                                        >
+                                          <Download width="16px" height="16px" className="download-icon" />
+                                        </button>
+                                      ) : (
+                                        <span className="version-download-unavailable" title="No document available">
+                                          <Download width="16px" height="16px" className="download-icon" />
+                                        </span>
+                                      )}
                                     </div>
                                   </td>
                                 </tr>
-                              )}
+                              ))}
                             </React.Fragment>
                           );
                         }) || []}

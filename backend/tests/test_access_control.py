@@ -1,6 +1,6 @@
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from app.core.access_control import (
     BUSINESS_UNITS,
@@ -174,6 +174,37 @@ class AccessControlTests(unittest.TestCase):
                 )
             self.assertEqual(response.status_code, 200)
             self.assertEqual(len(response.get_json()["users"]), 1)
+        finally:
+            server.app.config["TESTING"] = previous_testing
+
+    def test_sow_records_mine_filter_is_role_independent(self):
+        from app.core import server
+
+        previous_testing = server.app.config.get("TESTING", False)
+        server.app.config["TESTING"] = True
+        handler = MagicMock()
+        handler.list_all_documents.return_value = [
+            {
+                "document_id": "mine",
+                "owner_email": "test-admin@shellkode.com",
+                "project_name": "My SOW",
+            },
+            {
+                "document_id": "other",
+                "owner_email": "someone@shellkode.com",
+                "project_name": "Someone Else's SOW",
+            },
+        ]
+        try:
+            with (
+                patch.object(server, "DynamoDBHandler", return_value=handler),
+                patch.object(server, "merge_with_active_tasks", side_effect=lambda items, **_kwargs: items),
+            ):
+                response = server.app.test_client().get("/api/history?mine=true&limit=1000")
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.get_json()
+            self.assertEqual([item["document_id"] for item in payload["documents"]], ["mine"])
         finally:
             server.app.config["TESTING"] = previous_testing
 

@@ -7,6 +7,9 @@ Write only content needed to define scope, ownership, dependency, boundary, deci
 validation. Avoid repeated summaries and generic background. Use no more than one short opening
 paragraph per section, then concise bullets for non-comparable items or compact tables for genuinely
 comparable records. Put each bullet on its own Markdown line and keep it to one main idea.
+Default to no subsections. Use at most two direct subsections outside Scope of Work and no nested
+subsections. Treat coverage labels in local instructions as bold bullet labels rather than mandatory
+headings. Scope of Work may use one heading per genuine workstream; use bullets beneath it.
 <!-- END_GLOBAL_TEMPLATE_CONTRACT -->
 
 [META_STATIC]
@@ -62,14 +65,14 @@ Create document control and purpose/source-basis sections. Identify the uploaded
 not automatically as an approved production baseline. Define Confirmed POC Evidence, Proposed
 Production Requirement, Planning Assumption, and Open Clarification. Do not invent approval status.
 
-[META_GENERATED]
-## About {AUTHOR_ORG_SHORT}
+[META_STATIC]
+## About ShellKode
 
-Write a concise, factual profile of {AUTHOR_ORG_SHORT} as the delivery partner. Use supplied
-organisation information and project-relevant capabilities only. Do not invent certifications,
-partner tiers, awards, customer counts, locations, or delivery claims. If no corporate profile is
-supplied, state only the organisation's role in this engagement and the capabilities evidenced by
-the selected scope.
+**ShellKode** is a cloud-native technology company focused on helping organizations modernize their IT environments through Cloud, Data, AI/ML, and Generative AI. The company works with businesses to build scalable, enterprise-grade solutions that improve operational efficiency, generate insights, and solve complex technology challenges.
+
+ShellKode’s key capabilities include Cloud Strategy & Consulting, Cloud Migration & Modernization, Data Engineering & Analytics, Machine Learning, Generative AI, and Agentic AI. Its AI offerings include intelligent document processing, RAG-based knowledge systems, AI agents, conversational assistants, speech analytics, computer vision, and multilingual AI solutions.
+
+The company works across industries including BFSI, Retail & E-commerce, Logistics & Supply Chain, and Healthcare, delivering solutions that combine cloud infrastructure, enterprise data, and AI. ShellKode also has a strong AWS focus, with capabilities around AWS cloud migration, modernization, and Generative AI solutions.
 
 [META_GENERATED]
 ## About {COMPANY_NAME}
@@ -91,14 +94,12 @@ separate what the POC demonstrated from what production must still prove.
 ## POC Evidence and Outcomes
 
 Use only the ingested POC evidence. Include:
-### POC Scope and Implemented Capabilities
-### Demonstrated Workflow and Architecture
-### Test Results and Measured Outcomes
-### Known Limitations and Deferred Items
-### Reusable Assets
+### POC Evidence Summary
+Use concise bullets for implemented scope, demonstrated workflow/architecture, measured outcomes,
+known limitations/deferred items and reusable assets. If the source lacks results, state that evidence is unavailable.
 ### Evidence Register
 Use Evidence ID, POC Claim/Artifact, Source Location/Description, Confidence, Production Relevance,
-and Verification Needed. If the source lacks results, state that evidence is unavailable.
+and Verification Needed.
 
 [META_GENERATED]
 ## Production Gap Assessment
@@ -113,7 +114,8 @@ documentation, governance, and commercials. Do not imply POC behavior meets prod
 
 Summarize production objectives, capabilities retained from POC, assets to reuse/refactor/replace,
 hardening work, users/data/integrations, environments, exclusions, planning horizon, cutover model,
-and acceptance. Use a compact definition table and deliverables list.
+and acceptance. Use a compact table headed `#`, `Module/Workstream`, and `Core Outcome`, followed
+by a concise deliverables list. Do not add a `Depends On` column.
 
 [META_GENERATED]
 ## Scope of Work

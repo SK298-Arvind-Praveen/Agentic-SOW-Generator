@@ -70,7 +70,7 @@ class Config:
         )
         self.WRITER_MODEL_ID = os.environ.get(
             "BEDROCK_WRITER_MODEL_ID",
-            legacy_model or "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            legacy_model or "us.anthropic.claude-sonnet-4-20250514-v1:0",
         )
         self.DIAGRAM_MODEL_ID = os.environ.get(
             "BEDROCK_DIAGRAM_MODEL_ID",
@@ -84,8 +84,6 @@ class Config:
             "BEDROCK_FALLBACK_MODEL_ID",
             legacy_model or self.WRITER_MODEL_ID,
         )
-        # To compare against Sonnet later, set this explicitly instead:
-        # BEDROCK_FALLBACK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
         # Compatibility for older call sites while they migrate to task routing.
         self.MODEL_ID = legacy_model or self.WRITER_MODEL_ID
 
@@ -101,7 +99,7 @@ class Config:
         )
         self.SECTION_EVIDENCE_MAX_CHARS = max(
             8_000,
-            int(os.environ.get("SECTION_EVIDENCE_MAX_CHARS", "24000")),
+            int(os.environ.get("SECTION_EVIDENCE_MAX_CHARS", "48000")),
         )
         
         # Model parameters
@@ -160,6 +158,12 @@ class Config:
         # =====================================================================
         
         self.PAGE_SIZE = "LETTER"  # 8.5 x 11 inches; benchmark/business standard
+        # When desktop Word (Windows) or LibreOffice is already available, use
+        # it to cache accurate PAGE/PAGEREF results for SharePoint previews.
+        # This is optional and introduces no application dependency.
+        self.PRECOMPUTE_DOCUMENT_FIELDS = os.environ.get(
+            "PRECOMPUTE_DOCUMENT_FIELDS", "true"
+        ).strip().lower() not in {"0", "false", "no", "off"}
         
         # Cover page margins (full-bleed)
         self.COVER_MARGIN_TOP = 0
@@ -197,6 +201,7 @@ class Config:
         self.POC_TEMPLATE_FILE = self.TEMPLATES_DIR / "poc_template.md"
         self.PRODUCTION_TEMPLATE_FILE = self.TEMPLATES_DIR / "production_template.md"
         self.POC_TO_PROD_TEMPLATE_FILE = self.TEMPLATES_DIR / "poc_to_prod_template.md"
+        self.COVER_PAGE_TEMPLATE = self.TEMPLATES_DIR / "sow_coverpage_template.docx"
         self.COVER_PAGE_IMAGE = self.ASSETS_DIR / "coverpage.png"
         self.ARCHITECTURE_DIAGRAM = self.ASSETS_DIR / "architecture_diagram.png"
         
@@ -440,6 +445,7 @@ class Config:
             "poc_template": self.POC_TEMPLATE_FILE.exists(),
             "production_template": self.PRODUCTION_TEMPLATE_FILE.exists(),
             "poc_to_prod_template": self.POC_TO_PROD_TEMPLATE_FILE.exists(),
+            "cover_page_template": self.COVER_PAGE_TEMPLATE.exists(),
             "cover_page_image": self.COVER_PAGE_IMAGE.exists(),
             "architecture_diagram": self.ARCHITECTURE_DIAGRAM.exists(),
         }

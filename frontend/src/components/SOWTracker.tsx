@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import apiService from '../services/apiService';
+import { downloadWithNativeSaveAs } from '../utils/downloadFile';
 import './SOWTracker.css';
 import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
 
@@ -79,6 +80,7 @@ const SOWTracker: React.FC = () => {
       if (response.success && response.documents) {
         const records: SOWRecord[] = response.documents.map((item: any) => {
           const doc = item.document || item;
+          const taskMetadata = item.task?.metadata || {};
           return {
             sow_id: doc.document_id || doc.id,
             document_id: doc.document_id || doc.doc_id || doc.id,
@@ -90,7 +92,7 @@ const SOWTracker: React.FC = () => {
             s3_url: doc.s3_url || doc.download_url || '',
             drive_link: doc.drive_link || '',
             created_at: doc.timestamp || doc.created_at,
-            business_unit: doc.business_unit,
+            business_unit: doc.business_unit || taskMetadata.business_unit,
           };
         });
 
@@ -224,24 +226,17 @@ const SOWTracker: React.FC = () => {
     });
 
     try {
-      const blob = await apiService.downloadDocument(s3Url, record.document_id);
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-
       const urlParts = s3Url.split('/');
       const s3Filename = urlParts[urlParts.length - 1].split('?')[0];
       const filename = s3Filename || `${record.project_name}_${record.mode}.pdf`;
-
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      const saved = await downloadWithNativeSaveAs(
+        () => apiService.downloadDocument(s3Url, record.document_id),
+        filename,
+      );
 
       toast.update(toastId, {
-        render: 'Document downloaded successfully!',
-        type: 'success',
+        render: saved ? 'Document downloaded successfully!' : 'Download cancelled',
+        type: saved ? 'success' : 'info',
         isLoading: false,
         autoClose: 3000
       });

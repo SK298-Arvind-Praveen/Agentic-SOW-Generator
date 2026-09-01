@@ -417,16 +417,15 @@ class DynamoDBHandlerOptimized:
             else:
                 version = metadata.get('version', 'v1')
 
-            # Find and cleanup similar documents
+            # Every generated version is part of the audit/history view. Older
+            # versions must never be treated as disposable duplicates merely
+            # because company and project names match.
             similar_docs = self.find_similar_documents(
                 company_name,
                 project_name,
                 owner_email=metadata.get('owner_email'),
             )
-
             cleanup_result = None
-            if similar_docs and len(similar_docs) >= keep_duplicates:
-                cleanup_result = self.delete_old_duplicates(similar_docs, keep_count=keep_duplicates)
 
             # Save new document
             document_id = self.generate_document_id()
@@ -495,8 +494,8 @@ class DynamoDBHandlerOptimized:
                 "owner_name": metadata.get("owner_name"),
                 "deduplication": {
                     "similar_found": len(similar_docs),
-                    "kept_count": keep_duplicates,
-                    "cleanup_performed": cleanup_result is not None,
+                    "kept_count": len(similar_docs) + 1,
+                    "cleanup_performed": False,
                     "cleanup_result": cleanup_result
                 },
                 "response": response
@@ -534,6 +533,12 @@ class DynamoDBHandlerOptimized:
             # Get all documents
             response = self.table.scan(Limit=limit)
             items = response.get('Items', [])
+            while response.get('LastEvaluatedKey') and len(items) < limit:
+                response = self.table.scan(
+                    Limit=limit - len(items),
+                    ExclusiveStartKey=response['LastEvaluatedKey'],
+                )
+                items.extend(response.get('Items', []))
             
             # Continue scanning if there's more data
             while 'LastEvaluatedKey' in response and len(items) < limit:
@@ -634,7 +639,7 @@ class DynamoDBHandlerOptimized:
 
             # Query using customer-index GSI
             try:
-                response = self.table.query(
+                query_kwargs = dict(
                     IndexName='customer-index',
                     KeyConditionExpression='customer_name_lower = :cn',
                     ExpressionAttributeValues={
@@ -643,20 +648,40 @@ class DynamoDBHandlerOptimized:
                     Limit=limit,
                     ScanIndexForward=False
                 )
+                response = self.table.query(**query_kwargs)
                 items = response.get('Items', [])
+                while response.get('LastEvaluatedKey') and len(items) < limit:
+                    response = self.table.query(**{
+                        **query_kwargs,
+                        'ExclusiveStartKey': response['LastEvaluatedKey'],
+                        'Limit': limit - len(items),
+                    })
+                    items.extend(response.get('Items', []))
                 
             except ClientError as e:
                 # Fallback to scan
                 print(f"   ⚠️  Using scan fallback...")
-                response = self.table.scan(
+                scan_kwargs = dict(
                     FilterExpression='customer_name_lower = :cn',
                     ExpressionAttributeValues={':cn': company_name_lower},
                     Limit=limit
                 )
+                response = self.table.scan(**scan_kwargs)
                 items = response.get('Items', [])
+                while response.get('LastEvaluatedKey') and len(items) < limit:
+                    response = self.table.scan(**{
+                        **scan_kwargs,
+                        'ExclusiveStartKey': response['LastEvaluatedKey'],
+                        'Limit': limit - len(items),
+                    })
+                    items.extend(response.get('Items', []))
 
             # Apply filters
-            filtered_items = items
+            filtered_items = sorted(
+                items,
+                key=lambda item: str(item.get('timestamp') or item.get('created_at') or ''),
+                reverse=True,
+            )
             if owner_email:
                 owner_email = str(owner_email).casefold().strip()
                 filtered_items = [
@@ -910,10 +935,17 @@ class DynamoDBHandlerOptimized:
                     'drive_link': item.get('drive_link'),
                     'timestamp': item.get('timestamp'),
                     'mode': item.get('mode', 'UNKNOWN'),
-                    'version': item.get('version', 'v1')  # ✅ Include version
+                    'version': item.get('version', 'v1'),  # ✅ Include version
+                    'business_unit': item.get('business_unit'),
+                    'owner_email': item.get('owner_email'),
+                    'owner_name': item.get('owner_name'),
                 })
 
-            return formatted_items
+            return sorted(
+                formatted_items,
+                key=lambda item: str(item.get('timestamp') or item.get('document_date') or ''),
+                reverse=True,
+            )
         except Exception as e:
             print(f"❌ List failed: {e}")
             return []

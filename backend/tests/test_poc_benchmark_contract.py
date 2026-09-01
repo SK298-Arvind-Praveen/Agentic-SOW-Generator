@@ -33,7 +33,7 @@ class PocBenchmarkContractTests(unittest.TestCase):
                 "{PROJECT_TITLE}",
                 "Table_of_contents",
                 "Document Version Control",
-                "About {AUTHOR_ORG_SHORT}",
+                "About ShellKode",
                 "About {COMPANY_NAME}",
                 "1. Objective",
                 "2. Deliverables",
@@ -66,6 +66,12 @@ class PocBenchmarkContractTests(unittest.TestCase):
             "Marketing Authorization",
         ):
             self.assertNotIn(f"## {heading}", self.template)
+
+    def test_objective_section_does_not_repeat_objectives_subheading(self):
+        self.assertNotIn("### 1.1 Objectives", self.template)
+        objective_start = self.template.index("## 1. Objective")
+        objective_end = self.template.index("[META_TABLE]", objective_start)
+        self.assertIn("do not add an `Objectives` subsection", self.template[objective_start:objective_end])
 
     def test_signatory_names_and_titles_are_blank(self):
         self.assertIn('"Client" verifies that the terms of this Statement of Work/Proposal', self.template)

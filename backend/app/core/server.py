@@ -61,7 +61,11 @@ from app.db.dynamodb_handler_optimized import (
 from app.rag.rag_diagnostic import EnhancedPOCRetriever
 from app.rag.ingest import PDFToSchemaConverter, SchemaCleaner
 from app.document.document_builder import DocumentBuilder
-from app.document.doc_reader import read_document
+from app.document.doc_reader import (
+    SUPPORTED_DOCUMENT_EXTENSIONS,
+    extract_supporting_documents_with_diagnostics,
+    read_document,
+)
 from app.diagram.service import (
     ASSET_KEY as ARCHITECTURE_ASSETS_KEY,
     LEGACY_ASSET_KEY as ARCHITECTURE_ASSET_KEY,
@@ -600,7 +604,10 @@ def convert_db_document_to_task_format(document):
             "metadata": {
                 "company_name": doc_copy.get('customer_name', 'Unknown'),
                 "project_name": doc_copy.get('project_name', 'Unknown'),
-                "author_name": doc_copy.get('author_name', 'Unknown')
+                "author_name": doc_copy.get('author_name', 'Unknown'),
+                "business_unit": doc_copy.get('business_unit'),
+                "owner_email": doc_copy.get('owner_email'),
+                "owner_name": doc_copy.get('owner_name'),
             }
         },
         
@@ -1208,7 +1215,7 @@ def process_document_generation(task_id, task_data):
             update_task(task_id, progress=25, current_step="Processing supporting documents")
 
             try:
-                from tools.doc_reader import extract_supporting_documents
+                from app.document.doc_reader import extract_supporting_documents
                 supporting_context = extract_supporting_documents(supporting_files)
 
                 if supporting_context:
@@ -1223,7 +1230,10 @@ def process_document_generation(task_id, task_data):
         print(f"\n[TASK] Generating {mode} Document")
         initial_state = {
             "metadata": metadata,
-            "objective": objective or "Document Generation",
+            # An empty details box is meaningful when supporting documents are
+            # supplied: the uploaded corpus becomes the authoritative source.
+            # Do not inject a generic objective that competes with BRD evidence.
+            "objective": objective or "",
             "mode": mode,
             "source_file": source_file,
             "rag_context": rag_context,
@@ -1457,6 +1467,31 @@ def generate_document():
                 "error": "Invalid or missing mode (POC, PROD, or POC_TO_PROD)"
             }), 400
 
+        declared_supporting_count = request.form.get('supporting_doc_count', '').strip()
+        if declared_supporting_count:
+            try:
+                declared_supporting_count = int(declared_supporting_count)
+            except ValueError:
+                return jsonify({
+                    "success": False,
+                    "error": "supporting_doc_count must be an integer",
+                }), 400
+            actual_supporting_count = len([
+                item for item in request.files.getlist('supporting_docs')
+                if item and item.filename
+            ])
+            if actual_supporting_count != declared_supporting_count:
+                return jsonify({
+                    "success": False,
+                    "error": (
+                        "Supporting-document multipart transfer was incomplete; "
+                        f"the browser sent {declared_supporting_count} file(s) but the server "
+                        f"received {actual_supporting_count}. Generation was not started."
+                    ),
+                    "supporting_documents_declared": declared_supporting_count,
+                    "supporting_documents_received": actual_supporting_count,
+                }), 400
+
         from app.core.sow_section_preferences import parse_selected_section_ids
         try:
             selected_sow_sections = parse_selected_section_ids(
@@ -1470,25 +1505,37 @@ def generate_document():
             if 'file' not in request.files or not request.files['file'].filename:
                 return jsonify({
                     "success": False,
-                    "error": "POC_TO_PROD mode requires file upload (PDF/DOCX)"
+                "error": "POC_TO_PROD mode requires a supported document upload"
                 }), 400
 
             company_name = request.form.get('company_name', '').strip() or None
             author_name = request.form.get('author_name', '').strip() or None
             project_name = request.form.get('project_name', '').strip() or None
-            objective = request.form.get('objective', '').strip() or None
+            objective = (
+                request.form.get('additional_details', '').strip()
+                or request.form.get('objective', '').strip()
+                or None
+            )
         else:
             company_name = request.form.get('company_name', '').strip()
             author_name = request.form.get('author_name', '').strip()
             project_name = request.form.get('project_name', '').strip()
-            objective = request.form.get('objective', '').strip()
-
-            supported_source_extensions = {'.pdf', '.docx', '.doc', '.txt'}
-            has_supporting_source = any(
-                item and item.filename
-                and Path(item.filename).suffix.lower() in supported_source_extensions
-                for item in request.files.getlist('supporting_docs')
+            objective = (
+                request.form.get('additional_details', '').strip()
+                or request.form.get('objective', '').strip()
             )
+
+            uploaded_supporting = [
+                item for item in request.files.getlist('supporting_docs')
+                if item and item.filename
+            ]
+            if any(Path(item.filename).suffix.lower() not in SUPPORTED_DOCUMENT_EXTENSIONS
+                   for item in uploaded_supporting):
+                return jsonify({
+                    "success": False,
+                    "error": "Unsupported file type. Supported files: PDF, Word, Excel, and TXT.",
+                }), 415
+            has_supporting_source = bool(uploaded_supporting)
 
             if not all([company_name, author_name, project_name]) or not (
                 objective or has_supporting_source
@@ -1497,11 +1544,11 @@ def generate_document():
                     "success": False,
                     "error": (
                         f"{mode} mode requires company_name, author_name, project_name, "
-                        "and either project scope text or a BRD/supporting document"
+                        "and either a BRD/supporting document or sufficient additional details"
                     )
                 }), 400
             if not objective:
-                objective = "Derive the project scope and objectives from the uploaded business requirements document."
+                objective = ""
 
         document_date = request.form.get('document_date') or datetime.now().strftime("%d %B %Y")
         version = request.form.get('version', '1.0')
@@ -1512,11 +1559,11 @@ def generate_document():
             file = request.files['file']
             if file and file.filename:
                 file_ext = Path(file.filename).suffix.lower()
-                if file_ext not in {'.pdf', '.docx', '.doc'}:
+                if file_ext not in SUPPORTED_DOCUMENT_EXTENSIONS:
                     return jsonify({
                         "success": False,
-                        "error": "Invalid file type. Only PDF and DOCX allowed."
-                    }), 400
+                        "error": "Unsupported file type. Supported files: PDF, Word, Excel, and TXT."
+                    }), 415
 
                 filename = secure_filename(file.filename)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1536,9 +1583,11 @@ def generate_document():
             for idx, support_file in enumerate(files_list, 1):
                 if support_file and support_file.filename:
                     file_ext = Path(support_file.filename).suffix.lower()
-                    if file_ext not in {'.pdf', '.docx', '.doc', '.txt'}:
-                        print(f"⚠️  Skipping unsupported file type: {support_file.filename}")
-                        continue
+                    if file_ext not in SUPPORTED_DOCUMENT_EXTENSIONS:
+                        return jsonify({
+                            "success": False,
+                            "error": "Unsupported file type. Supported files: PDF, Word, Excel, and TXT.",
+                        }), 415
 
                     filename = secure_filename(support_file.filename)
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1576,6 +1625,7 @@ def generate_document():
             'author_name': author_name,
             'project_name': project_name,
             'objective': objective,
+            'additional_details': objective,
             'document_date': document_date,
             'version': version,
             'source_file': source_file,
@@ -1892,7 +1942,15 @@ def get_history():
         if filter_type != 'all' and results:
             results = merge_with_active_tasks(results, mode_filter=None, limit=limit)
 
-        results = _visible_documents(results)
+        if request.args.get('mine', '').lower() in {'1', 'true', 'yes'}:
+            identity_email = current_identity().email.casefold().strip()
+            results = [
+                item for item in results
+                if str(item.get('document', item).get('owner_email') or '').casefold().strip()
+                == identity_email
+            ]
+        else:
+            results = _visible_documents(results)
 
         print(f"      ✓ Found {len(results)} documents (with drive links)")
 
@@ -2384,6 +2442,31 @@ def generate_preview():
                 "error": "Invalid or missing mode (POC, PROD, or POC_TO_PROD)"
             }), 400
 
+        declared_supporting_count = request.form.get('supporting_doc_count', '').strip()
+        if declared_supporting_count:
+            try:
+                declared_supporting_count = int(declared_supporting_count)
+            except ValueError:
+                return jsonify({
+                    "success": False,
+                    "error": "supporting_doc_count must be an integer",
+                }), 400
+            actual_supporting_count = len([
+                item for item in request.files.getlist('supporting_docs')
+                if item and item.filename
+            ])
+            if actual_supporting_count != declared_supporting_count:
+                return jsonify({
+                    "success": False,
+                    "error": (
+                        "Supporting-document multipart transfer was incomplete; "
+                        f"the browser sent {declared_supporting_count} file(s) but the server "
+                        f"received {actual_supporting_count}. Generation was not started."
+                    ),
+                    "supporting_documents_declared": declared_supporting_count,
+                    "supporting_documents_received": actual_supporting_count,
+                }), 400
+
         from app.core.sow_section_preferences import parse_selected_section_ids
         try:
             selected_sow_sections = parse_selected_section_ids(
@@ -2398,6 +2481,8 @@ def generate_preview():
         # Handle POC_TO_PROD mode - extract text from document
         extracted_text = None
         source_file = None
+        document_only_request = False
+        has_supporting_source = False
         
         # Initialize variables with defaults
         company_name = None
@@ -2411,17 +2496,17 @@ def generate_preview():
             if 'file' not in request.files or not request.files['file'].filename:
                 return jsonify({
                     "success": False,
-                    "error": "POC_TO_PROD mode requires file upload (PDF/DOCX)"
+                    "error": "POC_TO_PROD mode requires a supported document upload"
                 }), 400
             
             file = request.files['file']
             file_ext = Path(file.filename).suffix.lower()
             
-            if file_ext not in {'.pdf', '.docx', '.doc'}:
+            if file_ext not in SUPPORTED_DOCUMENT_EXTENSIONS:
                 return jsonify({
                     "success": False,
-                    "error": "Invalid file type. Only PDF and DOCX allowed."
-                }), 400
+                    "error": "Unsupported file type. Supported files: PDF, Word, Excel, and TXT."
+                }), 415
             
             # Save file temporarily
             filename = secure_filename(file.filename)
@@ -2481,14 +2566,23 @@ def generate_preview():
             print(f"\n🔍 DEBUG: Form data received:")
             for key, value in request.form.items():
                 print(f"   {key}: {value}")
-            objective = request.form.get('objective', '').strip()
-
-            supported_source_extensions = {'.pdf', '.docx', '.doc', '.txt'}
-            has_supporting_source = any(
-                item and item.filename
-                and Path(item.filename).suffix.lower() in supported_source_extensions
-                for item in request.files.getlist('supporting_docs')
+            objective = (
+                request.form.get('additional_details', '').strip()
+                or request.form.get('objective', '').strip()
             )
+
+            uploaded_supporting = [
+                item for item in request.files.getlist('supporting_docs')
+                if item and item.filename
+            ]
+            if any(Path(item.filename).suffix.lower() not in SUPPORTED_DOCUMENT_EXTENSIONS
+                   for item in uploaded_supporting):
+                return jsonify({
+                    "success": False,
+                    "error": "Unsupported file type. Supported files: PDF, Word, Excel, and TXT.",
+                }), 415
+            has_supporting_source = bool(uploaded_supporting)
+            document_only_request = not objective and has_supporting_source
             
             if not all([company_name, author_name, project_name]) or not (
                 objective or has_supporting_source
@@ -2497,11 +2591,11 @@ def generate_preview():
                     "success": False,
                     "error": (
                         f"{mode} mode requires company_name, author_name, project_name, "
-                        "and either project scope text or a BRD/supporting document"
+                        "and either a BRD/supporting document or sufficient additional details"
                     )
                 }), 400
             if not objective:
-                objective = "Derive the project scope and objectives from the uploaded business requirements document."
+                objective = ""
             
             # Get optional fields for POC/PROD
             document_date = request.form.get('document_date', document_date)
@@ -2540,21 +2634,34 @@ def generate_preview():
         print(f"      Project: {project_name}")
         print(f"      Mode: ASYNC | {'FAST' if use_fast_mode else 'STANDARD'}")
         
-        # Retrieve RAG data
-        rag_context, rag_success = retrieve_rag_data(company_name, project_name, mode)
+        # Any uploaded requirements document is the primary evidence source.
+        # Typed details remain an instruction overlay and must not cause stale
+        # project RAG to compete with or override the uploaded corpus.
+        if has_supporting_source:
+            rag_context, rag_success = {}, False
+            print("   🔒 Uploaded-document priority mode: skipping external/project RAG")
+        else:
+            rag_context, rag_success = retrieve_rag_data(company_name, project_name, mode)
 
         # Extract supporting documents if provided (POC / PROD modes)
         supporting_files = []
         supporting_context = None
+        supporting_docs_received = 0
+        supporting_docs_extracted = 0
         if 'supporting_docs' in request.files:
             files_list = request.files.getlist('supporting_docs')
+            supporting_docs_received = len([
+                item for item in files_list if item and item.filename
+            ])
             print(f"   📎 Received {len(files_list)} supporting document(s)")
             for idx, support_file in enumerate(files_list, 1):
                 if support_file and support_file.filename:
                     file_ext = Path(support_file.filename).suffix.lower()
-                    if file_ext not in ['.pdf', '.docx', '.doc', '.txt']:
-                        print(f"   ⚠️  Skipping unsupported file type: {support_file.filename}")
-                        continue
+                    if file_ext not in SUPPORTED_DOCUMENT_EXTENSIONS:
+                        return jsonify({
+                            "success": False,
+                            "error": "Unsupported file type. Supported files: PDF, Word, Excel, and TXT.",
+                        }), 415
                     filename = secure_filename(support_file.filename)
                     unique_filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{idx}_{filename}"
                     filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
@@ -2563,25 +2670,46 @@ def generate_preview():
 
             if supporting_files:
                 try:
-                    from app.document.doc_reader import read_document
-                    parts = []
-                    for fp in supporting_files:
-                        text = read_document(fp)
-                        if text and text.strip():
-                            parts.append(f"--- Document: {os.path.basename(fp)} ---\n{text.strip()}")
-                    supporting_context = "\n\n".join(parts) if parts else None
+                    supporting_context, supporting_docs_extracted = (
+                        extract_supporting_documents_with_diagnostics(supporting_files)
+                    )
+                    supporting_context = supporting_context or None
                     if supporting_context:
                         print(f"   ✅ Extracted {len(supporting_context)} chars from supporting docs")
                     else:
                         print(f"   ⚠️  No content extracted from supporting documents")
                 except Exception as e:
-                    print(f"   ⚠️  Error extracting supporting documents: {e}")
+                    print(f"   ❌ Error extracting supporting documents: {e}")
                     supporting_context = None
+                    supporting_docs_extracted = 0
+
+        # Never silently convert an unreadable/missing multipart upload into a
+        # generic SOW.  In document-only mode, successful extraction is a hard
+        # precondition for starting the agent graph.
+        if supporting_docs_received and (
+            not supporting_context or supporting_docs_extracted != supporting_docs_received
+        ):
+            for fp in supporting_files:
+                try:
+                    if os.path.exists(fp):
+                        os.remove(fp)
+                except Exception:
+                    pass
+            return jsonify({
+                "success": False,
+                "error": (
+                    "One or more supporting documents were received but could not be read "
+                    "completely. Check that every document contains selectable text or enable OCR."
+                ),
+                "supporting_documents_received": supporting_docs_received,
+                "supporting_documents_extracted": supporting_docs_extracted,
+            }), 422
 
         # Generate content using graph (without building document)
         initial_state = {
             "metadata": metadata,
             "objective": objective,
+            "additional_details": objective,
             "mode": mode,
             "source_file": source_file,  # For POC_TO_PROD
             "rag_context": rag_context,
@@ -2618,6 +2746,12 @@ def generate_preview():
                 preview_storage[preview_id]["progress"] = 0
                 preview_storage[preview_id]["current_step"] = "Initializing preview generation..."
                 preview_storage[preview_id]["rag_context"] = rag_context
+                preview_storage[preview_id]["source_diagnostics"] = {
+                    "document_only": document_only_request,
+                    "documents_received": supporting_docs_received,
+                    "documents_extracted": supporting_docs_extracted,
+                    "extracted_characters": len(supporting_context or ""),
+                }
         
         # Start async processing (supporting_context already extracted — files not needed by thread)
         process_preview_async(preview_id, initial_state, use_fast_mode)
@@ -2635,6 +2769,10 @@ def generate_preview():
         response_data = {
             "success": True,
             "preview_id": preview_id,
+            "supporting_documents_received": supporting_docs_received,
+            "supporting_documents_extracted": supporting_docs_extracted,
+            "supporting_context_chars": len(supporting_context or ""),
+            "document_only_source_mode": document_only_request,
             "mode": mode,
             "metadata": metadata,
             "status": "initializing",
@@ -2879,8 +3017,8 @@ def get_preview_status_api(preview_id):
                 "author_name": metadata.get("author_name", "Unknown Author"),
                 "author_org": metadata.get("author_org", "Shellkode"),
                 "document_date": metadata.get("document_date", datetime.now().strftime("%d %B %Y")),
-                "start_date": metadata.get("start_date") or "To be confirmed",
-                "end_date": metadata.get("end_date") or "To be confirmed",
+                "start_date": metadata.get("start_date") or "",
+                "end_date": metadata.get("end_date") or "",
                 "version": metadata.get("version", "1.0"),
                 "timezone": metadata.get("timezone", "IST"),
                 "author_org_description": metadata.get("author_org_description", "Shellkode specializes in developing advanced data and AI solutions for businesses.")
@@ -2898,6 +3036,7 @@ def get_preview_status_api(preview_id):
                 "current_step": preview_data.get("current_step", "Initializing..."),
                 "is_complete": status == "ready",
                 "has_error": status == "failed",
+                "source_diagnostics": preview_data.get("source_diagnostics", {}),
                 # ✅ Add metadata fields at top level for easier frontend access
                 "company_name": metadata_response["company_name"],
                 "project_title": metadata_response["project_title"],
@@ -3470,8 +3609,8 @@ def edit_preview():
             "author_name": metadata.get("author_name", "Unknown Author"),
             "author_org": metadata.get("author_org", "Shellkode"),
             "document_date": metadata.get("document_date", datetime.now().strftime("%d %B %Y")),
-            "start_date": metadata.get("start_date") or "To be confirmed",
-            "end_date": metadata.get("end_date") or "To be confirmed",
+            "start_date": metadata.get("start_date") or "",
+            "end_date": metadata.get("end_date") or "",
             "version": metadata.get("version", "1.0"),
             "timezone": metadata.get("timezone", "IST"),
             "author_org_description": metadata.get("author_org_description", "Shellkode specializes in developing advanced data and AI solutions for businesses.")
@@ -5019,9 +5158,8 @@ if __name__ == '__main__':
     print("   6. Drive link integration in ALL history APIs (UPDATED)")
     print("   7. Preview/Edit/Finalize workflow (NEW)")
     print("\n✅ CONVERSION METHODS:")
-    print("   1. LibreOffice (most reliable on servers)")
-    print("   2. python-docx + reportlab (pure Python)")
-    print("   3. win32com (Windows native)")
+    print("   1. Native dynamic Word fields (default, dependency-free)")
+    print("   2. Optional LibreOffice cache precomputation")
     print("\n✅ CLOUD STORAGE:")
     print("   • Google Drive (Optional - with link in ALL history APIs)")
     print("   • AWS S3 (Primary)")

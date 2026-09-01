@@ -23,6 +23,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from PIL import Image as PILImage, ImageDraw, ImageFont
 from docx import Document
 from docx.enum.section import WD_SECTION
+from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import (
     WD_ALIGN_PARAGRAPH,
@@ -85,6 +86,16 @@ def _set_font(run, name: str = FONT_NAME, size: Optional[float] = None,
         run.font.color.rgb = RGBColor.from_string(color)
 
 
+def _set_character_spacing(element, twentieth_points: int = 2) -> None:
+    """Apply subtle tracking without substituting or widening space glyphs."""
+    rpr = element.get_or_add_rPr()
+    spacing = rpr.find(qn("w:spacing"))
+    if spacing is None:
+        spacing = OxmlElement("w:spacing")
+        rpr.append(spacing)
+    spacing.set(qn("w:val"), str(twentieth_points))
+
+
 def _add_field(paragraph, instruction: str, cached_text: str = "", size: float = 9):
     run = paragraph.add_run()
     begin = OxmlElement("w:fldChar")
@@ -129,8 +140,10 @@ def _add_hyperlink(paragraph, text: str, anchor: str):
     for attr in ("ascii", "hAnsi", "eastAsia", "cs"):
         fonts.set(qn(f"w:{attr}"), FONT_NAME)
     size = OxmlElement("w:sz")
-    size.set(qn("w:val"), "15")
-    rpr.extend([fonts, color, underline, size])
+    size.set(qn("w:val"), "22")
+    spacing = OxmlElement("w:spacing")
+    spacing.set(qn("w:val"), "2")
+    rpr.extend([fonts, color, underline, size, spacing])
     text_node = OxmlElement("w:t")
     text_node.text = text
     run.extend([rpr, text_node])
@@ -157,8 +170,10 @@ def _add_external_hyperlink(paragraph, text: str, url: str):
     underline = OxmlElement("w:u")
     underline.set(qn("w:val"), "single")
     size = OxmlElement("w:sz")
-    size.set(qn("w:val"), "15")
-    rpr.extend([fonts, color, underline, size])
+    size.set(qn("w:val"), "22")
+    spacing = OxmlElement("w:spacing")
+    spacing.set(qn("w:val"), "2")
+    rpr.extend([fonts, color, underline, size, spacing])
     text_node = OxmlElement("w:t")
     text_node.text = text
     run.extend([rpr, text_node])
@@ -167,12 +182,45 @@ def _add_external_hyperlink(paragraph, text: str, url: str):
 
 
 def _mark_update_fields(document: Document) -> None:
+    """Ask Word renderers to resolve dynamic fields when no cache exists.
+
+    When an optional pagination engine later provides cached PAGEREF values,
+    the package flag is switched off so desktop Word preserves that cache.
+    """
     settings = document.settings._element
     existing = settings.find(qn("w:updateFields"))
     if existing is None:
         existing = OxmlElement("w:updateFields")
         settings.append(existing)
     existing.set(qn("w:val"), "true")
+
+
+def _set_update_fields_flag(document_path: Path, enabled: bool) -> None:
+    """Set the package-wide field refresh flag without changing document layout."""
+    with zipfile.ZipFile(document_path, "r") as source:
+        files = {name: source.read(name) for name in source.namelist()}
+    settings = parse_xml(files["word/settings.xml"])
+    update_fields = settings.find(qn("w:updateFields"))
+    if update_fields is None:
+        update_fields = OxmlElement("w:updateFields")
+        settings.append(update_fields)
+    update_fields.set(qn("w:val"), "true" if enabled else "false")
+    files["word/settings.xml"] = etree.tostring(
+        settings, xml_declaration=True, encoding="UTF-8", standalone=True
+    )
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{document_path.stem}-settings-", suffix=".docx", dir=document_path.parent
+    )
+    os.close(descriptor)
+    temporary_path = Path(temporary_name)
+    try:
+        with zipfile.ZipFile(temporary_path, "w", zipfile.ZIP_DEFLATED) as destination:
+            for name, payload in files.items():
+                destination.writestr(name, payload)
+        os.replace(temporary_path, document_path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
 
 
 def _obfuscate_embedded_font(font_data: bytes, font_key: uuid.UUID) -> bytes:
@@ -371,10 +419,14 @@ def _find_libreoffice_binary(config) -> Optional[str]:
     configured = getattr(config, "LIBREOFFICE_BINARY", None) or os.getenv(
         "LIBREOFFICE_BINARY"
     )
+    program_files = Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+    program_files_x86 = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
     candidates = [
         Path(str(configured)).expanduser() if configured else None,
         Path(shutil.which("soffice")) if shutil.which("soffice") else None,
         Path(shutil.which("libreoffice")) if shutil.which("libreoffice") else None,
+        program_files / "LibreOffice/program/soffice.exe",
+        program_files_x86 / "LibreOffice/program/soffice.exe",
         Path.home()
         / ".cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override/soffice",
         Path("/Applications/LibreOffice.app/Contents/MacOS/soffice"),
@@ -388,20 +440,83 @@ def _find_libreoffice_binary(config) -> Optional[str]:
     return None
 
 
-def _refresh_pageref_cached_results(document_path: Path, config) -> None:
-    """Calculate TOC page numbers with LibreOffice and cache them in the DOCX.
+def _refresh_fields_with_word(document_path: Path) -> None:
+    """Use an existing desktop Word installation to populate cached fields.
 
-    LibreOffice is used only as a pagination engine. Its converted document is
-    never shipped: computed field results are copied back into the original
-    OOXML so the existing layout, relationships, and embedded DM Sans fonts stay
-    untouched.
+    This has no Python or paid runtime dependency: it is an optional Windows
+    optimisation when Word is already installed on the machine producing the
+    document. The generated DOCX remains valid when Word is unavailable.
     """
+    if os.name != "nt":
+        raise RuntimeError("Microsoft Word field refresh is available only on Windows")
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$word = $null
+$document = $null
+try {
+    $word = New-Object -ComObject Word.Application
+    $word.Visible = $false
+    $word.DisplayAlerts = 0
+    $document = $word.Documents.Open($env:SOW_DOCX_PATH, $false, $false)
+    $document.Repaginate()
+    [void]$document.Fields.Update()
+    foreach ($toc in $document.TablesOfContents) { [void]$toc.Update() }
+    foreach ($storyType in $document.StoryRanges) {
+        $story = $storyType
+        while ($null -ne $story) {
+            [void]$story.Fields.Update()
+            $story = $story.NextStoryRange
+        }
+    }
+    $document.Repaginate()
+    [void]$document.Fields.Update()
+    $document.Save()
+} finally {
+    if ($null -ne $document) { $document.Close($false) }
+    if ($null -ne $word) { $word.Quit() }
+}
+"""
+    environment = os.environ.copy()
+    environment["SOW_DOCX_PATH"] = str(document_path.resolve())
+    completed = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+        env=environment,
+    )
+    if completed.returncode != 0:
+        details = (completed.stderr or completed.stdout or "Word COM is unavailable").strip()
+        raise RuntimeError(f"Microsoft Word could not refresh document fields: {details}")
+    with zipfile.ZipFile(document_path, "r") as package:
+        results = _pageref_results_from_xml(package.read("word/document.xml"))
+    if not results or any(not value.isdigit() for value in results.values()):
+        raise RuntimeError("Microsoft Word did not return numeric TOC page references")
+    _set_update_fields_flag(document_path, False)
+
+
+def _refresh_pageref_cached_results(document_path: Path, config) -> None:
+    """Calculate and cache TOC page numbers with an available Office engine.
+
+    Existing Microsoft Word is preferred on Windows. LibreOffice remains a
+    free, optional fallback; neither application is a hard project dependency.
+    """
+    if not getattr(config, "PRECOMPUTE_DOCUMENT_FIELDS", True):
+        raise RuntimeError("optional field-cache generation is disabled")
+
+    word_error: Optional[Exception] = None
+    if os.name == "nt":
+        try:
+            _refresh_fields_with_word(document_path)
+            return
+        except Exception as exc:
+            word_error = exc
+
     office_binary = _find_libreoffice_binary(config)
     if not office_binary:
-        raise RuntimeError(
-            "LibreOffice is required to calculate and cache accurate TOC page numbers. "
-            "Install LibreOffice or set LIBREOFFICE_BINARY to the soffice executable."
-        )
+        detail = f"; Word refresh failed: {word_error}" if word_error else ""
+        raise RuntimeError("no optional document pagination engine is available" + detail)
 
     with tempfile.TemporaryDirectory(
         prefix=f".{document_path.stem}-fields-", dir=document_path.parent
@@ -456,6 +571,18 @@ def _refresh_pageref_cached_results(document_path: Path, config) -> None:
         files["word/document.xml"] = _patch_pageref_results(
             files["word/document.xml"], refreshed_results
         )
+        settings_root = parse_xml(files["word/settings.xml"])
+        update_fields = settings_root.find(qn("w:updateFields"))
+        if update_fields is None:
+            update_fields = OxmlElement("w:updateFields")
+            settings_root.append(update_fields)
+        update_fields.set(qn("w:val"), "false")
+        files["word/settings.xml"] = etree.tostring(
+            settings_root,
+            xml_declaration=True,
+            encoding="UTF-8",
+            standalone=True,
+        )
 
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{document_path.stem}-cached-",
@@ -474,82 +601,6 @@ def _refresh_pageref_cached_results(document_path: Path, config) -> None:
                 temporary_path.unlink()
 
 
-def _load_cover_font(config, bold: bool, size: int):
-    filename = "DMSans-Bold.ttf" if bold else "DMSans-Regular.ttf"
-    path = Path(config.ASSETS_DIR) / "fonts" / filename
-    if path.exists():
-        return ImageFont.truetype(str(path), size)
-    for fallback in ("/System/Library/Fonts/Helvetica.ttc", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
-        if os.path.exists(fallback):
-            return ImageFont.truetype(fallback, size)
-    return ImageFont.load_default()
-
-
-def _wrapped_lines(draw, text: str, font, max_width: int, max_lines: int = 3) -> List[str]:
-    words = str(text or "").split()
-    lines: List[str] = []
-    current = ""
-    for word in words:
-        trial = f"{current} {word}".strip()
-        width = draw.textbbox((0, 0), trial, font=font)[2]
-        if current and width > max_width:
-            lines.append(current)
-            current = word
-            if len(lines) >= max_lines - 1:
-                break
-        else:
-            current = trial
-    if current and len(lines) < max_lines:
-        lines.append(current)
-    consumed = " ".join(lines)
-    if len(consumed) < len(str(text or "").strip()) and lines:
-        while draw.textbbox((0, 0), lines[-1] + "...", font=font)[2] > max_width and lines[-1]:
-            lines[-1] = lines[-1][:-1]
-        lines[-1] = lines[-1].rstrip() + "..."
-    return lines
-
-
-def generate_cover_image(data: Dict[str, Any], config) -> Optional[Path]:
-    """Render a Letter-sized branded cover with bundled fonts and safe wrapping."""
-    base = Path(config.COVER_PAGE_IMAGE)
-    if not base.exists():
-        return None
-    try:
-        dpi = 240
-        width, height = int(PAGE_WIDTH_IN * dpi), int(PAGE_HEIGHT_IN * dpi)
-        image = PILImage.open(base).convert("RGBA").resize((width, height), PILImage.Resampling.LANCZOS)
-        draw = ImageDraw.Draw(image)
-        title_font = _load_cover_font(config, True, 78)
-        project_font = _load_cover_font(config, False, 39)
-        body_font = _load_cover_font(config, False, 25)
-        small_font = _load_cover_font(config, False, 22)
-
-        x, max_width = int(0.72 * dpi), int(7.0 * dpi)
-        y = int(2.65 * dpi)
-        for line in _wrapped_lines(draw, data.get("company_name", ""), title_font, max_width, 2):
-            draw.text((x, y), line, fill=(123, 63, 242), font=title_font)
-            y += 92
-        y += 30
-        for line in _wrapped_lines(draw, data.get("project_title", ""), project_font, max_width, 3):
-            draw.text((x, y), line, fill=(90, 90, 90), font=project_font)
-            y += 52
-
-        lower_y = int(9.05 * dpi)
-        draw.text((x, lower_y), str(data.get("author_org", "")), fill="white", font=body_font)
-        draw.text((x, lower_y + 44), "Prepared by", fill="white", font=small_font)
-        draw.text((x, lower_y + 78), str(data.get("author_name", "")), fill="white", font=small_font)
-        meta = f"{data.get('document_date', '')}  |  Version {data.get('version', '1.0')}"
-        draw.text((x, lower_y + 116), meta, fill="white", font=small_font)
-
-        output = Path(config.OUTPUT_DIR) / "cover_temp.png"
-        output.parent.mkdir(parents=True, exist_ok=True)
-        image.convert("RGB").save(output, "PNG", dpi=(dpi, dpi))
-        return output
-    except Exception as exc:
-        print(f"⚠ Cover image generation failed: {exc}")
-        return None
-
-
 class SectionBuilder:
     """Render ordered Markdown blocks without losing text after tables."""
 
@@ -557,7 +608,6 @@ class SectionBuilder:
         self.doc = doc
         self.config = config
         self.bullet_num_id = 91
-        self.number_num_id = 92
 
     def parse_content(
         self,
@@ -573,16 +623,14 @@ class SectionBuilder:
         caption_context = section_title or "Statement of Work"
         active_heading: Optional[Tuple[str, int]] = None
         heading_counters = {2: 0, 3: 0, 4: 0}
-        active_number_num_id: Optional[int] = None
         for kind, payload in self._iter_blocks(content or ""):
-            if kind != "number":
-                active_number_num_id = None
             if kind == "table":
                 tables = self.build_table(payload)
                 if tables is not None:
                     table_items = tables if isinstance(tables, list) else [tables]
                     for table_index, table in enumerate(table_items, 1):
                         added.append(table)
+                        spacing_anchor = table._tbl
                         if table_caption_callback:
                             context = caption_context
                             if len(table_items) > 1:
@@ -594,6 +642,13 @@ class SectionBuilder:
                                 # after the table it describes.
                                 table._tbl.addnext(caption._p)
                                 added.append(caption)
+                                spacing_anchor = caption._p
+                        spacer = self.doc.add_paragraph()
+                        spacer.paragraph_format.space_before = Pt(0)
+                        spacer.paragraph_format.space_after = Pt(5)
+                        spacer.paragraph_format.line_spacing = Pt(1)
+                        spacing_anchor.addnext(spacer._p)
+                        added.append(spacer)
             elif kind == "heading":
                 if active_heading and heading_callback:
                     inserted = heading_callback(*active_heading)
@@ -604,7 +659,7 @@ class SectionBuilder:
                     text, level, heading_prefix, heading_counters
                 )
                 paragraph = self.doc.add_paragraph(style=f"Heading {level}")
-                self._add_rich_runs(paragraph, text)
+                self._add_rich_runs(paragraph, text, size=20.0)
                 anchor = (heading_anchor_map or {}).get(text)
                 if anchor and bookmark_callback:
                     bookmark_callback(paragraph, anchor)
@@ -622,9 +677,10 @@ class SectionBuilder:
                 level, text = payload
                 paragraph = self.doc.add_paragraph()
                 self._add_rich_runs(paragraph, text)
-                if active_number_num_id is None:
-                    active_number_num_id = self._new_numbering_instance(self.number_num_id)
-                self._apply_numbering(paragraph, active_number_num_id, level)
+                # The deliverable uses bullets exclusively. Converting ordered
+                # Markdown here also prevents Word from continuing a hidden
+                # decimal sequence across later sections (for example at 59).
+                self._apply_numbering(paragraph, self.bullet_num_id, level)
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 added.append(paragraph)
             elif kind == "caption":
@@ -634,6 +690,7 @@ class SectionBuilder:
             else:
                 paragraph = self.doc.add_paragraph()
                 self._add_rich_runs(paragraph, payload)
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
                 added.append(paragraph)
         if active_heading and heading_callback:
             inserted = heading_callback(*active_heading)
@@ -676,30 +733,6 @@ class SectionBuilder:
                 counters[parent_level] = 1
         suffix = ".".join(str(counters[item]) for item in range(2, level + 1))
         return f"{heading_prefix}.{suffix} {clean}"
-
-    def _new_numbering_instance(self, abstract_num_id: int) -> int:
-        """Create a fresh Word numbering instance so each workflow restarts at 1."""
-        numbering = self.doc.part.numbering_part.element
-        existing_ids = []
-        for element in numbering.findall(qn("w:num")):
-            value = element.get(qn("w:numId"))
-            if value and str(value).isdigit():
-                existing_ids.append(int(value))
-        num_id = max(existing_ids + [99]) + 1
-        num = OxmlElement("w:num")
-        num.set(qn("w:numId"), str(num_id))
-        abstract = OxmlElement("w:abstractNumId")
-        abstract.set(qn("w:val"), str(abstract_num_id))
-        num.append(abstract)
-        for level in range(3):
-            override = OxmlElement("w:lvlOverride")
-            override.set(qn("w:ilvl"), str(level))
-            start = OxmlElement("w:startOverride")
-            start.set(qn("w:val"), "1")
-            override.append(start)
-            num.append(override)
-        numbering.append(num)
-        return num_id
 
     @staticmethod
     def _iter_blocks(content: str):
@@ -764,7 +797,7 @@ class SectionBuilder:
                 block = flush_prose()
                 if block:
                     yield block
-                yield ("caption", stripped)
+                # Captions are intentionally excluded from generated SOWs.
                 index += 1
                 continue
             if stripped.startswith("#"):
@@ -826,6 +859,8 @@ class SectionBuilder:
         # Stable semantic layouts keep control fields compact and reserve room
         # for the narrative evidence/criteria columns that need it most.
         semantic_patterns = (
+            (("module", "open item", "status"), [2450, 5000, 2832]),
+            (("area", "open item", "note"), [2450, 5000, 2832]),
             (("week", "phase", "activities", "deliverable", "dependency", "owner"),
              [720, 1200, 2700, 1800, 1500, 1440]),
             (("timeframe", "phase", "activities", "deliverable", "customer", "exit"),
@@ -910,11 +945,11 @@ class SectionBuilder:
         # row, not a header, so do not render it as a purple header band.
         has_header = len(rows) > 1
         widths = self._column_widths(rows)
-        font_size = 7.25 if cols == 5 else 7.5 if cols == 4 else 8
+        font_size = 11.0
         table = self.doc.add_table(rows=len(rows), cols=cols)
+        table.style = "SOW Table"
         table.alignment = WD_TABLE_ALIGNMENT.LEFT
         table.autofit = False
-        table.style = "Table Grid"
         self._set_table_geometry(table, widths)
         self._set_table_borders(table)
 
@@ -931,9 +966,9 @@ class SectionBuilder:
                 fill = PURPLE if has_header and row_index == 0 else (LIGHT_FILL if row_index % 2 == 1 else "FFFFFF")
                 self._set_cell_shading(cell, fill)
                 paragraph = cell.paragraphs[0]
-                paragraph.paragraph_format.space_before = Pt(1)
-                paragraph.paragraph_format.space_after = Pt(1)
-                paragraph.paragraph_format.line_spacing = 1.0
+                paragraph.paragraph_format.space_before = Pt(3)
+                paragraph.paragraph_format.space_after = Pt(3)
+                paragraph.paragraph_format.line_spacing = 1.15
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 pieces = re.split(r"<br\s*/?>", value, flags=re.I)
                 for piece_index, piece in enumerate(pieces):
@@ -1123,20 +1158,21 @@ class DocumentBuilder:
         styles = self.doc.styles
         normal = styles["Normal"]
         normal.font.name = FONT_NAME
-        normal.font.size = Pt(9.25)
+        normal.font.size = Pt(11)
         for attr in ("ascii", "hAnsi", "eastAsia", "cs"):
             normal._element.rPr.rFonts.set(qn(f"w:{attr}"), FONT_NAME)
         normal.paragraph_format.space_before = Pt(0)
-        normal.paragraph_format.space_after = Pt(4)
-        normal.paragraph_format.line_spacing = 1.12
+        _set_character_spacing(normal._element, 2)
+        normal.paragraph_format.space_after = Pt(8)
+        normal.paragraph_format.line_spacing = 1.25
         normal.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         normal.paragraph_format.widow_control = True
 
         tokens = {
-            "Heading 1": (16.25, PURPLE, 15, 6),
-            "Heading 2": (11.5, BLUE, 10, 3.5),
-            "Heading 3": (9.75, DARK_PURPLE, 7, 2.5),
-            "Heading 4": (9.1, INK, 5, 2),
+            "Heading 1": (20.0, PURPLE, 18, 8),
+            "Heading 2": (20.0, BLUE, 12, 5),
+            "Heading 3": (20.0, DARK_PURPLE, 9, 4),
+            "Heading 4": (20.0, INK, 7, 3),
         }
         for style_name, (size, color, before, after) in tokens.items():
             style = styles[style_name]
@@ -1146,28 +1182,67 @@ class DocumentBuilder:
             style.font.color.rgb = RGBColor.from_string(color)
             for attr in ("ascii", "hAnsi", "eastAsia", "cs"):
                 style._element.rPr.rFonts.set(qn(f"w:{attr}"), FONT_NAME)
+            _set_character_spacing(style._element, 2)
             style.paragraph_format.space_before = Pt(before)
             style.paragraph_format.space_after = Pt(after)
             style.paragraph_format.keep_with_next = True
             style.paragraph_format.widow_control = True
             style.paragraph_format.page_break_before = False
+            style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-        caption = styles["Caption"]
-        caption.font.name = FONT_NAME
-        caption.font.size = Pt(7.5)
-        caption.font.italic = True
-        caption.font.color.rgb = RGBColor.from_string(MUTED)
+        # Word Online applies named table styles more consistently than direct
+        # cell formatting. Keep both layers: the style is the interoperable
+        # contract and direct properties are a fallback for other renderers.
+        table_style_name = "SOW Table"
+        if table_style_name in styles:
+            table_style = styles[table_style_name]
+        else:
+            table_style = styles.add_style(table_style_name, WD_STYLE_TYPE.TABLE)
+        style_element = table_style._element
+        for child_name in ("w:basedOn", "w:uiPriority", "w:tblPr", "w:tblStylePr"):
+            for child in list(style_element.findall(qn(child_name))):
+                style_element.remove(child)
+        based_on = OxmlElement("w:basedOn")
+        based_on.set(qn("w:val"), "TableGrid")
+        priority = OxmlElement("w:uiPriority")
+        priority.set(qn("w:val"), "40")
+        table_properties = OxmlElement("w:tblPr")
+        borders = OxmlElement("w:tblBorders")
+        for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+            border = OxmlElement(f"w:{edge}")
+            border.set(qn("w:val"), "single")
+            border.set(qn("w:sz"), "4")
+            border.set(qn("w:space"), "0")
+            border.set(qn("w:color"), BORDER)
+            borders.append(border)
+        table_properties.append(borders)
+
+        first_row = OxmlElement("w:tblStylePr")
+        first_row.set(qn("w:type"), "firstRow")
+        run_properties = OxmlElement("w:rPr")
+        bold = OxmlElement("w:b")
+        color = OxmlElement("w:color")
+        color.set(qn("w:val"), "FFFFFF")
+        fonts = OxmlElement("w:rFonts")
         for attr in ("ascii", "hAnsi", "eastAsia", "cs"):
-            caption._element.rPr.rFonts.set(qn(f"w:{attr}"), FONT_NAME)
-        caption.paragraph_format.space_before = Pt(4)
-        caption.paragraph_format.space_after = Pt(4)
+            fonts.set(qn(f"w:{attr}"), FONT_NAME)
+        size = OxmlElement("w:sz")
+        size.set(qn("w:val"), "22")
+        run_properties.extend([fonts, bold, color, size])
+        cell_properties = OxmlElement("w:tcPr")
+        shading = OxmlElement("w:shd")
+        shading.set(qn("w:val"), "clear")
+        shading.set(qn("w:color"), "auto")
+        shading.set(qn("w:fill"), PURPLE)
+        cell_properties.append(shading)
+        first_row.extend([run_properties, cell_properties])
+        style_element.extend([based_on, priority, table_properties, first_row])
 
     def _add_numbering(self) -> None:
         assert self.doc is not None
         numbering = self.doc.part.numbering_part.element
         for abstract_id, num_id, fmt, text_values in (
             (91, 91, "bullet", ["•", "○", "▪"]),
-            (92, 92, "decimal", ["%1.", "%2.", "%3."]),
         ):
             abstract = OxmlElement("w:abstractNum")
             abstract.set(qn("w:abstractNumId"), str(abstract_id))
@@ -1224,8 +1299,202 @@ class DocumentBuilder:
             traceback.print_exc()
             return None
 
+    def _cover_template_path(self) -> Path:
+        configured = getattr(self.config, "COVER_PAGE_TEMPLATE", None)
+        if configured:
+            return Path(configured)
+        templates_dir = getattr(self.config, "TEMPLATES_DIR", None)
+        if templates_dir:
+            return Path(templates_dir) / "sow_coverpage_template.docx"
+        return Path(self.config.ASSETS_DIR).parent / "templates" / "sow_coverpage_template.docx"
+
+    @staticmethod
+    def _fit_cover_text(draw, text: str, font_path: Path, preferred_size: int,
+                        max_width: int, minimum_size: int = 22):
+        size = preferred_size
+        while size > minimum_size:
+            font = ImageFont.truetype(str(font_path), size)
+            if draw.textbbox((0, 0), text, font=font)[2] <= max_width:
+                return font
+            size -= 2
+        return ImageFont.truetype(str(font_path), minimum_size)
+
+    def _render_cover_page(self, metadata: Dict[str, Any]) -> io.BytesIO:
+        """Flatten the approved template artwork and dynamic labels to one image.
+
+        The template's original floating shapes are not portable across Word
+        renderers. A single inline image preserves the exact visual hierarchy in
+        desktop Word, Word Online, SharePoint previews and PDF converters.
+        """
+        template = self._cover_template_path()
+        artwork: Optional[PILImage.Image] = None
+        if template.exists():
+            with zipfile.ZipFile(template, "r") as package:
+                candidates = []
+                for name in package.namelist():
+                    if not name.startswith("word/media/"):
+                        continue
+                    try:
+                        image = PILImage.open(io.BytesIO(package.read(name))).convert("RGBA")
+                    except Exception:
+                        continue
+                    width, height = image.size
+                    if height > width:
+                        candidates.append((width * height, image))
+                if candidates:
+                    artwork = max(candidates, key=lambda item: item[0])[1]
+        if artwork is None:
+            fallback = Path(getattr(self.config, "COVER_PAGE_IMAGE", ""))
+            if not fallback.exists():
+                fallback = Path(self.config.ASSETS_DIR) / "coverpage.png"
+            artwork = PILImage.open(fallback).convert("RGBA")
+
+        canvas = artwork.copy()
+        width, height = canvas.size
+        logo_path = Path(self.config.ASSETS_DIR) / "ShellKode.png"
+        if logo_path.exists():
+            logo = PILImage.open(logo_path).convert("RGBA")
+            bbox = logo.getbbox()
+            if bbox:
+                logo = logo.crop(bbox)
+            target_width = round(width * 0.46)
+            target_height = round(logo.height * target_width / logo.width)
+            logo = logo.resize((target_width, target_height), PILImage.Resampling.LANCZOS)
+            canvas.alpha_composite(logo, (round(width * 0.09), round(height * 0.035)))
+
+        draw = ImageDraw.Draw(canvas)
+        fonts_dir = Path(self.config.ASSETS_DIR) / "fonts"
+        regular_path = fonts_dir / "DMSans-Regular.ttf"
+        bold_path = fonts_dir / "DMSans-Bold.ttf"
+        left = round(width * 0.095)
+        maximum = round(width * 0.78)
+        company = str(metadata.get("company_name") or "Client")
+        project = str(metadata.get("project_title") or "Statement of Work")
+        author = str(metadata.get("author_name") or "")
+        organisation = str(metadata.get("author_org") or "ShellKode Pvt Ltd")
+        if organisation.casefold() == "shellkode":
+            organisation = "ShellKode Pvt Ltd"
+        document_date = str(metadata.get("document_date") or "")
+
+        company_font = self._fit_cover_text(draw, company, bold_path, round(height * 0.032), maximum)
+        project_font = self._fit_cover_text(draw, project, regular_path, round(height * 0.020), maximum)
+        detail_bold = ImageFont.truetype(str(bold_path), round(height * 0.014))
+        detail = ImageFont.truetype(str(regular_path), round(height * 0.013))
+        draw.text((left, round(height * 0.165)), company, font=company_font, fill="#7F00FF")
+        draw.text((left, round(height * 0.225)), project, font=project_font, fill="#222222")
+        lower_y = round(height * 0.685)
+        draw.text((left, lower_y), organisation, font=detail_bold, fill="#FFFFFF")
+        draw.text((left, lower_y + round(height * 0.038)), "Prepared by:", font=detail, fill="#FFFFFF")
+        draw.text((left, lower_y + round(height * 0.068)), author, font=detail, fill="#FFFFFF")
+        draw.text((left, lower_y + round(height * 0.098)), document_date, font=detail, fill="#FFFFFF")
+
+        stream = io.BytesIO()
+        canvas.convert("RGB").save(stream, format="PNG", optimize=True)
+        stream.seek(0)
+        return stream
+
+    def _load_editable_cover(self, metadata: Dict[str, Any]) -> Document:
+        """Load the approved Word cover and replace only its editable labels.
+
+        The prior implementation rasterised the entire page. Besides making the
+        labels uneditable, that page-height image could overflow Word Online's
+        layout box and create a blank page before the TOC. Keeping the template's
+        native paragraphs and anchored artwork preserves its geometry without a
+        page-sized inline object.
+        """
+        template = self._cover_template_path()
+        if not template.is_file():
+            raise FileNotFoundError(f"Cover page template not found: {template}")
+        document = Document(str(template))
+
+        def replace_label(
+            original: Any,
+            value: str,
+            size: float,
+            *,
+            bold: Optional[bool] = None,
+            color: Optional[str] = None,
+        ) -> None:
+            accepted_labels = (original,) if isinstance(original, str) else tuple(original)
+            for paragraph in document.paragraphs:
+                if paragraph.text.strip() not in accepted_labels:
+                    continue
+                text_runs = [run for run in paragraph.runs if not run._r.xpath(".//w:drawing")]
+                run = text_runs[0] if text_runs else paragraph.add_run()
+                run.text = value
+                for extra in text_runs[1:]:
+                    extra.text = ""
+                _set_font(run, FONT_NAME, size=size, bold=bold, color=color)
+                return
+            raise ValueError(
+                "Cover template label not found; expected one of: "
+                + ", ".join(str(label) for label in accepted_labels)
+            )
+
+        company = str(metadata.get("company_name") or "Client")
+        project = str(metadata.get("project_title") or "Statement of Work")
+        author = str(metadata.get("author_name") or "")
+        organisation = str(metadata.get("author_org") or "ShellKode Pvt Ltd")
+        if organisation.casefold() == "shellkode":
+            organisation = "ShellKode Pvt Ltd"
+        document_date = str(metadata.get("document_date") or "")
+
+        # Direct run formatting protects the cover from the body-style pass and
+        # keeps every inserted value editable in Word and Word Online.
+        replace_label("Client Name", company, 32, bold=True, color="7F00FF")
+        replace_label("Project Name", project, 15, color="222222")
+        replace_label("ShellKode Pvt Ltd", organisation, 14, bold=True, color="FFFFFF")
+        replace_label("<Author Name>", author, 12, color="FFFFFF")
+        replace_label(("<Today’s Date>", "<Date>"), document_date, 12, color="FFFFFF")
+
+        # The cover uses blank native paragraphs as intentional vertical
+        # spacers. Freeze their template metrics before the body Normal style
+        # is changed below; otherwise its 8pt after-spacing makes the lower
+        # editable labels spill onto a second page in LibreOffice/Word Online.
+        for index, paragraph in enumerate(document.paragraphs):
+            paragraph.paragraph_format.space_before = Pt(0)
+            paragraph.paragraph_format.space_after = Pt(0)
+            paragraph.paragraph_format.keep_with_next = False
+            paragraph.paragraph_format.widow_control = False
+            if not paragraph.text.strip():
+                # Fixed spacer heights avoid font-metric differences between
+                # DM Sans, Word's fallback, and LibreOffice's fallback.
+                paragraph.paragraph_format.line_spacing = Pt(18 if index < 16 else 13.8)
+        return document
+
+    def _add_content_section_after_cover(self):
+        """Add the body section without introducing a blank spacer page.
+
+        The retained cover is kept as its own Word section so the TOC and body
+        retain their established page geometry, headers, footers and numbering.
+        """
+        assert self.doc is not None
+        # A next-page section break attached to the last cover paragraph makes
+        # LibreOffice/Word Online reflow the template's bottom-positioned text
+        # onto an intermediate page. Use a continuous section boundary here;
+        # the caller adds a normal page break before the TOC after configuring
+        # the new section's independent header and footer.
+        content_section = self.doc.add_section(WD_SECTION.CONTINUOUS)
+
+        # python-docx represents a section break as a separate empty paragraph.
+        # Word Online/SharePoint can lay that carrier out as its own page when
+        # the cover already occupies the page. Attach the cover section
+        # properties to the last cover paragraph and remove the empty carrier.
+        # This is valid WordprocessingML and leaves no layout object that can
+        # become a renderer-specific blank page.
+        paragraphs = self.doc.paragraphs
+        if len(paragraphs) >= 2:
+            break_paragraph = paragraphs[-1]._p
+            cover_paragraph = paragraphs[-2]._p
+            break_ppr = break_paragraph.pPr
+            sect_pr = break_ppr.sectPr if break_ppr is not None else None
+            if sect_pr is not None and not break_paragraph.xpath(".//w:drawing"):
+                cover_paragraph.get_or_add_pPr().append(sect_pr)
+                break_paragraph.getparent().remove(break_paragraph)
+        return content_section
+
     def _build_docx(self, output_path: Path, sections: Dict[str, Any], metadata: Dict[str, Any], mode: str) -> None:
-        self.doc = Document()
+        self.doc = self._load_editable_cover(metadata)
         self._figure_counter = 0
         self._table_counter = 0
         self._configure_styles()
@@ -1242,33 +1511,7 @@ class DocumentBuilder:
             if self._resolve_section_content(entry, sections, metadata).strip()
         ]
 
-        cover_section = self.doc.sections[0]
-        cover_section.page_width = Inches(PAGE_WIDTH_IN)
-        cover_section.page_height = Inches(PAGE_HEIGHT_IN)
-        cover_section.top_margin = cover_section.bottom_margin = Inches(0)
-        cover_section.left_margin = cover_section.right_margin = Inches(0)
-        cover_section.different_first_page_header_footer = False
-        cover_path = generate_cover_image(metadata, self.config)
-        if cover_path:
-            paragraph = self.doc.add_paragraph()
-            paragraph.paragraph_format.space_before = Pt(0)
-            paragraph.paragraph_format.space_after = Pt(0)
-            paragraph.paragraph_format.line_spacing = Pt(1)
-            run = paragraph.add_run()
-            shape = run.add_picture(
-                str(cover_path),
-                width=Inches(PAGE_WIDTH_IN),
-                height=Inches(PAGE_HEIGHT_IN),
-            )
-            # A full-page inline image participates in line layout: Word can
-            # push the following section break to an empty page. Anchor the
-            # cover to the page at (0, 0), behind text, so it has no pagination
-            # footprint while remaining full bleed.
-            self._anchor_cover_to_page(shape)
-            docpr = shape._inline.docPr
-            docpr.set("descr", f"Cover for {metadata.get('project_title', 'Statement of Work')} prepared for {metadata.get('company_name', 'the customer')}")
-
-        content_section = self.doc.add_section(WD_SECTION.NEW_PAGE)
+        content_section = self._add_content_section_after_cover()
         content_section.page_width = Inches(PAGE_WIDTH_IN)
         content_section.page_height = Inches(PAGE_HEIGHT_IN)
         content_section.top_margin = Inches(TOP_MARGIN_IN)
@@ -1282,25 +1525,13 @@ class DocumentBuilder:
         self._add_header_footer(content_section, metadata, mode)
         self._prepare_expanded_toc(sections, metadata)
 
-        # Document Version Control is front matter: immediately after the cover,
-        # then the TOC, then the substantive body. Keep that ordering while
-        # retaining it in the TOC and its bookmark map when the user selects it.
-        preface_position = next(
-            (index for index, name in enumerate(self.toc_entries)
-             if name.casefold().startswith(("document control", "document version control"))),
-            None,
-        )
-        if preface_position is not None:
-            self._build_section(
-                self.toc_entries[preface_position], sections, metadata, preface_position
-            )
-            self.doc.add_page_break()
-
+        # The TOC always begins on the first page after the cover. Document
+        # Version Control and all substantive sections follow it in the user's
+        # selected order.
+        self.doc.add_page_break()
         self._add_toc()
         self.doc.add_page_break()
         for position, section_name in enumerate(self.toc_entries):
-            if position == preface_position:
-                continue
             self._build_section(section_name, sections, metadata, position)
 
         props = self.doc.core_properties
@@ -1312,47 +1543,15 @@ class DocumentBuilder:
         props.comments = "Generated from source-grounded requirements; proposals and open clarifications are labelled."
         self.doc.save(str(output_path))
         _embed_dm_sans(output_path, self.config)
-        _refresh_pageref_cached_results(output_path, self.config)
-        if cover_path:
-            try:
-                cover_path.unlink()
-            except OSError:
-                pass
+        try:
+            _refresh_pageref_cached_results(output_path, self.config)
+        except Exception as exc:
+            # Pagination is an optional optimisation. The DOCX already holds
+            # valid dynamic PAGEREF/PAGE fields, which Word and Word Online can
+            # calculate when opened. Never block SOW delivery on an external
+            # office-suite installation.
+            print(f"⚠ TOC page-number cache not precomputed: {exc}")
         print(f"✓ DOCX saved: {output_path}")
-
-    @staticmethod
-    def _anchor_cover_to_page(shape) -> None:
-        inline = shape._inline
-        inline.tag = qn("wp:anchor")
-        for attribute, value in (
-            ("distT", "0"), ("distB", "0"), ("distL", "0"), ("distR", "0"),
-            ("simplePos", "0"), ("relativeHeight", "0"), ("behindDoc", "1"),
-            ("locked", "0"), ("layoutInCell", "1"), ("allowOverlap", "1"),
-        ):
-            inline.set(attribute, value)
-        simple = OxmlElement("wp:simplePos")
-        simple.set("x", "0")
-        simple.set("y", "0")
-        horizontal = OxmlElement("wp:positionH")
-        horizontal.set("relativeFrom", "page")
-        horizontal_offset = OxmlElement("wp:posOffset")
-        horizontal_offset.text = "0"
-        horizontal.append(horizontal_offset)
-        vertical = OxmlElement("wp:positionV")
-        vertical.set("relativeFrom", "page")
-        vertical_offset = OxmlElement("wp:posOffset")
-        vertical_offset.text = "0"
-        vertical.append(vertical_offset)
-        inline.insert(0, simple)
-        inline.insert(1, horizontal)
-        inline.insert(2, vertical)
-        effect = inline.find(qn("wp:effectExtent"))
-        wrap = OxmlElement("wp:wrapNone")
-        if effect is not None:
-            inline.insert(list(inline).index(effect) + 1, wrap)
-        else:
-            extent = inline.find(qn("wp:extent"))
-            inline.insert(list(inline).index(extent) + 1 if extent is not None else 3, wrap)
 
     def _add_header_footer(self, section, metadata: Dict[str, Any], mode: str) -> None:
         header_title = metadata.get("document_header_title")
@@ -1473,7 +1672,7 @@ class DocumentBuilder:
     def _prepare_expanded_toc(
         self, sections: Dict[str, Any], metadata: Dict[str, Any]
     ) -> None:
-        """Build a TOC with page fields only for main document topics."""
+        """Build a TOC whose every displayed row has an independent page field."""
         self.expanded_toc_entries = []
         self.subheading_anchor_maps = {}
         for position, entry in enumerate(self.toc_entries, 1):
@@ -1482,13 +1681,14 @@ class DocumentBuilder:
             content = self._resolve_section_content(entry, sections, metadata)
             major_match = re.match(r"^\s*(\d+)[.)]?\s+", entry)
             major = major_match.group(1) if major_match else None
-            for label, level in SectionBuilder.enumerate_headings(content, major):
-                if level == 2:
-                    # Subtopics navigate to their parent and intentionally have
-                    # no independent PAGEREF.  This keeps the parent's accurate
-                    # page number while retaining the useful topic outline.
-                    self.expanded_toc_entries.append((label, top_anchor, 2))
-            self.subheading_anchor_maps[entry] = {}
+            heading_map: Dict[str, str] = {}
+            for heading_index, (label, level) in enumerate(
+                SectionBuilder.enumerate_headings(content, major), 1
+            ):
+                anchor = _bookmark_name(label, position * 1000 + heading_index)
+                heading_map[label] = anchor
+                self.expanded_toc_entries.append((label, anchor, min(level, 4)))
+            self.subheading_anchor_maps[entry] = heading_map
 
     @staticmethod
     def _set_paragraph_top_border(paragraph, color: str) -> None:
@@ -1532,19 +1732,20 @@ class DocumentBuilder:
         entries_are_numbered = any(re.match(r"^\d+[.)]\s+", entry[0]) for entry in entries if entry[2] == 1)
         for index, (entry, anchor, level) in enumerate(entries, 1):
             paragraph = self.doc.add_paragraph()
-            paragraph.paragraph_format.left_indent = Inches(0.02 if level == 1 else 0.22)
-            paragraph.paragraph_format.space_after = Pt(1.3 if level == 1 else 0.5)
-            paragraph.paragraph_format.line_spacing = 1.0
+            paragraph.paragraph_format.left_indent = Inches(
+                0.02 if level == 1 else 0.22 + (level - 2) * 0.18
+            )
+            paragraph.paragraph_format.space_after = Pt(3 if level == 1 else 2)
+            paragraph.paragraph_format.line_spacing = 1.15
             display = entry if entries_are_numbered or level > 1 else f"{index}. {entry}"
             _add_hyperlink(paragraph, display, anchor)
-            toc_size = 7.5 if level == 1 else 6.75
-            if level == 1:
-                paragraph.paragraph_format.tab_stops.add_tab_stop(
-                    Inches(7.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS
-                )
-                tab = paragraph.add_run("\t")
-                _set_font(tab, size=toc_size)
-                _add_field(paragraph, f"PAGEREF {anchor} \\h", "", size=toc_size)
+            toc_size = 11.0
+            paragraph.paragraph_format.tab_stops.add_tab_stop(
+                Inches(7.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS
+            )
+            tab = paragraph.add_run("\t")
+            _set_font(tab, size=toc_size)
+            _add_field(paragraph, f"PAGEREF {anchor} \\h", "", size=toc_size)
 
     def _resolve_content(self, section_name: str, sections: Dict[str, Any]) -> str:
         key = self._name_to_key(section_name)
@@ -1619,7 +1820,7 @@ class DocumentBuilder:
             print(f"⚠ No content for {section_name!r}; omitted from body")
             return
         heading = self.doc.add_paragraph(style="Heading 1")
-        heading.add_run(section_name)
+        _set_font(heading.add_run(section_name), size=20.0, bold=True, color=PURPLE)
         self._set_paragraph_bottom_border(heading, PURPLE)
         self._add_bookmark_to_heading(heading, section_name, position + 1)
         architecture_assets = self._architecture_assets(sections) if "architecture" in self._name_to_key(section_name) else []
@@ -1654,7 +1855,7 @@ class DocumentBuilder:
             heading_anchor_map=self.subheading_anchor_maps.get(section_name, {}),
             bookmark_callback=self._add_bookmark_with_anchor,
             section_title=section_name,
-            table_caption_callback=self._add_table_caption,
+            table_caption_callback=None,
             heading_callback=insert_for_heading,
         )
         for asset in architecture_assets:
@@ -1696,7 +1897,7 @@ class DocumentBuilder:
             paragraph = self.doc.add_paragraph()
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             paragraph.paragraph_format.space_before = Pt(5)
-            paragraph.paragraph_format.space_after = Pt(2)
+            paragraph.paragraph_format.space_after = Pt(8)
             shape = paragraph.add_run().add_picture(
                 io.BytesIO(image_bytes),
                 width=Inches(width),
@@ -1707,17 +1908,15 @@ class DocumentBuilder:
                 str(asset.get("alt_text") or "Proposed logical architecture diagram"),
             )
 
-            caption = self.doc.add_paragraph(style="Caption")
-            caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            self._figure_counter += 1
-            caption.add_run(
-                f"Figure {self._figure_counter}: "
-                f"{str(asset.get('caption') or asset.get('title') or 'Proposed logical architecture').rstrip('.')}"
-            )
             edit_link = str(asset.get("edit_url") or "")
             if edit_link:
-                caption.add_run("  ")
-                _add_external_hyperlink(caption, "Edit this diagram in draw.io", edit_link)
+                edit_paragraph = self.doc.add_paragraph()
+                edit_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                edit_paragraph.paragraph_format.space_before = Pt(2)
+                edit_paragraph.paragraph_format.space_after = Pt(8)
+                _add_external_hyperlink(
+                    edit_paragraph, "Edit this diagram in draw.io", edit_link
+                )
             return paragraph
         except Exception as exc:
             print(f"   ⚠ Architecture image could not be embedded; continuing without it: {exc}")

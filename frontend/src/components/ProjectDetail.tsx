@@ -19,6 +19,7 @@ import {
   FileEdit
 } from 'lucide-react';
 import apiService from '../services/apiService';
+import { downloadWithNativeSaveAs } from '../utils/downloadFile';
 import SOWGenerator from './SOWGenerator';
 import './ProjectDetail.css';
 
@@ -295,28 +296,18 @@ const ProjectDetail: React.FC = () => {
     try {
       console.log('Downloading SOW:', { s3Url, sow_id: sow.sow_id, project: sow.project_name });
 
-      // Use the proxy download method
-      const blob = await apiService.downloadDocument(s3Url, sow.sow_id);
-
-      // Create download link
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-
       // Extract filename from S3 URL or use project name
       const urlParts = s3Url.split('/');
       const s3Filename = urlParts[urlParts.length - 1].split('?')[0];
       const filename = s3Filename || `${sow.project_name}_${sow.mode}.pdf`;
-
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      const saved = await downloadWithNativeSaveAs(
+        () => apiService.downloadDocument(s3Url, sow.sow_id),
+        filename,
+      );
 
       toast.update(toastId, {
-        render: 'SOW document downloaded successfully!',
-        type: 'success',
+        render: saved ? 'SOW document downloaded successfully!' : 'Download cancelled',
+        type: saved ? 'success' : 'info',
         isLoading: false,
         autoClose: 3000,
       });

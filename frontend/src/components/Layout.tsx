@@ -26,11 +26,7 @@ const Layout: React.FC = () => {
     navigate('/login');
   };
 
-  const roleLabel = user?.role === 'ADMIN'
-    ? 'Administrator'
-    : user?.role === 'USER'
-      ? `${user?.business_unit || 'BU'} User`
-      : `${user?.business_unit || 'BU'} BU Head`;
+  const roleLabel = user?.role === 'ADMIN' ? 'Administrator' : `${user?.business_unit || 'BU'} Business Unit`;
 
   return (
     <div className="app-shell">
@@ -38,7 +34,7 @@ const Layout: React.FC = () => {
       <div className="app-main">
         <div className="app-topbar">
           <div className="bu-context-badge">
-            {user?.role === 'ADMIN' ? 'All Business Units' : user?.business_unit}
+            {user?.role === 'ADMIN' ? 'Admin' : user?.business_unit}
           </div>
           <div className="header-profile" onClick={() => setShowUserDropdown(!showUserDropdown)}>
             <div className="profile-avatar-small">

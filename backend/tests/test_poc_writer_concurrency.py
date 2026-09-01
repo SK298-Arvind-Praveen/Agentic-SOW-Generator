@@ -46,6 +46,7 @@ class POCWriterConcurrencyTests(unittest.TestCase):
             return f"Content for {section.name}"
 
         agent._generate_section = types.MethodType(fake_generate, agent)
+        progress_updates = []
         result = agent.generate_poc(
             requirements={"project_overview": "Test project"},
             metadata={
@@ -53,6 +54,9 @@ class POCWriterConcurrencyTests(unittest.TestCase):
                 "project_title": "Preview Performance Test",
                 "author_org": "ShellKode",
             },
+            progress_callback=lambda completed, total, name: progress_updates.append(
+                (completed, total, name)
+            ),
         )
 
         content_keys = [key for key in result if key != "generation_quality_summary"]
@@ -62,6 +66,8 @@ class POCWriterConcurrencyTests(unittest.TestCase):
         )
         self.assertGreaterEqual(max_active, 2)
         self.assertEqual(result["generated_section_0"], "Content for Generated Section 0")
+        self.assertEqual(progress_updates[-1][:2], (6, 6))
+        self.assertEqual(len(progress_updates), 6)
 
     def test_worker_count_is_bounded_and_can_be_disabled(self):
         agent = POCWriterAgent.__new__(POCWriterAgent)

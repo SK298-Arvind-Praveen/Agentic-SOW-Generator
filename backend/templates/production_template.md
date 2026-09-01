@@ -7,6 +7,9 @@ Write only content needed to define scope, ownership, dependency, boundary, deci
 validation. Avoid repeated summaries and generic background. Use no more than one short opening
 paragraph per section, then concise bullets for non-comparable items or compact tables for genuinely
 comparable records. Put each bullet on its own Markdown line and keep it to one main idea.
+Default to no subsections. Use at most two direct subsections outside Scope of Work and no nested
+subsections. Treat coverage labels in local instructions as bold bullet labels rather than mandatory
+headings. Scope of Work may use one heading per genuine workstream; use bullets beneath it.
 <!-- END_GLOBAL_TEMPLATE_CONTRACT -->
 
 [META_STATIC]
@@ -62,14 +65,14 @@ Date, Engagement Type, Planning Horizon, and Governing Source. Add Purpose and I
 Source Basis, Requirements Classification, and Approval Basis. Define Confirmed, Proposed,
 Planning Assumption, and Open Clarification. Do not invent approval or source documents.
 
-[META_GENERATED]
-## About {AUTHOR_ORG_SHORT}
+[META_STATIC]
+## About ShellKode
 
-Write a concise, factual profile of {AUTHOR_ORG_SHORT} as the delivery partner. Use supplied
-organisation information and project-relevant capabilities only. Do not invent certifications,
-partner tiers, awards, customer counts, locations, or delivery claims. If no corporate profile is
-supplied, state only the organisation's role in this engagement and the capabilities evidenced by
-the selected scope.
+**ShellKode** is a cloud-native technology company focused on helping organizations modernize their IT environments through Cloud, Data, AI/ML, and Generative AI. The company works with businesses to build scalable, enterprise-grade solutions that improve operational efficiency, generate insights, and solve complex technology challenges.
+
+ShellKode’s key capabilities include Cloud Strategy & Consulting, Cloud Migration & Modernization, Data Engineering & Analytics, Machine Learning, Generative AI, and Agentic AI. Its AI offerings include intelligent document processing, RAG-based knowledge systems, AI agents, conversational assistants, speech analytics, computer vision, and multilingual AI solutions.
+
+The company works across industries including BFSI, Retail & E-commerce, Logistics & Supply Chain, and Healthcare, delivering solutions that combine cloud infrastructure, enterprise data, and AI. ShellKode also has a strong AWS focus, with capabilities around AWS cloud migration, modernization, and Generative AI solutions.
 
 [META_GENERATED]
 ## About {COMPANY_NAME}
@@ -85,7 +88,8 @@ to the confirmed project context and avoid unsupported corporate claims.
 
 Write a decision-oriented production summary covering business problem, target operating outcome,
 solution boundary, production qualities, migration approach, principal dependencies, measurable
-acceptance basis, and intended handover. Use 4-6 short paragraphs plus a key-facts table. Do not
+acceptance basis, and intended handover. Use one brief paragraph followed by 5-8 concise bullets;
+add a key-facts table only when confirmed comparable values exist. Do not
 claim projected benefits have already been achieved.
 
 [META_GENERATED]
@@ -100,42 +104,28 @@ State Workflow, Pain Points and Root Causes, Business/Technical Drivers, and Evi
 
 Create a one-page orientation view: objectives; in-scope capabilities; user groups; data sources;
 integrations; target environments; proposed AWS service families; explicit exclusions; production
-quality attributes; planning duration; deployment approach; and acceptance authority.
+quality attributes; planning duration; deployment approach; and acceptance authority. Use a compact
+table headed `#`, `Module/Workstream`, and `Core Outcome`. Do not add a `Depends On` column.
 
 [META_GENERATED]
 ## Scope of Work
 
 Build a complete, testable work breakdown:
-### Mobilization, Discovery and Baseline
-### Functional Requirements
-Use IDs FR-01 onward with Requirement, Source/Status, Delivery Response, Output, Validation Method.
-### Application and Workflow Engineering
-### Data and AI Engineering
-### Integration Engineering
-### User Experience
-Include only if ui_required is true.
-### Platform Engineering and Infrastructure as Code
-### Security and Compliance Implementation
-### Observability and Operational Readiness
-### Documentation, Training and Knowledge Transfer
-### Deliverables Register
-Use DEL-01 onward with Description, Format, Owner, Acceptance Evidence, and Timing.
+### Mobilisation, Discovery and Baseline
+Use bullets for source/status, decisions, dependencies and outputs.
+### Solution Engineering and Integration
+Combine application/workflow, data/AI, integration, UI when required, platform/IaC and security controls as concise capability bullets. Use IDs FR-01 onward in a compact Requirement, Source/Status, Delivery Response, Output and Validation table.
+### Operational Readiness and Handover
+Use bullets for observability, documentation, training and knowledge transfer. Include DEL-01 onward in a compact Description, Format, Owner, Acceptance Evidence and Timing table.
 
 [META_GENERATED]
 ## Technical Specifications and System Design
 
 Define reviewable specifications rather than generic technology prose:
-### Functional Component Specifications
-### API and Interface Contracts
-### Data Model and Storage Design
-### AI/ML or Rules Design
-Include only if applicable; distinguish model selection from model training/fine-tuning.
-### Non-Functional Requirements
-Use NFR-01 onward with Quality Attribute, Target/Proposed Target, Measurement, Environment, Status.
-### Environment and Configuration Strategy
-### CI/CD and Infrastructure as Code
-### Backup, Recovery, Retention and Deletion
-### Design Decisions and Trade-offs
+### Solution Specifications
+Use bullets for components, APIs/interfaces, data/storage and applicable AI/ML or rules design. Distinguish model selection from model training/fine-tuning.
+### Non-Functional and Operational Specifications
+Use NFR-01 onward with Quality Attribute, Target/Proposed Target, Measurement, Environment and Status. Cover environment/configuration, CI/CD, infrastructure as code, backup/recovery, retention/deletion and material design trade-offs as concise bullets.
 
 [META_GENERATED]
 ## Architecture and Integrations

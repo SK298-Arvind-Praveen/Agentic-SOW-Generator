@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ChevronRight, FileText, BarChart3, Database, UsersRound } from 'lucide-react';
+import { ChevronRight, FileText, BarChart3, Database, ClipboardList, UsersRound } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import ShellkodeLogo from './ShellkodeLogo';
 import './Sidebar.css';
@@ -31,6 +31,14 @@ const NAV_ITEMS: NavItem[] = [
     icon: FileText,
     color: '#2563eb',
     isActive: (p) => p.startsWith('/dashboard') || p.startsWith('/documents') || p.startsWith('/production')
+  },
+  {
+    path: '/sow-records',
+    label: 'SOW Records',
+    description: 'View and manage your SOWs',
+    icon: ClipboardList,
+    color: '#f59e0b',
+    isActive: (p) => p.startsWith('/sow-records')
   },
   {
     path: '/sow-tracker',

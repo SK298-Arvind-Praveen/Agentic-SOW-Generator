@@ -115,6 +115,7 @@ Respond with JSON only."""
             "requirements_provenance", "extracted_data_summary", "user_data_extracted",
             "document_volume", "data_volume_description", "poc_evidence",
             "_original_objective",
+            "_generation_guidance",
         }
         for key in protected:
             if key in baseline:

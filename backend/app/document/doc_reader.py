@@ -1,11 +1,14 @@
 """
 Enhanced Document Reader - With OCR Support for Image-Heavy Documents
 MAINTAINS BACKWARD COMPATIBILITY WITH ORIGINAL FUNCTION NAMES
-Handles: PDF, DOCX (text & image-based), TXT
+Handles: PDF, DOC/DOCX (text & image-based), XLS/XLSX, TXT
 """
 import os
 import json
 import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta
 from pypdf import PdfReader
@@ -15,8 +18,13 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
+from docx.oxml.ns import qn
 import zipfile
 import io
+import openpyxl
+import xlrd
+
+SUPPORTED_DOCUMENT_EXTENSIONS = frozenset({'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt'})
 
 # Optional: For OCR support (install with: pip install pytesseract pillow)
 try:
@@ -25,7 +33,7 @@ try:
     OCR_AVAILABLE = True
 except ImportError:
     OCR_AVAILABLE = False
-    print("⚠️  pytesseract/Pillow not installed. OCR features disabled.")
+    print("OCR support is disabled because pytesseract/Pillow is not installed.")
     print("   Install with: pip install pytesseract pillow")
 
 
@@ -45,8 +53,12 @@ def read_document(file_path: str) -> str:
     
     if ext == '.pdf':
         content = _read_pdf(file_path)
-    elif ext in ['.docx', '.doc']:
+    elif ext == '.docx':
         content = _read_docx(file_path)
+    elif ext == '.doc':
+        content = _read_legacy_doc(file_path)
+    elif ext in {'.xls', '.xlsx'}:
+        content = _read_spreadsheet(file_path)
     elif ext == '.txt':
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -59,6 +71,110 @@ def read_document(file_path: str) -> str:
         print(f"   This may indicate extraction failed")
     
     return content
+
+
+def _format_spreadsheet_value(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ")
+    return str(value).strip()
+
+
+def _read_spreadsheet(file_path: str) -> str:
+    """Extract non-empty spreadsheet cells in sheet and row order."""
+    ext = Path(file_path).suffix.lower()
+    sheets = []
+    if ext == '.xlsx':
+        workbook = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+        try:
+            for worksheet in workbook.worksheets:
+                rows = [
+                    [_format_spreadsheet_value(value) for value in row]
+                    for row in worksheet.iter_rows(values_only=True)
+                ]
+                sheets.append((worksheet.title, rows))
+        finally:
+            workbook.close()
+    else:
+        workbook = xlrd.open_workbook(file_path, on_demand=True)
+        try:
+            for worksheet in workbook.sheets():
+                rows = [
+                    [_format_spreadsheet_value(worksheet.cell_value(row, column))
+                     for column in range(worksheet.ncols)]
+                    for row in range(worksheet.nrows)
+                ]
+                sheets.append((worksheet.name, rows))
+        finally:
+            workbook.release_resources()
+
+    parts = []
+    for sheet_name, rows in sheets:
+        parts.append(f"--- SHEET: {sheet_name} ---")
+        for row_number, values in enumerate(rows, 1):
+            while values and not values[-1]:
+                values.pop()
+            if any(values):
+                parts.append(f"ROW {row_number}: " + " | ".join(values))
+        parts.append(f"--- END SHEET: {sheet_name} ---")
+    result = "\n".join(parts)
+    print(f"   ✓ Extracted {len(result)} characters from {len(sheets)} spreadsheet sheet(s)")
+    return result
+
+
+def _find_soffice_for_legacy_doc() -> str | None:
+    """Locate LibreOffice for converting legacy binary Word documents."""
+    candidates = [
+        shutil.which("soffice"),
+        str(Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "LibreOffice/program/soffice.exe"),
+        str(Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "LibreOffice/program/soffice.exe"),
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return str(candidate)
+    return None
+
+
+def _read_legacy_doc(file_path: str) -> str:
+    """Convert a binary `.doc` to OOXML, then use the loss-minimising DOCX reader."""
+    soffice = _find_soffice_for_legacy_doc()
+    if not soffice:
+        raise RuntimeError(
+            "Legacy .doc files require LibreOffice for conversion. Save the file as .docx "
+            "or install the free desktop edition of LibreOffice."
+        )
+
+    with tempfile.TemporaryDirectory(prefix="sow-legacy-doc-") as temp_dir:
+        conversion_dir = Path(temp_dir)
+        profile_dir = conversion_dir / "lo-profile"
+        profile_dir.mkdir()
+        command = [
+            soffice,
+            "--headless",
+            "--nologo",
+            "--nodefault",
+            "--nofirststartwizard",
+            f"-env:UserInstallation={profile_dir.resolve().as_uri()}",
+            "--convert-to",
+            "docx:Office Open XML Text",
+            "--outdir",
+            str(conversion_dir),
+            str(Path(file_path).resolve()),
+        ]
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        converted = conversion_dir / f"{Path(file_path).stem}.docx"
+        if result.returncode != 0 or not converted.is_file():
+            diagnostic = (result.stderr or result.stdout or "unknown conversion error").strip()
+            raise RuntimeError(f"LibreOffice could not convert legacy .doc: {diagnostic}")
+        print(f"   Converted legacy Word document to DOCX: {converted.name}")
+        return _read_docx(str(converted))
 
 
 def _read_pdf(file_path: str) -> str:
@@ -193,7 +309,25 @@ def _read_docx(file_path: str) -> str:
                 if table_text.strip():
                     text_parts.append(table_text)
 
-        final_text = "\n".join(part.strip() for part in text_parts if part and part.strip())
+        # python-docx does not expose floating text-box content through
+        # Document.paragraphs. BRDs often place scope summaries or callouts in
+        # those shapes, so retain them as evidence instead of silently losing it.
+        text_box_values = []
+        for container in doc.element.findall(".//" + qn("w:txbxContent")):
+            value = re.sub(
+                r"\s+",
+                " ",
+                " ".join(node.text or "" for node in container.findall(".//" + qn("w:t"))),
+            ).strip()
+            if value and value not in text_box_values and value not in text_parts:
+                text_box_values.append(value)
+        for value in text_box_values:
+            text_parts.append(f"TEXT BOX: {value}")
+
+        # Blank-line boundaries allow the downstream chunker and section
+        # evidence selector to keep headings, paragraphs, and tables as
+        # independent evidence blocks instead of slicing one monolithic string.
+        final_text = "\n\n".join(part.strip() for part in text_parts if part and part.strip())
         
         print(f"   ✓ Extracted {len(final_text)} characters from DOCX")
         print(f"   ✓ Found {len(doc.paragraphs)} paragraphs, {len(doc.tables)} tables")
@@ -225,32 +359,33 @@ def _extract_table_content_enhanced(table, table_idx: int) -> str:
     table_parts = []
     table_parts.append(f"\n--- TABLE {table_idx + 1} ---")
     
-    for row_idx, row in enumerate(table.rows):
+    extracted_rows = []
+    for row in table.rows:
         row_data = []
-        for cell_idx, cell in enumerate(row.cells):
-            # Extract all content from cell including nested paragraphs
-            cell_content = []
-            
-            for para in cell.paragraphs:
-                para_text = para.text.strip()
-                if para_text:
-                    cell_content.append(para_text)
-            
-            # Join cell content
-            if cell_content:
-                cell_text = " ".join(cell_content)
-                row_data.append(cell_text)
-            else:
-                row_data.append("")
-        
-        if any(cell.strip() for cell in row_data):  # Only add non-empty rows
-            # Format as key-value if it looks like a two-column table
-            if len(row_data) == 2 and row_data[0] and row_data[1]:
-                table_parts.append(f"{row_data[0]}: {row_data[1]}")
-            else:
-                # Multi-column table
-                table_parts.append(" | ".join(row_data))
-    
+        for cell in row.cells:
+            # XML-level extraction includes nested tables and content controls,
+            # which cell.paragraphs alone omits.
+            pieces = [
+                (node.text or "").strip()
+                for node in cell._tc.iter(qn("w:t"))
+                if (node.text or "").strip()
+            ]
+            row_data.append(re.sub(r"\s+", " ", " ".join(pieces)).strip())
+        if any(cell for cell in row_data):
+            extracted_rows.append(row_data)
+
+    if extracted_rows:
+        headers = extracted_rows[0]
+        table_parts.append("COLUMNS: " + " | ".join(headers))
+        for row_idx, row_data in enumerate(extracted_rows[1:], 1):
+            labelled = [
+                f"{headers[index]}: {value}" if index < len(headers) and headers[index] else value
+                for index, value in enumerate(row_data)
+                if value
+            ]
+            if labelled:
+                table_parts.append(f"ROW {row_idx}: " + " | ".join(labelled))
+
     table_parts.append("--- END TABLE ---\n")
     
     return "\n".join(table_parts) if len(table_parts) > 2 else ""
@@ -499,8 +634,14 @@ def extract_supporting_documents(file_paths: list) -> str:
     Returns:
         Consolidated text content from all supporting documents
     """
+    content, _successful_reads = extract_supporting_documents_with_diagnostics(file_paths)
+    return content
+
+
+def extract_supporting_documents_with_diagnostics(file_paths: list) -> tuple[str, int]:
+    """Return consolidated evidence and the number of files actually read."""
     if not file_paths:
-        return ""
+        return "", 0
 
     print(f"\n📚 Processing {len(file_paths)} supporting document(s)...")
     print("="*70)
@@ -538,4 +679,4 @@ def extract_supporting_documents(file_paths: list) -> str:
     print(f"✓ Total consolidated content: {len(result)} characters")
     print("="*70 + "\n")
 
-    return result
+    return result, successful_reads

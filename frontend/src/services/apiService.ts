@@ -60,6 +60,8 @@ export interface Document {
   document_date?: string;
   docCount?: number;
   business_unit?: string;
+  owner_email?: string;
+  owner_name?: string;
 }
 
 export interface DocumentsResponse {
@@ -548,11 +550,13 @@ class APIService {
   /**
    * Fetch all documents
    */
-  async fetchDocuments(params?: { businessUnit?: string }): Promise<DocumentsResponse> {
+  async fetchDocuments(params?: { businessUnit?: string; mine?: boolean; limit?: number }): Promise<DocumentsResponse> {
     try {
-      const query = params?.businessUnit
-        ? `?business_unit=${encodeURIComponent(params.businessUnit)}`
-        : '';
+      const search = new URLSearchParams();
+      if (params?.businessUnit) search.set('business_unit', params.businessUnit);
+      if (params?.mine) search.set('mine', 'true');
+      if (params?.limit) search.set('limit', String(params.limit));
+      const query = search.toString() ? `?${search.toString()}` : '';
       const response = await this.makeRequest(`/api/history${query}`, 'GET');
       return response as DocumentsResponse;
     } catch (error) {
@@ -660,7 +664,7 @@ class APIService {
     authorName: string,
     companyName: string,
     mode: 'poc' | 'production' | 'poc-to-production',
-    objective: string,
+    additionalDetails: string,
     projectName: string,
     file?: File,
     supportingDocs?: File[],
@@ -715,7 +719,7 @@ class APIService {
       formData.append('author_name', authorName);
       formData.append('company_name', companyName);
       formData.append('mode', apiMode);
-      formData.append('objective', objective);
+      formData.append('additional_details', additionalDetails);
       formData.append('project_name', projectName);
       formData.append('selected_sow_sections', JSON.stringify(selectedSowSections || []));
       if (businessUnit) formData.append('business_unit', businessUnit);
@@ -735,6 +739,7 @@ class APIService {
         supportingDocs.forEach(doc => {
           formData.append('supporting_docs', doc);
         });
+        formData.append('supporting_doc_count', String(supportingDocs.length));
         console.log(`Added ${supportingDocs.length} supporting document(s) to request`);
       }
 
@@ -753,7 +758,19 @@ class APIService {
       console.log('Preview API Response:', responseText);
 
       try {
-        return JSON.parse(responseText);
+        const parsed = JSON.parse(responseText);
+        if (supportingDocs && supportingDocs.length > 0) {
+          const received = parsed.supporting_documents_received;
+          const extracted = parsed.supporting_documents_extracted;
+          if (received !== supportingDocs.length || extracted !== supportingDocs.length) {
+            return {
+              ...parsed,
+              success: false,
+              error: parsed.error || 'One or more supporting documents could not be read. Generation was stopped.',
+            };
+          }
+        }
+        return parsed;
       } catch {
         return { success: false, error: 'Invalid JSON response' };
       }
@@ -912,14 +929,7 @@ class APIService {
       });
 
       if (!response.ok) {
-        let message = response.statusText || `HTTP ${response.status}`;
-        try {
-          const payload = await response.json();
-          message = payload?.error || payload?.message || message;
-        } catch {
-          // Keep the HTTP status text when the server did not return JSON.
-        }
-        throw new Error(message);
+        throw new Error(`Failed to download: ${response.statusText}`);
       }
 
       return await response.blob();

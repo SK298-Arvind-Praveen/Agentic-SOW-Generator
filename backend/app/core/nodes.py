@@ -48,6 +48,16 @@ _token_usage = {
 }
 _token_usage_lock = threading.Lock()
 
+
+def _report_progress(state: AgentState, progress: int, step: str) -> None:
+    """Publish a real workflow milestone when preview generation supplied a reporter."""
+    callback = state.get("progress_callback")
+    if callable(callback):
+        try:
+            callback(progress, step)
+        except Exception as exc:
+            print(f"Progress callback skipped: {exc}")
+
 def _track_tokens(
     response_body: dict,
     call_name: str = "API Call",
@@ -191,9 +201,9 @@ def poc_ingestion_node(state: AgentState) -> AgentState:
                 "success_metrics": [],
                 "architecture_components": [],
                 "integrations": [],
-                "business_impact": "Not specified",
-                "timeline": "Not specified",
-                "scope": "Not specified"
+                "business_impact": None,
+                "timeline": None,
+                "scope": None,
             }
         else:
             print(f"✅ Successfully extracted {len(content)} characters from document")
@@ -1127,11 +1137,13 @@ Return JSON only. Use [] or null when absent. Do not infer production requiremen
 
 def research_node(state: AgentState) -> AgentState:
     """Research company information"""
+    _report_progress(state, 15, "Researching company and project context")
     print(f"\n--- Step: Researching Companies ---")
     metadata = state['metadata']
     
     if metadata.get('author_org_description') and metadata.get('company_description'):
         print("✓ Using existing company research from enhanced extraction")
+        _report_progress(state, 25, "Company and project context ready")
         return {"current_step": "research"}
     
     research_agent = CompanyResearchAgent(config)
@@ -1149,11 +1161,13 @@ def research_node(state: AgentState) -> AgentState:
     print(f"   Vendor: {metadata['author_org']}")
     print(f"   Client: {metadata['company_name']}")
     
+    _report_progress(state, 25, "Company and project context ready")
     return {"metadata": metadata, "current_step": "research"}
 
 
 def analyze_objective_node(state: AgentState) -> AgentState:
     """Analyze project objective"""
+    _report_progress(state, 30, "Extracting requirements from supplied evidence")
     if state.get('mode') == 'POC_TO_PROD' and state.get('analyzed_requirements'):
         print(f"\n--- Step: Using Enhanced POC Requirements for Production ---")
         analyzed_requirements = state.get('analyzed_requirements')
@@ -1166,20 +1180,24 @@ def analyze_objective_node(state: AgentState) -> AgentState:
         else:
             print(f"✅ Using RAG-based requirements for production conversion")
         
+        _report_progress(state, 45, "Requirements extracted from source document")
         return {"current_step": "analyze"}
 
     print(f"\n--- Step: Analyzing Objective ---")
-    objective = state.get('objective', '').strip()
+    objective = (state.get('additional_details') or state.get('objective') or '').strip()
+    supporting_context = state.get('supporting_context') or ""
     
-    # Validate objective
+    # A document-only request must not acquire a synthetic generic objective.
+    # The uploaded corpus is the authority when the details box is empty.
     if not objective:
-        print("⚠️ No objective provided in state, using default")
-        objective = "Build a comprehensive AWS-based solution for business requirements"
+        if supporting_context.strip():
+            print("   📄 No additional guidance; deriving the baseline from supporting documents")
+        else:
+            print("⚠️ No objective or supporting-document context was provided")
     
-    print(f"   Objective: {objective[:100]}{'...' if len(objective) > 100 else ''}")
+    print(f"   Additional guidance: {objective[:100]}{'...' if len(objective) > 100 else ''}")
 
     # Get supporting context if available
-    supporting_context = state.get('supporting_context')
     if supporting_context:
         print(f"   📚 Using supporting documents context ({len(supporting_context)} chars)")
 
@@ -1192,7 +1210,8 @@ def analyze_objective_node(state: AgentState) -> AgentState:
     ui_required = analyzed_requirements.get('ui_required', False)
     
     # Additional validation: if no explicit UI keywords found in objective, ensure ui_required is False
-    objective_lower = objective.lower()
+    # Explicit interface requirements may live only in the uploaded BRD.
+    objective_lower = f"{objective}\n{supporting_context}".lower()
     ui_keywords = [
         "user interface", "ui", "frontend", "web interface", "dashboard", 
         "web application", "portal", "screen", "screens", "visualization"
@@ -1241,6 +1260,7 @@ def analyze_objective_node(state: AgentState) -> AgentState:
     metadata = state.get('metadata', {})
     metadata['ui_required'] = ui_required
     
+    _report_progress(state, 45, "Requirements analysis complete")
     return {
         "analyzed_requirements": analyzed_requirements,
         "metadata": metadata,
@@ -1250,22 +1270,26 @@ def analyze_objective_node(state: AgentState) -> AgentState:
 
 def rule_validation_node(state: AgentState) -> AgentState:
     """Validate requirements against rules"""
+    _report_progress(state, 50, "Validating scope and source-grounded requirements")
     print(f"\n--- Step: Validating Rules ---")
     analyzed_requirements = state['analyzed_requirements']
-    objective = state['objective']
+    guidance = (state.get('additional_details') or state.get('objective') or '').strip()
+    source_objective = "" if (state.get('supporting_context') or '').strip() else guidance
     
     rule_engine = RuleEngineAgent(config)
     validated_requirements = rule_engine.validate_requirements(
         analyzed_requirements,
-        objective,
+        source_objective,
         mode=state.get('mode', 'POC')
     )
     
+    _report_progress(state, 58, "Requirements validation complete")
     return {"validated_requirements": validated_requirements, "current_step": "validate"}
 
 
 def content_generation_node(state: AgentState) -> AgentState:
     """Generate SOW content"""
+    _report_progress(state, 60, "Preparing document sections")
     print(f"\n--- Step: Generating Content ---")
     validated_requirements = state['validated_requirements']
     analyzed_requirements = state.get('analyzed_requirements', {})
@@ -1280,9 +1304,13 @@ def content_generation_node(state: AgentState) -> AgentState:
     
     # Merge user-specified data from analyzed_requirements into validated_requirements
     # This preserves user-specified timeline, AWS services, etc.
+    source_objective = (
+        "" if (state.get('supporting_context') or '').strip()
+        else (state.get('additional_details') or state.get('objective') or '')
+    )
     final_requirements = normalize_requirements(
         validated_requirements,
-        state.get('objective', ''),
+        source_objective,
         mode
     )
     
@@ -1329,6 +1357,13 @@ def content_generation_node(state: AgentState) -> AgentState:
         rag_context=rag_context,
         supporting_context=supporting_context,
         selected_sow_sections=state.get('selected_sow_sections'),
+        progress_callback=(
+            lambda completed, total, section_name: _report_progress(
+                state,
+                60 + round((completed / max(total, 1)) * 30),
+                f"Generated section {completed} of {total}: {section_name}",
+            )
+        ),
     )
 
     selected_sections = state.get('selected_sow_sections')

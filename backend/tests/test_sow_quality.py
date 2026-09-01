@@ -29,6 +29,21 @@ class SowQualityTests(unittest.TestCase):
         self.assertIn("- **FR-01:**", cleaned)
         self.assertIn("| ID | Result |", cleaned)
 
+    def test_markdown_cleanup_blanks_editable_unknown_placeholders(self):
+        source = (
+            "| Field | Value |\n|---|---|\n"
+            "| Start Date | Not specified |\n"
+            "| Owner | **To be confirmed** |\n\n"
+            "Contact: Not provided\n\n"
+            "The source states that the threshold is not specified in the BRD."
+        )
+        cleaned = clean_markdown_preserving_structure(source)
+        self.assertIn("| Start Date |  |", cleaned)
+        self.assertIn("| Owner |  |", cleaned)
+        self.assertIn("Contact:", cleaned)
+        self.assertNotIn("Contact: Not provided", cleaned)
+        self.assertIn("threshold is not specified in the BRD", cleaned)
+
     def test_chunk_merging_deduplicates_lists_and_keeps_late_evidence(self):
         merged = merge_requirement_extractions([
             {"aws_services": ["Amazon S3"], "timeline": None},

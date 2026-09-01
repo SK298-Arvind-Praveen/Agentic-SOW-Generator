@@ -47,8 +47,9 @@ Sparse input is expected. Expand it into a professional SOW by decomposing state
 ## E. Content density and form
 
 - Write only the implementation detail needed to define scope, ownership, dependency, boundary, decision, or validation. Do not expand every category when it adds no decision value.
-- Prefer concise prose for rationale and bullets for non-comparable items. Use tables only for genuinely comparable records.
-- Start a section with no more than one short orienting paragraph. Avoid more than two consecutive prose paragraphs, repeated summaries, and background explanations already established elsewhere.
+- Prefer concise bullets for requirements, boundaries, responsibilities, decisions, dependencies, risks, and validation. Use prose only for a short rationale and tables only for genuinely comparable records.
+- Start a section with no more than one orienting paragraph of 60 words. Do not place a second prose paragraph immediately after it; move actionable content into bullets.
+- Default to no subsections. Outside Scope of Work, use at most two direct subsections and no nested subsections. Within Scope of Work, retain only the module/workstream headings and use bold lead-in bullets for internal categories.
 - Put each bullet on its own Markdown line, keep it to one main idea, and use a real nested Markdown bullet only when the hierarchy is necessary.
 - Tables should normally contain two to four columns and must never exceed five. If detail will create narrow prose-heavy cells, split the table or put explanatory prose beneath it.
 - Each detailed module should normally contain: objective/boundary, workflow, functional requirements, roles and permissions, data, integrations, business rules and exceptions, AI/human review where relevant, security/compliance where relevant, dependencies, and validation notes. Omit a category only when genuinely inapplicable.
@@ -154,14 +155,14 @@ QUALITY RULES
 - Do not summarize the entire solution here.
 - Do not add assumptions, open questions, signatures, or commercial terms here.
 
-[META_GENERATED]
-## About {AUTHOR_ORG_SHORT}
+[META_STATIC]
+## About ShellKode
 
-Write a concise, factual profile of {AUTHOR_ORG_SHORT} as the delivery partner. Use supplied
-organisation information and project-relevant capabilities only. Do not invent certifications,
-partner tiers, awards, customer counts, locations, or delivery claims. If no corporate profile is
-supplied, state only the organisation's role in this engagement and the capabilities evidenced by
-the selected scope.
+**ShellKode** is a cloud-native technology company focused on helping organizations modernize their IT environments through Cloud, Data, AI/ML, and Generative AI. The company works with businesses to build scalable, enterprise-grade solutions that improve operational efficiency, generate insights, and solve complex technology challenges.
+
+ShellKode’s key capabilities include Cloud Strategy & Consulting, Cloud Migration & Modernization, Data Engineering & Analytics, Machine Learning, Generative AI, and Agentic AI. Its AI offerings include intelligent document processing, RAG-based knowledge systems, AI agents, conversational assistants, speech analytics, computer vision, and multilingual AI solutions.
+
+The company works across industries including BFSI, Retail & E-commerce, Logistics & Supply Chain, and Healthcare, delivering solutions that combine cloud infrastructure, enterprise data, and AI. ShellKode also has a strong AWS focus, with capabilities around AWS cloud migration, modernization, and Generative AI solutions.
 
 [META_GENERATED]
 ## About {COMPANY_NAME}
@@ -180,7 +181,7 @@ Translate the customer's stated need into the decision and implementation baseli
 
 REQUIRED STRUCTURE
 
-Opening narrative - write two to four substantive paragraphs covering:
+Opening narrative - write one concise paragraph covering:
 
 - the business problem or opportunity and why the POC is being undertaken;
 - the exact delivery boundary represented by this SOW;
@@ -188,19 +189,13 @@ Opening narrative - write two to four substantive paragraphs covering:
 - what this SOW enables: solution design, effort estimation, build, validation, or a go/no-go decision;
 - any confirmed supersession or precedence rule, without claiming that this SOW supersedes another document unless the source says so.
 
-### 1.1 Objectives
-
-- Provide four to eight outcome-oriented bullets.
+- After the opening narrative, provide four to eight outcome-oriented bullets directly; do not add an `Objectives` subsection.
 - Each objective must name a capability or business outcome and its intended validation.
 - Preserve confirmed outcomes and metrics. If no metric is supplied, state an observable demonstration outcome rather than inventing a number.
 - Cover the primary workflow, data/integration outcome, AI outcome where relevant, and operational/governance outcome where relevant.
 - Avoid generic objectives such as "improve efficiency" unless followed by the specific mechanism and evidence.
 
-### 1.2 How to Read This Document
-
-- Give one concise paragraph mapping the reader to the sections that actually exist.
-- Explain that detailed scope is organized by module/workstream and that Open Clarifications controls unresolved baseline items.
-- Do not reference a section absent from the template and do not use stale numbering copied from another SOW.
+- End the objective bullet list with one brief reader-orientation bullet only when it adds decision value. Do not create a separate How to Read subsection.
 
 BOUNDARIES
 
@@ -216,10 +211,10 @@ Provide the benchmark-style orientation view of the complete in-scope solution a
 
 REQUIRED OUTPUT
 
-Start directly with one table using exactly these four columns:
+Start directly with one table using exactly these three columns:
 
-| # | Module/Workstream | Core Outcome | Depends On |
-|---|---|---|---|
+| # | Module/Workstream | Core Outcome |
+|---|---|---|
 
 MODULE DERIVATION RULES
 
@@ -228,12 +223,11 @@ MODULE DERIVATION RULES
 - Consolidate closely related features into one module; do not create one module per bullet.
 - Make the first module the enabling foundation when the evidence supports a foundation/dependency relationship.
 - `Core Outcome` must describe the observable result, not an activity list.
-- `Depends On` must use confirmed dependencies where available. Architect-derived build order must be labelled `Proposed sequence:`.
-- Use `None identified` only when a module is genuinely independent; do not hide unknown integration or data prerequisites.
+- Do not add a `Depends On` column. Put material sequencing or dependency context in the concise bullets after the table.
 
 AFTER THE TABLE
 
-- Add one or two concise paragraphs explaining the build/dependency logic.
+- Add up to three concise bullets explaining the build/dependency logic.
 - State which workstreams may proceed in parallel and which require an earlier foundation, but label inferred sequencing as proposed.
 - Do not introduce a week-by-week timeline.
 
@@ -288,7 +282,7 @@ MODULE TAXONOMY
 
 - Reuse exactly the module/workstream names and order that can be derived from the same requirements used in Section 2.
 - Create `### 4.1 <Module Name>`, `### 4.2 <Module Name>`, and so on.
-- Where a module contains distinct capability groups, use `#### 4.x.1 <Capability>` subsections.
+- Do not create a subsection for every capability category. Retain only `### 4.x <Module Name>` headings and express capability groups as bold lead-in bullets.
 - Generate three to six modules according to actual scope and complexity. Do not force benchmark-specific CRM modules onto unrelated use cases, and do not promote supporting layers into separate modules when they can be covered within the module they support.
 - Preserve source section/requirement identifiers. Otherwise create stable IDs using a short module prefix.
 
@@ -296,7 +290,7 @@ MANDATORY CONTENT FOR EACH MODULE
 
 ### Module opening
 
-Write a substantive paragraph covering:
+Write one opening bullet covering:
 
 - objective and business boundary;
 - actors/personas;
@@ -308,7 +302,7 @@ Write a substantive paragraph covering:
 
 - Describe the normal flow in logical order from initiation to completion.
 - Cover user/system actions, states, handoffs, decision points, queues, notifications, and exception paths that are supported by the source.
-- Add a `#### 4.x.1 Workflow` subsection only when the module has a meaningful sequential process.
+- Add one `#### 4.x.1 Workflow` subsection only when the module has a meaningful sequential process; otherwise use capability bullets.
 - Use four to eight numbered steps. Each step must represent a complete stage or decision, not a single UI click, field, validation, notification, or logging action.
 - If a flow would require more than eight steps, group it into three to six named phases and describe the lower-level actions as concise bullets or requirements. Do not continue one workflow index across modules.
 - For integration, reporting, data-store, governance, and other non-sequential modules, prefer `#### Capability Behavior`, `#### Processing Rules`, or requirement tables instead of manufacturing a workflow.
@@ -399,25 +393,17 @@ ARCHITECTURE EVIDENCE RULE
 
 REQUIRED STRUCTURE
 
-### 5.1 Architecture Drivers and Constraints
+### 5.1 Architecture and Flow
 
-Use three to six bullets for only the material workload, data, integration, compliance and POC constraints. State material unknowns as open items.
+- Start with three to six bullets covering only material workload, data, integration, compliance and POC constraints.
+- Add one brief boundary statement for the generated visual; do not repeat every node.
+- Use five to eight numbered steps for the primary end-to-end data flow and material fallback.
 
-### 5.2 High-Level Architecture
+### 5.2 Decisions, Controls and Open Boundaries
 
-Write one short paragraph explaining the principal boundaries and status of the visual. Do not repeat every visual node in prose or add a second component map.
-
-### 5.3 End-to-End Data Flow
-
-Use five to eight numbered steps covering the primary path and material fallback. Include human review, asynchronous processing and audit only when relevant. Do not invent protocols or payload fields.
-
-### 5.4 Design Decisions and Open Boundaries
-
-Use a compact table with `Decision/Boundary`, `Rationale`, and `Status`. Include three to six items only. `Status` must be `Confirmed`, `Proposed`, or `Open`; do not fabricate a decision history.
-
-### 5.5 Non-Functional Design Alignment
-
-List only confirmed or decision-driving performance, availability, security, audit, residency, retention and recovery requirements. When a target is absent, identify the confirmation needed instead of inventing one.
+- Use one compact `Decision/Boundary`, `Rationale`, and `Status` table with three to six items. Status must be `Confirmed`, `Proposed`, or `Open`.
+- Follow with concise bullets for decision-driving performance, availability, security and observability, audit, residency, retention and recovery requirements.
+- When a target is absent, state the confirmation needed instead of inventing one.
 
 COMPLIANCE BOUNDARY
 
@@ -471,8 +457,8 @@ Make the POC boundary explicit while preserving the nuanced difference between a
 REQUIRED STRUCTURE
 
 - Write one opening paragraph explaining the basis of exclusion: expressly deferred, outside the stated POC objective, dependent on a later phase, or not supported by the supplied baseline.
-- Group meaningful exclusions under numbered subsections such as `### 7.1 <Capability Group>`.
-- Use the actual deferred capability names from the source. For each group, state what is excluded and, where needed, what limited related capability remains included.
+- Group meaningful exclusions as bullets beginning with a bold capability label; do not create exclusion subsections.
+- Use the actual deferred capability names from the source. Each bullet must state what is excluded and, where needed, what limited related capability remains included.
 - Include eight to fifteen concrete exclusions when the evidence supports that breadth; do not inflate a narrow project.
 
 CONDITIONAL COVERAGE
@@ -511,13 +497,13 @@ State the planning conditions used to establish the delivery baseline and the co
 
 REQUIRED STRUCTURE
 
-Use only applicable subsections, normally selected from:
+Do not create assumption subsections. Group applicable items as concise bullets with bold inline labels selected from:
 
-### 8.1 Platform and Integration
-### 8.2 Data
-### 8.3 Access, Security, and Compliance
-### 8.4 Governance and Business Inputs
-### 8.5 Sequencing and Environments
+- **Platform and Integration:**
+- **Data:**
+- **Access, Security, and Compliance:**
+- **Governance and Business Inputs:**
+- **Sequencing and Environments:**
 
 CONTENT RULES
 

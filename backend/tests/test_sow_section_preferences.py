@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 from types import MethodType, SimpleNamespace
@@ -14,13 +15,27 @@ class SowSectionPreferenceTests(unittest.TestCase):
     def test_section_word_limits_prioritise_concise_output(self):
         section = SimpleNamespace(name="Project Overview")
         detailed = SimpleNamespace(name="Detailed Scope of Work")
-        self.assertEqual(POCWriterAgent._section_word_limit(section), 450)
-        self.assertEqual(POCWriterAgent._section_word_limit(detailed), 1200)
+        self.assertEqual(POCWriterAgent._section_word_limit(section), 320)
+        self.assertEqual(POCWriterAgent._section_word_limit(detailed), 900)
         self.assertEqual(POCWriterAgent._section_token_budget(section), 900)
-        self.assertEqual(POCWriterAgent._section_token_budget(detailed), 2400)
-        verbose = " ".join(["detail"] * 451)
+        self.assertEqual(POCWriterAgent._section_token_budget(detailed), 1800)
+        verbose = " ".join(["detail"] * 321)
         issues = POCWriterAgent._authoring_issues(verbose, section)
-        self.assertTrue(any("450-word section limit" in issue for issue in issues))
+        self.assertTrue(any("320-word section limit" in issue for issue in issues))
+
+    def test_writer_flags_excessive_subsections(self):
+        section = SimpleNamespace(name="Project Overview")
+        content = "### Context\n- Point.\n### Outcome\n- Point.\n### Another Heading\n- Point."
+        issues = POCWriterAgent._authoring_issues(content, section)
+        self.assertTrue(any("too many subsections" in issue for issue in issues))
+
+    def test_writer_removes_plural_only_restatement_of_parent_heading(self):
+        agent = POCWriterAgent.__new__(POCWriterAgent)
+        cleaned = agent._clean_content(
+            "### 1.1 Objectives\n\n- Validate exception routing.",
+            "1. Objective",
+        )
+        self.assertEqual(cleaned, "- Validate exception routing.")
 
     def test_request_parsing_defaults_to_all_but_preserves_clear_optional(self):
         self.assertEqual(
@@ -45,6 +60,7 @@ class SowSectionPreferenceTests(unittest.TestCase):
         expected_categories = {
             "Document Version Control": "document_version_control",
             "About {AUTHOR_ORG_SHORT}": "about_shellkode",
+            "About ShellKode": "about_shellkode",
             "About {COMPANY_NAME}": "about_client",
             "Objective": "project_overview",
             "Deliverables": "scope_of_work",
@@ -143,6 +159,31 @@ class SowSectionPreferenceTests(unittest.TestCase):
         self.assertLess(output_keys.index("aws_pricing"), output_keys.index("project_overview"))
         self.assertLess(output_keys.index("current_state_and_business_context"), output_keys.index("scope_at_a_glance"))
 
+    def test_dynamic_toc_numbers_document_control_and_acceptance(self):
+        backend = Path(__file__).resolve().parents[1]
+        template = (backend / "templates" / "poc_template.md").read_text(encoding="utf-8")
+        agent = POCWriterAgent.__new__(POCWriterAgent)
+        agent.template_type = "POC"
+        agent.template_raw = template
+        agent.global_template_contract = agent._extract_global_template_contract(template)
+        sections = agent._parse_template()
+        toc = agent._dynamic_toc(
+            sections,
+            {
+                "company_name": "Example Customer",
+                "company_name_short": "Example Customer",
+                "project_title": "CRM Integration",
+                "author_name": "Author",
+                "author_org": "ShellKode",
+                "author_org_short": "ShellKode",
+            },
+        )
+        lines = toc.splitlines()
+        self.assertRegex(lines[0], r"^1\. Document Version Control$")
+        acceptance = next(line for line in lines if "Acceptance and Signatories" in line)
+        self.assertRegex(acceptance, r"^\d+\. Acceptance and Signatories")
+        self.assertTrue(all(re.match(r"^\d+\. ", line) for line in lines))
+
     def test_selected_about_client_cannot_collapse_to_an_empty_body(self):
         backend = Path(__file__).resolve().parents[1]
         template = (backend / "templates" / "poc_template.md").read_text(encoding="utf-8")
@@ -180,6 +221,37 @@ class SowSectionPreferenceTests(unittest.TestCase):
         issues = POCWriterAgent._authoring_issues(invalid, section)
         self.assertTrue(any("exactly two brief paragraphs" in issue for issue in issues))
         self.assertTrue(any("must not contain subsections" in issue for issue in issues))
+
+    def test_about_shellkode_is_static_and_verbatim(self):
+        backend = Path(__file__).resolve().parents[1]
+        template = (backend / "templates" / "poc_template.md").read_text(encoding="utf-8")
+        agent = POCWriterAgent.__new__(POCWriterAgent)
+        agent.config = SimpleNamespace(SOW_SECTION_WORKERS=1)
+        agent.template_type = "POC"
+        agent.template_raw = template
+        agent.global_template_contract = agent._extract_global_template_contract(template)
+        agent.sections = agent._parse_template()
+
+        def fail_if_generated(*_args, **_kwargs):
+            raise AssertionError("Static ShellKode profile must not call the LLM")
+
+        agent._generate_section = MethodType(fail_if_generated, agent)
+        output = agent.generate_poc(
+            requirements={"_original_objective": "Create a concise SOW"},
+            metadata={
+                "company_name": "Example Customer",
+                "project_title": "Example Project",
+                "author_name": "Author",
+                "author_org": "ShellKode",
+            },
+            selected_sow_sections=["about_shellkode"],
+        )
+        self.assertEqual(
+            output["about_shellkode"],
+            "**ShellKode** is a cloud-native technology company focused on helping organizations modernize their IT environments through Cloud, Data, AI/ML, and Generative AI. The company works with businesses to build scalable, enterprise-grade solutions that improve operational efficiency, generate insights, and solve complex technology challenges.\n\n"
+            "ShellKode’s key capabilities include Cloud Strategy & Consulting, Cloud Migration & Modernization, Data Engineering & Analytics, Machine Learning, Generative AI, and Agentic AI. Its AI offerings include intelligent document processing, RAG-based knowledge systems, AI agents, conversational assistants, speech analytics, computer vision, and multilingual AI solutions.\n\n"
+            "The company works across industries including BFSI, Retail & E-commerce, Logistics & Supply Chain, and Healthcare, delivering solutions that combine cloud infrastructure, enterprise data, and AI. ShellKode also has a strong AWS focus, with capabilities around AWS cloud migration, modernization, and Generative AI solutions.",
+        )
 
 
 if __name__ == "__main__":

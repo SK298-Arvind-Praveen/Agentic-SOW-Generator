@@ -1,0 +1,127 @@
+/* ============================================================
+   SOW RECORDS — status badges, filter panel, empty state
+   Base table/search/badge shapes are reused from Dashboard.css
+   (.records-table, .status-badge, .records-search-*, .filter-dropdown-menu)
+   ============================================================ */
+
+.sow-records-page {
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 24px;
+}
+
+/* ── Status badge color variants ── */
+.status-badge.sow-status-draft { background: var(--bg-surface); color: var(--text-muted); border: 1px solid var(--border-subtle); }
+.status-badge.sow-status-submitted { background: var(--info-bg); color: var(--accent-dark); }
+.status-badge.sow-status-pending-approval { background: var(--warning-bg); color: var(--warning); }
+.status-badge.sow-status-approved { background: var(--success-bg); color: var(--success); }
+.status-badge.sow-status-rejected { background: var(--error-bg); color: var(--error); }
+.status-badge.sow-status-failed { background: var(--error-bg); color: var(--error); border: 1px dashed var(--error); }
+
+/* ── SOW name cell ── */
+.sow-name-cell { font-weight: var(--font-semibold); color: var(--text-primary); }
+.sow-project-cell { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+/* ── Filter trigger badge count ── */
+.records-filter-btn { position: relative; }
+.sow-filter-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-full);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+/* ── Filter panel (multi-field, wider than the base single-column menu) ── */
+.sow-filter-panel {
+  min-width: 260px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sow-filter-field { display: flex; flex-direction: column; gap: 5px; }
+
+.sow-filter-field label {
+  font-size: 10px;
+  font-weight: var(--font-semibold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sow-filter-field select,
+.sow-filter-field input[type="date"] {
+  padding: 7px 9px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-primary);
+  font-family: inherit;
+}
+
+.sow-filter-field select:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.sow-filter-date-row { flex-direction: row; gap: 10px; }
+.sow-filter-date-row > div { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+
+.sow-filter-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.sow-filter-clear:hover { color: var(--error); border-color: var(--error); background: var(--error-bg); }
+
+/* ── Empty state ── */
+.sow-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 24px;
+  color: var(--text-faint);
+}
+
+.sow-empty-title { font-size: 14px; font-weight: var(--font-semibold); color: var(--text-secondary); font-style: normal; }
+.sow-empty-subtitle { font-size: 12px; color: var(--text-muted); font-style: normal; margin-bottom: 6px; }
+
+.sow-empty-cta {
+  padding: 8px 16px;
+  background: var(--gradient-brand);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.sow-empty-cta:hover { filter: brightness(1.05); transform: translateY(-1px); }
+
+@media (max-width: 640px) {
+  .sow-records-page { padding: 16px; }
+  .sow-filter-date-row { flex-direction: column; }
+}

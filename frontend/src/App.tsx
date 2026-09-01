@@ -11,6 +11,7 @@ import Accounts from './components/Accounts';
 import AccountDetail from './components/AccountDetail';
 import ProjectDetail from './components/ProjectDetail';
 import SOWTracker from './components/SOWTracker';
+import SOWRecords from './components/SOWRecords';
 import UserManagement from './components/UserManagement';
 import Layout from './components/Layout';
 import './App.css';
@@ -49,6 +50,7 @@ const App: React.FC = () => {
             <Route element={<ProtectedLayout />}>
               {/* SOW Tracker Route */}
               <Route path="/sow-tracker" element={<SOWTracker />} />
+              <Route path="/sow-records" element={<SOWRecords />} />
               <Route
                 path="/user-management"
                 element={<AdminOnly><UserManagement /></AdminOnly>}

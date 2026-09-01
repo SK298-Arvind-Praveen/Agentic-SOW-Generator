@@ -186,11 +186,10 @@ class ArchitectureDiagramTests(unittest.TestCase):
                 0,
             )
             self.assertEqual(len(builder.doc.inline_shapes), 1)
-            figure_caption = next(
-                paragraph for paragraph in builder.doc.paragraphs
-                if paragraph.text.startswith("Figure 1:")
-            )
-            self.assertTrue(figure_caption.style.font.italic)
+            self.assertFalse(any(
+                paragraph.text.startswith("Figure 1:")
+                for paragraph in builder.doc.paragraphs
+            ))
             relationship_targets = [rel.target_ref for rel in builder.doc.part.rels.values()]
             self.assertIn(asset["edit_url"], relationship_targets)
 

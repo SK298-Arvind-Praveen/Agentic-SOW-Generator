@@ -197,7 +197,8 @@ select.field-input option {
 }
 
 .field-input:disabled,
-.field-input:read-only {
+input.field-input:read-only,
+textarea.field-input:read-only {
   background: rgba(255, 255, 255, 0.02);
   cursor: not-allowed;
   opacity: 0.6;
@@ -1400,7 +1401,29 @@ select.field-input option {
 /* Full-document Markdown editor */
 .markdown-edit-modal {
   width: min(1500px, 96vw);
+  max-width: min(1600px, 98vw) !important;
   height: min(920px, 94vh);
+}
+
+.review-preview-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 20px;
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  color: var(--purple-400);
+  background: var(--bg-elevated);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.review-preview-button:hover {
+  background: rgba(123, 63, 242, 0.08);
+  transform: translateY(-1px);
 }
 
 .markdown-edit-modal .modal-header { align-items: flex-start; }
