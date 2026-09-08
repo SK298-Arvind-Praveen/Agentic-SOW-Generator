@@ -15,11 +15,11 @@ import {
   AlertCircle,
   X,
   Edit,
-  ArrowRight,
   FileEdit
 } from 'lucide-react';
 import apiService from '../services/apiService';
 import { downloadWithNativeSaveAs } from '../utils/downloadFile';
+import { formatTokenCount } from '../utils/tokenUsage';
 import SOWGenerator from './SOWGenerator';
 import './ProjectDetail.css';
 
@@ -32,6 +32,7 @@ interface SOW {
   drive_link: string;
   s3_url: string;
   linked_at: string;
+  total_tokens?: number | string;
 }
 
 interface Project {
@@ -57,7 +58,6 @@ const ProjectDetail: React.FC = () => {
   const [showCreateSOW, setShowCreateSOW] = useState(false);
   const [showDeleteSOWModal, setShowDeleteSOWModal] = useState(false);
   const [sowToDelete, setSOWToDelete] = useState<SOW | null>(null);
-  const [convertingSOW, setConvertingSOW] = useState<string | null>(null);
   const [activePreviews, setActivePreviews] = useState<any[]>([]);
   const [showDraftsModal, setShowDraftsModal] = useState(false);
   const [selectedDraft, setSelectedDraft] = useState<any | null>(null);
@@ -156,7 +156,7 @@ const ProjectDetail: React.FC = () => {
     setIsPolling(true);
     setPollCount(0);
 
-    console.log(`🔄 Starting polling for new SOWs (mode: ${targetMode || 'any'}, initial: ${sows.length})`);
+    console.log(`Starting polling for new SOWs (mode: ${targetMode || 'any'}, initial: ${sows.length})`);
 
     // Poll every 10 seconds, max 36 times (6 minutes)
     pollingIntervalRef.current = setInterval(async () => {
@@ -181,7 +181,7 @@ const ProjectDetail: React.FC = () => {
             : initialSOWCount.current;
 
           if (newSOWs.length > initialSOWCount.current || modeSOWs.length > initModeCount) {
-            console.log('✅ New SOW detected!');
+            console.log('New SOW detected');
             setSOWs(newSOWs);
 
             if (project) {
@@ -197,7 +197,7 @@ const ProjectDetail: React.FC = () => {
           }
         }
       } catch (error) {
-        console.error('❌ Polling error:', error);
+        console.error('Polling error:', error);
       }
 
       // Stop after 6 minutes (36 polls × 10 seconds) — use ref, not state
@@ -269,7 +269,7 @@ const ProjectDetail: React.FC = () => {
 
   // Manual refresh handler
   const handleRefresh = async () => {
-    console.log('🔄 Manual refresh triggered');
+    console.log('Manual refresh triggered');
     await fetchProjectDetails();
     toast.info('Refreshed SOW list', {
       position: 'top-right',
@@ -333,76 +333,14 @@ const ProjectDetail: React.FC = () => {
     });
   };
 
-  // Handle converting POC to Production
-  const handleConvertToProd = async (sow: SOW, e: React.MouseEvent) => {
+  const handleRegenerateSOW = (sow: SOW, e: React.MouseEvent) => {
     e.stopPropagation();
-
-    if (!sow.s3_url) {
-      toast.error('Cannot convert: No document URL available');
+    const documentId = sow.sow_db_id || sow.sow_id;
+    if (!documentId) {
+      toast.error('This SOW has no document identifier');
       return;
     }
-
-    setConvertingSOW(sow.sow_id);
-
-    const toastId = toast.loading('Converting POC to Production...', {
-      position: 'top-right',
-    });
-
-    try {
-      console.log('Converting POC to Production:', {
-        sow_id: sow.sow_id,
-        s3_url: sow.s3_url,
-        customer_name: sow.customer_name,
-        project_name: sow.project_name
-      });
-
-      // Call preview API — returns preview_id immediately, generation happens in background
-      const response = await apiService.convertToProduction(
-        'ShellKode',
-        sow.customer_name,
-        sow.project_name,
-        sow.s3_url,
-        project?.project_id,
-        account?.account_id
-      );
-
-      console.log('Convert to Production Response:', response);
-
-      if (response.success && response.preview_id) {
-        toast.update(toastId, {
-          render: 'Generating POC to Production SOW — opening preview...',
-          type: 'success',
-          isLoading: false,
-          autoClose: 3000,
-        });
-
-        // Store preview_id in localStorage so SOWGenerator picks it up on mount
-        localStorage.setItem('lastPreviewId', response.preview_id);
-        localStorage.setItem('loadingFromDraft', 'true');
-
-        // Switch to POC_TO_PROD tab and open the SOWGenerator form
-        // SOWGenerator will poll the preview status and show the preview modal automatically
-        setSelectedTab('POC_TO_PROD');
-        setShowCreateSOW(true);
-      } else {
-        toast.update(toastId, {
-          render: `Failed to convert: ${response.error || 'Unknown error'}`,
-          type: 'error',
-          isLoading: false,
-          autoClose: 5000,
-        });
-      }
-    } catch (error) {
-      console.error('Convert to Production error:', error);
-      toast.update(toastId, {
-        render: `Failed to convert: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        type: 'error',
-        isLoading: false,
-        autoClose: 5000,
-      });
-    } finally {
-      setConvertingSOW(null);
-    }
+    navigate(`/sow-records?regenerate=${encodeURIComponent(documentId)}`);
   };
 
   // Handle opening drafts modal
@@ -682,30 +620,20 @@ const ProjectDetail: React.FC = () => {
                         <User size={14} />
                         {sow.customer_name}
                       </span>
+                      <span className="meta-item">
+                        Tokens: {formatTokenCount(sow.total_tokens)}
+                      </span>
                     </div>
                   </div>
                   <div className="sow-card-actions">
-                    {/* Show "To Prod" button only for POC documents */}
-                    {sow.mode === 'POC' && (
-                      <button
-                        onClick={(e) => handleConvertToProd(sow, e)}
-                        className="to-prod-btn"
-                        title="Convert to Production"
-                        disabled={convertingSOW === sow.sow_id}
-                      >
-                        {convertingSOW === sow.sow_id ? (
-                          <>
-                            <Loader size={18} className="spinning" />
-                            Converting...
-                          </>
-                        ) : (
-                          <>
-                            <ArrowRight size={18} />
-                            To Prod
-                          </>
-                        )}
-                      </button>
-                    )}
+                    <button
+                      onClick={(e) => handleRegenerateSOW(sow, e)}
+                      className="to-prod-btn"
+                      title="Regenerate and refine"
+                    >
+                      <RefreshCw size={18} />
+                      Regenerate
+                    </button>
                     {(sow.s3_url || sow.drive_link) && (
                       <button
                         onClick={() => handleDownloadSOW(sow)}
@@ -814,7 +742,7 @@ const ProjectDetail: React.FC = () => {
                             {getModeLabel(draft.mode)}
                           </span>
                           <span className="draft-status">
-                            {draft.progress === 100 ? '✅ Ready' : `⏳ ${draft.current_step || 'Generating...'}`}
+                            {draft.progress === 100 ? 'Ready' : (draft.current_step || 'Generating...')}
                           </span>
                         </div>
                         {draft.progress !== undefined && draft.progress !== 100 && (

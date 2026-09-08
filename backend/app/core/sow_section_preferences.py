@@ -74,6 +74,10 @@ LEGACY_ID_ALIASES = {
     "governance_terms": "terms_conditions",
 }
 
+RETIRED_SECTION_IDS = {
+    "deliverables", "scope_at_a_glance", "deliverable_scope_at_a_glance",
+}
+
 
 def available_section_ids(mode: str) -> Set[str]:
     return set(MODE_SECTION_IDS.get((mode or "POC").upper(), OPTIONAL_SECTION_IDS))
@@ -119,6 +123,8 @@ def parse_selected_section_ids(raw_value: Any, mode: str) -> List[str]:
     seen: Set[str] = set()
     for item in value:
         canonical = LEGACY_ID_ALIASES.get(item, item)
+        if canonical in RETIRED_SECTION_IDS:
+            continue
         if (canonical in available or re.fullmatch(r"[a-z0-9_]{1,64}", canonical)) and canonical not in seen:
             selected.append(canonical)
             seen.add(canonical)
@@ -160,8 +166,6 @@ def section_category(title: str) -> Optional[str]:
         "production gap assessment",
     }:
         return "project_overview"
-    if normalised in {"deliverables", "deliverable scope at a glance", "scope at a glance"}:
-        return "scope_of_work"
     if "project team effort" in normalised:
         return "project_team_effort"
     if "implementation cost" in normalised:
@@ -211,3 +215,45 @@ def excluded_section_labels(selected: Iterable[str], mode: str) -> List[str]:
         for item in OPTIONAL_SECTION_IDS
         if item in available_section_ids(mode) and item not in selected_set
     ]
+
+
+def infer_selected_section_ids(document_text: str, mode: str = "POC") -> List[str]:
+    """Recover legacy section choices from a finalized SOW's visible headings.
+
+    Older DynamoDB rows predate persisted section preferences. Regeneration must
+    preserve their actual document shape instead of interpreting a missing field
+    as the current template's all-sections default.
+    """
+    available = available_section_ids(mode)
+    selected: List[str] = []
+    seen: Set[str] = set()
+    for raw_line in str(document_text or "").splitlines():
+        numbering = re.match(r"^\s*\d+(?:\.(\d+))?[.)]?\s+", raw_line)
+        if numbering and numbering.group(1) is not None:
+            # Module/subsection headings must not activate unrelated optional
+            # top-level sections (for example "Testing" inside Scope of Work).
+            continue
+        title = re.sub(r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", raw_line).strip()
+        # Ignore body prose and TOC page-number suffixes while accepting the
+        # short top-level headings emitted by every supported template.
+        title = re.sub(r"\s+\d+\s*$", "", title).strip()
+        if not title or len(title) > 100:
+            continue
+        normalised = _normalise_title(title)
+        if not numbering and not (
+            normalised.startswith("about ")
+            or normalised in {_normalise_title(value) for value in SECTION_LABELS.values()}
+            or normalised in {"solution architecture aws", "timeline and deliverables"}
+        ):
+            continue
+        category = section_category(title)
+        if normalised.startswith("about ") and category is None:
+            category = (
+                "about_shellkode"
+                if "shellkode" in normalised
+                else "about_client"
+            )
+        if category in available and category not in seen:
+            selected.append(category)
+            seen.add(category)
+    return selected

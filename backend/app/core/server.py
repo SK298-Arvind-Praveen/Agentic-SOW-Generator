@@ -53,6 +53,11 @@ from app.core.config import Config
 from app.core.bedrock_llm import BedrockLLM
 from app.storage.upload import upload_generated_document
 from app.storage.upload1 import parse_s3_location, upload_to_s3
+from app.storage.source_documents import (
+    SourceDocumentStore,
+    project_source_scope,
+    public_source_metadata,
+)
 from app.db.dynamodb_handler_optimized import (
     DynamoDBHandlerOptimized,
     save_to_dynamodb_optimized as save_to_dynamodb,
@@ -71,6 +76,7 @@ from app.diagram.service import (
     LEGACY_ASSET_KEY as ARCHITECTURE_ASSET_KEY,
     update_asset as update_architecture_asset,
 )
+from app.pricing import AwsPricingService, render_aws_pricing_section
 from app.preview.preview_handler import (
     create_preview_id, store_preview_data, get_preview_data,
     update_preview_data, delete_preview_data, extract_content_structure,
@@ -109,11 +115,13 @@ _handler.setFormatter(logging.Formatter(
 # Flask app logger
 logging.getLogger('flask.app').setLevel(logging.DEBUG)
 logging.getLogger('flask.app').addHandler(_handler)
+logging.getLogger('flask.app').propagate = False
 
 # Werkzeug request logger (prints GET /api/xxx 200 lines)
 _wz = logging.getLogger('werkzeug')
 _wz.setLevel(logging.INFO)
 _wz.addHandler(_handler)
+_wz.propagate = False
 
 # Root logger fallback
 logging.basicConfig(level=logging.INFO, handlers=[_handler], force=True)
@@ -130,6 +138,26 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB max
 
 rbac_store = RBACStore()
+
+
+def _pricing_audit_record(result):
+    """Keep a compact, DynamoDB-safe pricing provenance record."""
+    if not isinstance(result, dict) or result.get("status") in {None, "not_selected"}:
+        return None
+    record = {
+        "status": str(result.get("status") or "unknown"),
+        "estimate_id": str(result.get("estimate_id") or ""),
+        "estimate_url": str(result.get("estimate_url") or ""),
+        "currency": str(result.get("currency") or "USD"),
+        "monthly_cost": (
+            "" if result.get("monthly_cost") is None else str(result.get("monthly_cost"))
+        ),
+        "region": str(result.get("region") or ""),
+        "generated_at": str(result.get("generated_at") or ""),
+        "calculator_version": str(result.get("calculator_version") or ""),
+        "stale": bool(result.get("stale", False)),
+    }
+    return {key: value for key, value in record.items() if value not in {"", None}}
 
 
 @app.before_request
@@ -219,6 +247,32 @@ def _visible_documents(items):
         if item_is_visible(candidate, current_identity(), requested):
             visible.append(item)
     return visible
+
+
+def _document_record(document_id):
+    handler = DynamoDBHandler()
+    record = handler.get_document_by_id(str(document_id or "").strip())
+    denied = _resource_denied(record)
+    return record, denied
+
+
+def _read_s3_document(s3_url: str) -> tuple[str, str]:
+    """Download a persisted SOW to a temporary file and extract its text."""
+    bucket, key = parse_s3_location(s3_url)
+    response = get_s3_client().get_object(Bucket=bucket, Key=key)
+    suffix = Path(key).suffix.lower() or ".docx"
+    fd, temp_path = tempfile.mkstemp(prefix="sow-refinement-base-", suffix=suffix)
+    os.close(fd)
+    try:
+        with open(temp_path, "wb") as stream:
+            stream.write(response["Body"].read())
+        return read_document(temp_path), temp_path
+    except Exception:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+        raise
 
 
 @app.route('/api/auth/login', methods=['POST'])
@@ -318,6 +372,11 @@ def manage_sow_sections():
         return jsonify({"success": False, "error": "label is required"}), 400
     sections = rbac_store.list_sections()
     section_id = slugify_section_id(str(data.get("id") or label))
+    if section_id in {"deliverables", "scope_at_a_glance", "deliverable_scope_at_a_glance"} or label.casefold() == "deliverables":
+        return jsonify({
+            "success": False,
+            "error": "Deliverables are generated within Scope of Work and cannot be added as a separate section",
+        }), 400
     if any(item.get("id") == section_id for item in sections):
         return jsonify({"success": False, "error": "A section with this id already exists"}), 409
     modes = data.get("modes") or ["poc", "production", "poc-to-production"]
@@ -426,7 +485,13 @@ def update_task(task_id, **kwargs):
                 return False
         
         tasks[task_id].update(kwargs)
-        print(f"[DEBUG] Task {task_id} updated: {list(kwargs.keys())}")
+        task = tasks[task_id]
+        print(
+            f"[TASK {task_id}] {task.get('status')} | "
+            f"{int(task.get('progress', 0) or 0):3d}% | "
+            f"{task.get('current_step', '')}",
+            flush=True,
+        )
         return True
 
 def get_task(task_id):
@@ -1116,8 +1181,12 @@ def save_document_info(pdf_path, docx_path, metadata, mode, folders, drive_resul
 def process_document_generation(task_id, task_data):
     """Background worker for document generation"""
     uploaded_file_path = task_data.get('uploaded_file_path')
+    usage_context_token = None
+    print(f"[TASK {task_id}] Background generation started", flush=True)
 
     try:
+        from app.core.nodes import start_token_usage
+        usage_context_token = start_token_usage(task_id)
         update_task(task_id, status=TaskStatus.PROCESSING, progress=5, current_step="Validating inputs")
 
         mode = task_data['mode']
@@ -1202,10 +1271,6 @@ def process_document_generation(task_id, task_data):
 
         update_task(task_id, progress=30, current_step=f"Generating {mode} document")
 
-        # Reset token tracking for this workflow
-        from app.core.nodes import reset_token_usage
-        reset_token_usage()
-
         # Process supporting documents if provided
         supporting_files = task_data.get('supporting_files', [])
         supporting_context = None
@@ -1254,7 +1319,7 @@ def process_document_generation(task_id, task_data):
 
         # Print token usage summary
         from app.core.nodes import print_token_summary
-        print_token_summary()
+        print_token_summary(task_id)
 
         update_task(task_id, progress=70, current_step="Document generated, uploading to cloud")
 
@@ -1321,6 +1386,9 @@ def process_document_generation(task_id, task_data):
         # DynamoDB storage
         print(f"\n[TASK] DynamoDB Storage")
         db_result = None
+        from app.core.nodes import get_token_usage
+        token_usage = get_token_usage(task_id)
+        total_tokens = int(token_usage.get("total_tokens") or 0)
         if s3_result:
             s3_url = s3_result.get('https_url') or s3_result.get('s3_url') or s3_result.get('url')
             if s3_url:
@@ -1340,6 +1408,8 @@ def process_document_generation(task_id, task_data):
                             "business_unit": metadata.get("business_unit"),
                             "owner_email": metadata.get("owner_email"),
                             "owner_name": metadata.get("owner_name"),
+                            "total_tokens": total_tokens,
+                            "token_usage": token_usage,
                         },
                         s3_url=s3_url,
                         s3_result=s3_result,
@@ -1391,7 +1461,9 @@ def process_document_generation(task_id, task_data):
             "db_result": db_result,
             "rag_result": rag_result,
             "document_id": db_result.get("document_id") if db_result else None,
-            "rag_document_id": rag_result.get("document_id") if rag_result else None
+            "rag_document_id": rag_result.get("document_id") if rag_result else None,
+            "total_tokens": total_tokens,
+            "token_usage": token_usage,
         }
 
         update_task(
@@ -1421,6 +1493,10 @@ def process_document_generation(task_id, task_data):
         )
     
     finally:
+        if usage_context_token is not None:
+            from app.core.nodes import clear_token_usage, unbind_token_usage
+            unbind_token_usage(usage_context_token)
+            clear_token_usage(task_id)
         # ✅ Always clean up uploaded file
         if uploaded_file_path and os.path.exists(uploaded_file_path):
             try:
@@ -2417,6 +2493,240 @@ def get_project_full_data(company_name, project_name):
 # NEW PREVIEW/EDIT/FINALIZE WORKFLOW APIs
 # ============================================================================
 
+@app.route('/api/documents/<document_id>/sources', methods=['GET'])
+def list_document_sources(document_id):
+    """List every stored supporting-document revision for the record's project."""
+    try:
+        record, denied = _document_record(document_id)
+        if denied:
+            return denied
+        scope_id = project_source_scope(record)
+        sources = [public_source_metadata(item) for item in SourceDocumentStore().list_documents(scope_id)]
+        return jsonify({"success": True, "documents": sources, "count": len(sources)}), 200
+    except Exception as exc:
+        print(f"[REFINE] Unable to list supporting documents: {exc}", flush=True)
+        return jsonify({"success": False, "error": "Unable to load supporting documents"}), 500
+
+
+@app.route('/api/documents/<document_id>/sources/<source_id>', methods=['GET'])
+def download_document_source(document_id, source_id):
+    """Download a project source after applying record-level access control."""
+    try:
+        record, denied = _document_record(document_id)
+        if denied:
+            return denied
+        content, source = SourceDocumentStore().download(project_source_scope(record), source_id)
+        return send_file(
+            io.BytesIO(content),
+            as_attachment=True,
+            download_name=source.get("filename") or "supporting-document",
+            mimetype="application/octet-stream",
+        )
+    except FileNotFoundError:
+        return jsonify({"success": False, "error": "Supporting document not found"}), 404
+    except Exception as exc:
+        print(f"[REFINE] Unable to download supporting document: {exc}", flush=True)
+        return jsonify({"success": False, "error": "Unable to download supporting document"}), 500
+
+
+@app.route('/api/documents/<document_id>/regenerate', methods=['POST'])
+def regenerate_document_preview(document_id):
+    """Create a refinement preview from a finalized SOW and source-document deltas."""
+    preview_started_at = time.perf_counter()
+    temp_paths = []
+    try:
+        record, denied = _document_record(document_id)
+        if denied:
+            return denied
+        instructions = request.form.get("instructions", "").strip()
+        uploads = [item for item in request.files.getlist("supporting_docs") if item and item.filename]
+        declared_count = request.form.get("supporting_doc_count", "").strip()
+        if declared_count:
+            try:
+                if int(declared_count) != len(uploads):
+                    raise ValueError
+            except ValueError:
+                return jsonify({
+                    "success": False,
+                    "error": "Supporting-document multipart transfer was incomplete",
+                }), 400
+        if not instructions and not uploads:
+            return jsonify({
+                "success": False,
+                "error": "Enter refinement instructions or upload a revised supporting document",
+            }), 400
+        unsupported = [
+            item.filename for item in uploads
+            if Path(item.filename).suffix.lower() not in SUPPORTED_DOCUMENT_EXTENSIONS
+        ]
+        if unsupported:
+            return jsonify({
+                "success": False,
+                "error": "Unsupported file type. Supported files: PDF, Word, Excel, and TXT.",
+                "unsupported_files": unsupported,
+            }), 415
+
+        s3_url = str(record.get("s3_url") or "").strip()
+        if not s3_url:
+            return jsonify({
+                "success": False,
+                "error": "The saved SOW has no S3 document and cannot be regenerated",
+            }), 409
+        baseline_sow, baseline_path = _read_s3_document(s3_url)
+        temp_paths.append(baseline_path)
+        if len(baseline_sow.strip()) < 50:
+            return jsonify({"success": False, "error": "The saved SOW could not be read"}), 422
+
+        identity = current_identity()
+        metadata = {
+            "company_name": record.get("customer_name") or record.get("company_name") or "",
+            "author_name": identity.name,
+            "author_org": "Shellkode",
+            "author_org_description": "Shellkode specializes in developing advanced data and AI solutions for businesses.",
+            "document_date": datetime.now().strftime("%d %B %Y"),
+            "version": DynamoDBHandler().get_next_version(
+                record.get("customer_name") or "",
+                record.get("project_name") or "",
+                record.get("mode") or "POC",
+            ),
+            "start_date": "",
+            "end_date": "",
+            "timezone": "IST",
+            "project_title": record.get("project_name") or "",
+            "business_unit": record.get("business_unit"),
+            "owner_email": identity.email,
+            "owner_name": identity.name,
+            "project_id": record.get("project_id"),
+            "account_id": record.get("account_id"),
+            "parent_document_id": record.get("document_id"),
+            "refinement_instructions": instructions,
+        }
+        mode = str(record.get("mode") or "POC").upper()
+        from app.core.sow_section_preferences import (
+            infer_selected_section_ids,
+            parse_selected_section_ids,
+        )
+        requested_sections = request.form.get("selected_sow_sections")
+        if requested_sections is not None:
+            selected_sections = parse_selected_section_ids(requested_sections, mode)
+        elif isinstance(record.get("selected_sow_sections"), list):
+            selected_sections = parse_selected_section_ids(
+                record.get("selected_sow_sections"), mode
+            )
+        else:
+            selected_sections = infer_selected_section_ids(baseline_sow, mode)
+            if not selected_sections:
+                return jsonify({
+                    "success": False,
+                    "error": (
+                        "The original SOW section selection could not be recovered. "
+                        "Regeneration was stopped to prevent adding template sections."
+                    ),
+                }), 422
+        print(
+            f"[REFINE] Preserving {len(selected_sections)} selected section(s): "
+            f"{', '.join(selected_sections)}",
+            flush=True,
+        )
+        metadata["selected_sow_sections"] = selected_sections
+
+        scope_id = str(record.get("source_scope_id") or project_source_scope(record))
+        metadata["source_scope_id"] = scope_id
+        source_changes = []
+        source_records = []
+        store = SourceDocumentStore()
+        for index, upload in enumerate(uploads, 1):
+            filename = secure_filename(upload.filename)
+            path = os.path.join(
+                app.config["UPLOAD_FOLDER"],
+                f"refine_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{index}_{filename}",
+            )
+            upload.save(path)
+            temp_paths.append(path)
+            extracted = read_document(path)
+            if not extracted or len(extracted.strip()) < 10:
+                return jsonify({
+                    "success": False,
+                    "error": f"Could not extract readable content from {upload.filename}",
+                }), 422
+            stored = store.ingest(scope_id, path, upload.filename, extracted)
+            source_records.append(public_source_metadata(stored))
+            if stored.get("context"):
+                source_changes.append(str(stored["context"]))
+            print(
+                f"[REFINE] {upload.filename}: {stored.get('comparison')} "
+                f"(revision {stored.get('revision')}, reused={stored.get('reused', False)})",
+                flush=True,
+            )
+        metadata["source_documents"] = [
+            public_source_metadata(item) for item in store.list_documents(scope_id)
+        ]
+
+        initial_state = {
+            "metadata": metadata,
+            "objective": instructions,
+            "additional_details": instructions,
+            "mode": mode,
+            "source_file": None,
+            "rag_context": {},
+            "analyzed_requirements": None,
+            "validated_requirements": None,
+            "poc_content": None,
+            "output_path": None,
+            "json_path": None,
+            "errors": [],
+            "current_step": "start",
+            "supporting_documents": [],
+            "supporting_context": None,
+            "selected_sow_sections": selected_sections,
+            "pricing_result": None,
+            "scope_generation_seconds": None,
+            "preview_started_at": preview_started_at,
+            "refinement_request": {
+                "baseline_sow": baseline_sow,
+                "instructions": instructions,
+                "source_changes": "\n\n".join(source_changes),
+            },
+        }
+        preview_id = create_preview_id()
+        store_preview_data(preview_id, {}, metadata, mode)
+        with preview_lock:
+            preview_storage[preview_id].update({
+                "status": "initializing",
+                "progress": 0,
+                "current_step": "Preparing SOW refinement...",
+                "rag_context": {},
+                "source_diagnostics": {
+                    "refinement": True,
+                    "parent_document_id": document_id,
+                    "documents_received": len(uploads),
+                    "documents_reused": sum(1 for item in source_records if item.get("reused")),
+                    "documents_changed": sum(1 for item in source_records if item.get("comparison") == "changed"),
+                },
+            })
+        from app.preview.async_preview import process_preview_async
+        process_preview_async(preview_id, initial_state, True)
+        return jsonify({
+            "success": True,
+            "preview_id": preview_id,
+            "status": "initializing",
+            "mode": mode,
+            "metadata": metadata,
+            "source_documents": source_records,
+            "message": "SOW refinement preview started",
+        }), 202
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(exc)}), 500
+    finally:
+        for path in temp_paths:
+            try:
+                if path and os.path.exists(path):
+                    os.remove(path)
+            except OSError:
+                pass
+
 @app.route('/api/preview', methods=['POST'])
 def generate_preview():
     """
@@ -2425,6 +2735,7 @@ def generate_preview():
     
     For POC_TO_PROD: Extracts text from uploaded document first
     """
+    preview_started_at = time.perf_counter()
     uploaded_file_path = None
     
     try:
@@ -2602,6 +2913,12 @@ def generate_preview():
             version = request.form.get('version', version)
         
         # Prepare metadata
+        pricing_region = request.form.get('pricing_region', '').strip().lower()
+        if pricing_region and not re.fullmatch(r'[a-z]{2}(?:-gov)?-[a-z]+-\d', pricing_region):
+            return jsonify({
+                "success": False,
+                "error": "Invalid AWS pricing region code. Use a value such as ap-south-1 or us-east-1."
+            }), 400
         metadata = {
             "company_name": company_name,
             "author_name": author_name,
@@ -2614,6 +2931,13 @@ def generate_preview():
             "timezone": "IST",
             "project_title": project_name,
             "selected_sow_sections": selected_sow_sections,
+            "pricing_region": pricing_region,
+            "pricing_include_proposed": request.form.get(
+                'pricing_include_proposed', 'true'
+            ).strip().lower() not in {'0', 'false', 'no', 'off'},
+            "pricing_read_cost": request.form.get(
+                'pricing_read_cost', 'true'
+            ).strip().lower() not in {'0', 'false', 'no', 'off'},
             **ownership,
         }
         
@@ -2648,6 +2972,7 @@ def generate_preview():
         supporting_context = None
         supporting_docs_received = 0
         supporting_docs_extracted = 0
+        supporting_uploads = []
         if 'supporting_docs' in request.files:
             files_list = request.files.getlist('supporting_docs')
             supporting_docs_received = len([
@@ -2667,6 +2992,7 @@ def generate_preview():
                     filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
                     support_file.save(filepath)
                     supporting_files.append(filepath)
+                    supporting_uploads.append((filepath, support_file.filename))
 
             if supporting_files:
                 try:
@@ -2705,6 +3031,29 @@ def generate_preview():
                 "supporting_documents_extracted": supporting_docs_extracted,
             }), 422
 
+        # Persist source originals and extraction sidecars for future version
+        # diffs. Failure here does not discard an otherwise valid generation;
+        # the preview records a warning so the user is not misled about reuse.
+        if supporting_uploads and not app.config.get("TESTING"):
+            try:
+                source_store = SourceDocumentStore()
+                source_scope_id = project_source_scope(metadata)
+                metadata["source_scope_id"] = source_scope_id
+                for path, original_name in supporting_uploads:
+                    source_store.ingest(source_scope_id, path, original_name)
+                metadata["source_documents"] = [
+                    public_source_metadata(item)
+                    for item in source_store.list_documents(source_scope_id)
+                ]
+                print(
+                    f"[SOURCE] Stored {len(supporting_uploads)} supporting document(s) "
+                    f"under project scope {source_scope_id[:8]}",
+                    flush=True,
+                )
+            except Exception as exc:
+                metadata["source_storage_warning"] = "Supporting documents could not be archived for reuse"
+                print(f"[SOURCE] Supporting-document archive unavailable: {exc}", flush=True)
+
         # Generate content using graph (without building document)
         initial_state = {
             "metadata": metadata,
@@ -2723,6 +3072,9 @@ def generate_preview():
             "supporting_documents": supporting_files,
             "supporting_context": supporting_context,
             "selected_sow_sections": selected_sow_sections,
+            "pricing_result": None,
+            "scope_generation_seconds": None,
+            "preview_started_at": preview_started_at,
         }
         
         # Create preview ID first
@@ -3058,6 +3410,8 @@ def get_preview_status_api(preview_id):
             # Add content if ready (full response like preview API)
             elif status == "ready":
                 response_data["content"] = preview_data.get("content", {})
+                final_state = preview_data.get("final_state") or {}
+                response_data["pricing_result"] = final_state.get("pricing_result")
                 response_data["message"] = "Content preview generated successfully. Use /api/edit to make changes or /api/finalize to create document."
             
             # Add progress message for in-progress statuses
@@ -3138,6 +3492,69 @@ DIRECT_MARKDOWN_EDIT_RESERVED_KEYS = {
 }
 
 
+@app.route('/api/preview/<preview_id>/aws-pricing/recalculate', methods=['POST'])
+def recalculate_preview_aws_pricing(preview_id):
+    """Rebuild pricing from the preview's immutable source-grounded baseline."""
+    data = request.get_json(silent=True) or {}
+    with preview_lock:
+        preview_data = preview_storage.get(preview_id)
+        if not preview_data:
+            return jsonify({"success": False, "error": "Preview not found"}), 404
+        denied = _preview_denied(preview_data)
+        if denied:
+            return denied
+        if preview_data.get("status") != "ready":
+            return jsonify({"success": False, "error": "Preview is not ready"}), 409
+        final_state = dict(preview_data.get("final_state") or {})
+        metadata = dict(final_state.get("metadata") or preview_data.get("metadata") or {})
+        requirements = dict(final_state.get("validated_requirements") or {})
+        supporting_context = str(final_state.get("supporting_context") or "")
+    requested_region = str(data.get("pricing_region") or metadata.get("pricing_region") or "").strip().lower()
+    if requested_region and not re.fullmatch(r'[a-z]{2}(?:-gov)?-[a-z]+-\d', requested_region):
+        return jsonify({"success": False, "error": "Invalid AWS region code"}), 400
+    metadata["pricing_region"] = requested_region
+    if "pricing_include_proposed" in data:
+        metadata["pricing_include_proposed"] = bool(data["pricing_include_proposed"])
+    if "pricing_read_cost" in data:
+        metadata["pricing_read_cost"] = bool(data["pricing_read_cost"])
+
+    from app.core.nodes import bind_token_usage, get_token_usage, unbind_token_usage
+    usage_token = bind_token_usage(preview_id)
+    try:
+        result = AwsPricingService(Config()).generate(requirements, metadata, supporting_context)
+    finally:
+        unbind_token_usage(usage_token)
+    token_usage = get_token_usage(preview_id)
+    rendered = render_aws_pricing_section(result)
+    with preview_lock:
+        preview_data = preview_storage.get(preview_id)
+        if not preview_data:
+            return jsonify({"success": False, "error": "Preview expired during recalculation"}), 404
+        content = preview_data.get("content") or {}
+        content["aws_pricing"] = rendered
+        preview_data["content"] = content
+        preview_data["metadata"].update(metadata)
+        final_state = preview_data.get("final_state") or {}
+        final_state["pricing_result"] = result
+        final_state["metadata"] = metadata
+        preview_data["final_state"] = final_state
+        preview_data["token_usage"] = token_usage
+        preview_data["total_tokens"] = int(token_usage.get("total_tokens") or 0)
+        preview_data["last_modified"] = datetime.now().isoformat()
+        preview_data["edit_count"] = preview_data.get("edit_count", 0) + 1
+    return jsonify({
+        "success": True,
+        "preview_id": preview_id,
+        "status": "ready",
+        "progress": 100,
+        "current_step": "AWS pricing recalculated",
+        "mode": preview_data.get("mode"),
+        "metadata": metadata,
+        "content": content,
+        "pricing_result": result,
+    }), 200
+
+
 @app.route('/api/preview/<preview_id>/content', methods=['PUT'])
 def update_preview_content(preview_id):
     """Persist direct reviewer Markdown edits without invoking the LLM."""
@@ -3196,6 +3613,21 @@ def update_preview_content(preview_id):
         preview_data["last_modified"] = datetime.now().isoformat()
         if changed_sections:
             preview_data["edit_count"] = preview_data.get("edit_count", 0) + 1
+        pricing_relevant = {
+            "aws_pricing", "scope_of_work", "architecture_diagram",
+            "architecture_integrations", "assumptions", "timelines_and_deliverables",
+        }
+        final_state = preview_data.get("final_state") or {}
+        pricing_result = final_state.get("pricing_result")
+        if pricing_result and pricing_relevant.intersection(changed_sections):
+            pricing_result = dict(pricing_result)
+            pricing_result["stale"] = True
+            pricing_result["status_before_edit"] = pricing_result.get("status")
+            pricing_result["status"] = "stale"
+            final_state["pricing_result"] = pricing_result
+            preview_data["final_state"] = final_state
+            merged_content["aws_pricing"] = render_aws_pricing_section(pricing_result)
+            preview_data["content"] = merged_content
 
         response_data = {
             "success": True,
@@ -3208,6 +3640,7 @@ def update_preview_content(preview_id):
             "content": merged_content,
             "edited_sections": changed_sections,
             "edit_count": preview_data["edit_count"],
+            "pricing_result": pricing_result,
             "message": "Markdown content updated successfully",
         }
 
@@ -3519,9 +3952,14 @@ def edit_preview():
         # Step 1: Apply edits to user-selected sections
         print(f"   📝 Applying edits to selected sections...")
         try:
-            edit_result = editor.apply_section_edits(
-                poc_content, selected_sections, user_input, mode, full_replace=full_replace
-            )
+            from app.core.nodes import bind_token_usage, unbind_token_usage
+            usage_token = bind_token_usage(preview_id)
+            try:
+                edit_result = editor.apply_section_edits(
+                    poc_content, selected_sections, user_input, mode, full_replace=full_replace
+                )
+            finally:
+                unbind_token_usage(usage_token)
             print(f"   ✅ Section edits applied successfully")
         except Exception as e:
             print(f"   ❌ Failed to apply section edits: {e}")
@@ -3568,6 +4006,12 @@ def edit_preview():
                 }), 500
             
             print(f"   ✅ Preview data updated in storage")
+            from app.core.nodes import get_token_usage
+            token_usage = get_token_usage(preview_id)
+            with preview_lock:
+                if preview_id in preview_storage:
+                    preview_storage[preview_id]["token_usage"] = token_usage
+                    preview_storage[preview_id]["total_tokens"] = int(token_usage.get("total_tokens") or 0)
         except Exception as e:
             print(f"   ❌ Exception during preview update: {e}")
             return jsonify({
@@ -3750,6 +4194,24 @@ def finalize_document():
         mode = preview_data.get("mode")
         metadata = preview_data.get("metadata")
         content = preview_data.get("content")
+
+        pricing_result = (preview_data.get("final_state") or {}).get("pricing_result") or {}
+        if pricing_result.get("status") == "stale":
+            return jsonify({
+                "success": False,
+                "error": "AWS pricing is stale after content edits. Recalculate pricing before finalizing.",
+                "code": "AWS_PRICING_STALE",
+            }), 409
+
+        from app.core.nodes import get_token_usage
+        live_token_usage = get_token_usage(preview_id)
+        stored_token_usage = preview_data.get("token_usage") or {}
+        token_usage = (
+            live_token_usage
+            if int(live_token_usage.get("total_tokens") or 0) >= int(stored_token_usage.get("total_tokens") or 0)
+            else stored_token_usage
+        )
+        total_tokens = int(token_usage.get("total_tokens") or 0)
         
         print(f"   📄 Finalizing {mode} document from preview: {preview_id}")
         
@@ -3854,6 +4316,16 @@ def finalize_document():
                         "business_unit": metadata.get("business_unit"),
                         "owner_email": metadata.get("owner_email"),
                         "owner_name": metadata.get("owner_name"),
+                        "total_tokens": total_tokens,
+                        "token_usage": token_usage,
+                        "aws_pricing": _pricing_audit_record(
+                            (preview_data.get("final_state") or {}).get("pricing_result")
+                        ),
+                        "source_documents": metadata.get("source_documents", []),
+                        "source_scope_id": metadata.get("source_scope_id"),
+                        "parent_document_id": metadata.get("parent_document_id"),
+                        "refinement_instructions": metadata.get("refinement_instructions"),
+                        "selected_sow_sections": metadata.get("selected_sow_sections", []),
                     },
                     s3_url=s3_url,
                     s3_result=s3_result,
@@ -3883,6 +4355,15 @@ def finalize_document():
                                 'business_unit': metadata.get("business_unit"),
                                 'owner_email': metadata.get("owner_email"),
                                 'owner_name': metadata.get("owner_name"),
+                                'total_tokens': total_tokens,
+                                'token_usage': token_usage,
+                                'aws_pricing': _pricing_audit_record(
+                                    (preview_data.get("final_state") or {}).get("pricing_result")
+                                ),
+                                'source_documents': metadata.get("source_documents", []),
+                                'source_scope_id': metadata.get("source_scope_id"),
+                                'parent_document_id': metadata.get("parent_document_id"),
+                                'selected_sow_sections': metadata.get("selected_sow_sections", []),
                             }
                             account_handler.link_sow_to_project(project_id, sow_id, sow_data)
                             print(f"   ✅ Linked SOW {sow_id} to project {project_id}")
@@ -3957,6 +4438,8 @@ def finalize_document():
         
         # Delete preview from memory
         delete_preview_data(preview_id)
+        from app.core.nodes import clear_token_usage
+        clear_token_usage(preview_id)
         
         # Complete task
         result_data = {
@@ -3967,7 +4450,9 @@ def finalize_document():
             "s3_url": s3_result.get('https_url') if s3_result else None,
             "drive_link": drive_result.get('link') if drive_result else None,
             "document_id": db_result.get("document_id") if db_result else None,
-            "rag_document_id": rag_result.get("document_id") if rag_result else None
+            "rag_document_id": rag_result.get("document_id") if rag_result else None,
+            "total_tokens": total_tokens,
+            "token_usage": token_usage,
         }
         
         update_task(
@@ -3980,6 +4465,7 @@ def finalize_document():
         )
         
         print(f"   ✅ Document finalized successfully")
+        print(f"   Total token usage: {total_tokens:,}", flush=True)
         
         return jsonify({
             "success": True,
@@ -3987,6 +4473,8 @@ def finalize_document():
             "document_id": db_result.get("document_id") if db_result else None,
             "s3_url": s3_result.get('https_url') if s3_result else None,
             "drive_link": drive_result.get('link') if drive_result else None,
+            "total_tokens": total_tokens,
+            "token_usage": token_usage,
             "message": "Document created and saved successfully",
             "result": result_data
         }), 200
@@ -4800,7 +5288,10 @@ def create_sow_for_project(project_id):
 
         # Start background generation (same as existing /api/generate logic)
         def generate_sow_worker():
+            usage_context_token = None
             try:
+                from app.core.nodes import start_token_usage
+                usage_context_token = start_token_usage(task_id)
                 update_task(task_id, status=TaskStatus.PROCESSING, progress=10, current_step="Initializing SOW generation...")
 
                 # Run the graph workflow (same as existing logic)
@@ -4854,6 +5345,9 @@ def create_sow_for_project(project_id):
                 if final_state and '__end__' in final_state:
                     end_state = final_state['__end__']
                     output_path = end_state.get('output_path')
+                    from app.core.nodes import get_token_usage
+                    token_usage = get_token_usage(task_id)
+                    total_tokens = int(token_usage.get("total_tokens") or 0)
 
                     if output_path and os.path.exists(output_path):
                         # Upload to S3 and get drive link (same as existing logic)
@@ -4879,6 +5373,8 @@ def create_sow_for_project(project_id):
                                 "project_name": project_name,
                                 "document_date": datetime.now().strftime("%d %B %Y"),
                                 "mode": mode,
+                                "total_tokens": total_tokens,
+                                "token_usage": token_usage,
                                 **ownership,
                             },
                             s3_url=s3_url,
@@ -4899,6 +5395,8 @@ def create_sow_for_project(project_id):
                             'drive_link': drive_link,
                             's3_url': s3_url,
                             'sow_db_id': sow_id,
+                            'total_tokens': total_tokens,
+                            'token_usage': token_usage,
                             **ownership,
                         }
                         account_handler.link_sow_to_project(project_id, sow_id, sow_data)
@@ -4915,7 +5413,9 @@ def create_sow_for_project(project_id):
                                 'drive_link': drive_link,
                                 's3_url': s3_url,
                                 'sow_id': sow_id,
-                                'project_id': project_id
+                                'project_id': project_id,
+                                'total_tokens': total_tokens,
+                                'token_usage': token_usage,
                             }
                         )
                     else:
@@ -4928,6 +5428,11 @@ def create_sow_for_project(project_id):
                 import traceback
                 traceback.print_exc()
                 update_task(task_id, status=TaskStatus.FAILED, error=str(e))
+            finally:
+                if usage_context_token is not None:
+                    from app.core.nodes import clear_token_usage, unbind_token_usage
+                    unbind_token_usage(usage_context_token)
+                    clear_token_usage(task_id)
 
         # Start worker thread
         worker = threading.Thread(target=generate_sow_worker, daemon=True)
@@ -5117,7 +5622,34 @@ def delete_draft(project_id, draft_id):
 # MAIN
 # ============================================================================
 
+_server_instance_mutex = None
+
+
+def _acquire_server_instance_lock():
+    """Prevent two Windows backend processes from sharing port 9000.
+
+    Multiple Flask processes were able to listen on the same Windows port,
+    causing requests and terminal output to be split between two consoles.
+    A named OS mutex gives this local development server one unambiguous owner.
+    """
+    global _server_instance_mutex
+    if os.name != "nt":
+        return
+    import ctypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.CreateMutexW(None, False, "Local\\ShellKodeSOWBackend9000")
+    if not handle:
+        raise OSError(ctypes.get_last_error(), "Could not create backend instance lock")
+    if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+        kernel32.CloseHandle(handle)
+        raise RuntimeError(
+            "Another ShellKode backend is already running on port 9000. "
+            "Stop its terminal with Ctrl+C before starting a new one."
+        )
+    _server_instance_mutex = handle
+
 if __name__ == '__main__':
+    _acquire_server_instance_lock()
     print("\n" + "="*70)
     print("🚀 AWS SOW Generator API (WITH PREVIEW/EDIT/FINALIZE WORKFLOW)")
     print("="*70)

@@ -20,6 +20,7 @@ Never introduce an unselected top-level topic or re-create an excluded topic as 
 Classify every material statement mentally as one of the following and write accordingly:
 
 - **Confirmed:** directly stated by the user's product details, an uploaded source, or structured requirements. State it plainly and preserve exact quantities, names, wording, identifiers, and qualifications.
+- A statement inside an uploaded source is not automatically Confirmed. Preserve explicit source labels such as **Assumption**, **Derived**, **Proposed**, **To be confirmed**, **Not stated**, **Needs clarification**, **optional**, and **future**. Conflicting sources are **Open** until reconciled.
 - **Derived:** a necessary synthesis of confirmed facts, such as grouping requirements into modules or identifying an obvious dependency. State it plainly only when the reasoning is direct and low risk.
 - **Proposed:** an architect-authored design choice, implementation approach, validation method, sequence, staffing model, or AWS service not confirmed by the source. Label it "Proposed" or "proposed for baseline confirmation" at the point of use.
 - **Open:** a fact that changes scope, cost, architecture, acceptance, compliance, or sequencing and cannot safely be inferred. Carry it to Open Clarifications; never answer it on the customer's behalf.
@@ -30,7 +31,8 @@ Sparse input is expected. Expand it into a professional SOW by decomposing state
 
 - Use British Indian English throughout, not US spelling. Prefer `organisation`, `organise`, `centralised`, `analyse`, `behaviour`, `colour`, `programme`, `licence` (noun), and `fulfilment`. Preserve official product names, API fields, quoted source text, and identifiers exactly as supplied.
 - Use the same project name, customer name, module names, requirement IDs, actors, integrations, AWS services, environments, quantities, and status labels everywhere.
-- Establish one module/workstream taxonomy in Deliverables and reuse it in Scope of Work, Architecture, Open Clarifications, Out of Scope, Assumptions, Success Criteria, Pricing inputs, and Team Effort.
+- Establish one deliverable/module work breakdown inside Scope of Work and reuse it in Architecture, Open Clarifications, Out of Scope, Assumptions, Success Criteria, Pricing inputs, and Team Effort.
+- Treat contractual deliverable rows as outputs to preserve, not automatically as separate top-level delivery packages. Use a separate deliverable only for an independent business outcome with its own phase, deployment, hand-off, or acceptance boundary; otherwise retain the row as a module or output within a cohesive package.
 - Preserve supplied requirement identifiers. When IDs are absent, create stable IDs using short module prefixes such as `EM-01`, `KB-01`, or `WF-01`; never renumber them differently in another section.
 - Do not contradict inclusion boundaries. A baseline capability included in Scope of Work must not be excluded in Out of Scope; distinguish a limited included capability from an advanced deferred capability.
 - Do not invent a week-by-week schedule or committed duration. Sequence may be proposed as dependency logic, but dates and durations remain open unless supplied.
@@ -49,12 +51,12 @@ Sparse input is expected. Expand it into a professional SOW by decomposing state
 - Write only the implementation detail needed to define scope, ownership, dependency, boundary, decision, or validation. Do not expand every category when it adds no decision value.
 - Prefer concise bullets for requirements, boundaries, responsibilities, decisions, dependencies, risks, and validation. Use prose only for a short rationale and tables only for genuinely comparable records.
 - Start a section with no more than one orienting paragraph of 60 words. Do not place a second prose paragraph immediately after it; move actionable content into bullets.
-- Default to no subsections. Outside Scope of Work, use at most two direct subsections and no nested subsections. Within Scope of Work, retain only the module/workstream headings and use bold lead-in bullets for internal categories.
+- Default to no subsections. Outside Scope of Work, use at most two direct subsections and no nested subsections. Within Scope of Work, use one direct heading per deliverable and one nested heading per cohesive module; use prose and bullets beneath the module.
 - Put each bullet on its own Markdown line, keep it to one main idea, and use a real nested Markdown bullet only when the hierarchy is necessary.
 - Tables should normally contain two to four columns and must never exceed five. If detail will create narrow prose-heavy cells, split the table or put explanatory prose beneath it.
 - Each detailed module should normally contain: objective/boundary, workflow, functional requirements, roles and permissions, data, integrations, business rules and exceptions, AI/human review where relevant, security/compliance where relevant, dependencies, and validation notes. Omit a category only when genuinely inapplicable.
 - Use a sequential `Workflow` only where sequence materially aids understanding. A data store, reporting capability, integration layer, or governance capability does not automatically need its own numbered workflow.
-- A numbered workflow must contain four to eight meaningful end-to-end steps. Consolidate low-value micro-actions into phases or capability bullets; never create a document-spanning sequence of dozens of sparse items.
+- A workflow should contain the meaningful end-to-end stages needed to explain the module. Consolidate low-value UI clicks into phases or capability bullets.
 - Avoid filler, marketing claims, repeated project summaries, vague bullets, and generic AWS catalogues.
 - When Architecture Diagram is selected, provide only the concise decisions, constraints, flow and unresolved boundaries needed to interpret the generated visual. Do not duplicate the diagram as a prose-heavy component catalogue.
 
@@ -107,17 +109,16 @@ Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
 
 Document Version Control
 1. Objective
-2. Deliverables
-3. Current State
-4. Scope of Work
-5. Solution Architecture — AWS
-6. Open Clarifications
-7. Out of Scope
-8. Assumptions and Dependencies
-9. Timeline and Deliverables
-10. Success Criteria
-11. AWS Pricing
-12. {AUTHOR_ORG_SHORT} Project Team Effort
+2. Current State
+3. Scope of Work
+4. Solution Architecture — AWS
+5. Open Clarifications
+6. Out of Scope
+7. Assumptions and Dependencies
+8. Timeline and Deliverables
+9. Success Criteria
+10. AWS Pricing
+11. {AUTHOR_ORG_SHORT} Project Team Effort
 Acceptance and Signatories to Statement of Work
 
 [META_GENERATED]
@@ -189,7 +190,7 @@ Opening narrative - write one concise paragraph covering:
 - what this SOW enables: solution design, effort estimation, build, validation, or a go/no-go decision;
 - any confirmed supersession or precedence rule, without claiming that this SOW supersedes another document unless the source says so.
 
-- After the opening narrative, provide four to eight outcome-oriented bullets directly; do not add an `Objectives` subsection.
+- After the opening narrative, provide only the outcome-oriented bullets needed to cover the evidenced objective; do not add an `Objectives` subsection or filler to meet a count.
 - Each objective must name a capability or business outcome and its intended validation.
 - Preserve confirmed outcomes and metrics. If no metric is supplied, state an observable demonstration outcome rather than inventing a number.
 - Cover the primary workflow, data/integration outcome, AI outcome where relevant, and operational/governance outcome where relevant.
@@ -200,43 +201,11 @@ Opening narrative - write one concise paragraph covering:
 BOUNDARIES
 
 - Do not create separate company-profile or executive-summary content.
-- Do not describe detailed requirements that belong in Section 4.
+- Do not describe detailed requirements that belong in Scope of Work.
 - Do not state committed dates, costs, or acceptance thresholds unless supplied.
 
-[META_TABLE]
-## 2. Deliverables
-
-PURPOSE
-Provide the benchmark-style orientation view of the complete in-scope solution and its dependency order.
-
-REQUIRED OUTPUT
-
-Start directly with one table using exactly these three columns:
-
-| # | Module/Workstream | Core Outcome |
-|---|---|---|
-
-MODULE DERIVATION RULES
-
-- Derive three to six coherent modules/workstreams from the actual use case, key features, workflow steps, personas, integrations, and data sources. Exceed six only when the source explicitly defines more independently reviewable modules.
-- Prefer business-capability names over technology-layer names. Example patterns include `Email and Ticket Management`, `Knowledge Management`, `Agent Assist`, or `Quality Automation`, but use them only when supported by the project.
-- Consolidate closely related features into one module; do not create one module per bullet.
-- Make the first module the enabling foundation when the evidence supports a foundation/dependency relationship.
-- `Core Outcome` must describe the observable result, not an activity list.
-- Do not add a `Depends On` column. Put material sequencing or dependency context in the concise bullets after the table.
-
-AFTER THE TABLE
-
-- Add up to three concise bullets explaining the build/dependency logic.
-- State which workstreams may proceed in parallel and which require an earlier foundation, but label inferred sequencing as proposed.
-- Do not introduce a week-by-week timeline.
-
-CONSISTENCY GATE
-
-The module names and order established here are authoritative for Sections 4 through 11. Do not create a different taxonomy later.
-
 [META_GENERATED]
-## 3. Current State
+## 2. Current State
 
 PURPOSE
 Explain the evidence-backed current operating context and why the POC is needed.
@@ -254,7 +223,7 @@ REQUIRED COVERAGE
    - preserve known volumes, dates, age of platform, or usage patterns exactly.
 
 3. Pain points and constraints:
-   - use five to twelve concise bullets when enough evidence exists;
+   - use concise bullets for each source-supported pain point; do not infer extra shortcomings to make the section look comprehensive;
    - connect each pain point to a workflow consequence such as delay, inconsistency, rework, weak visibility, risk, or cost;
    - distinguish source-confirmed issues from plausible but unconfirmed concerns.
 
@@ -273,24 +242,24 @@ RULES
 - Do not add a new top-level heading.
 
 [META_GENERATED]
-## 4. Scope of Work
+## 3. Scope of Work
 
 PURPOSE
 Produce the implementation-grade heart of the SOW. This section should carry most of the document's functional detail and should be materially more detailed than every other generated section.
 
-MODULE TAXONOMY
+ARCHITECT-LED DECOMPOSITION
 
-- Reuse exactly the module/workstream names and order that can be derived from the same requirements used in Section 2.
-- Create `### 4.1 <Module Name>`, `### 4.2 <Module Name>`, and so on.
-- Do not create a subsection for every capability category. Retain only `### 4.x <Module Name>` headings and express capability groups as bold lead-in bullets.
-- Generate three to six modules according to actual scope and complexity. Do not force benchmark-specific CRM modules onto unrelated use cases, and do not promote supporting layers into separate modules when they can be covered within the module they support.
+- If the shared work breakdown contains more than one deliverable, begin with exactly one compact table using `#`, `Deliverable`, `Included Modules`, and `Core Outcome`. Omit this table when there is only one deliverable.
+- Follow the shared solution-architecture work breakdown. Group the scope first by outcome-oriented deliverable using `### Deliverable 1 - <Name>`, then by cohesive mini-problem using `#### <Module Name>`.
+- Determine the natural number of deliverables and modules from the source and problem. Do not force a standard module count, delivery lifecycle, or benchmark-specific taxonomy.
+- Keep Scope of Work, architecture, timeline and acceptance terminology aligned to the same work breakdown.
 - Preserve source section/requirement identifiers. Otherwise create stable IDs using a short module prefix.
 
 MANDATORY CONTENT FOR EACH MODULE
 
-### Module opening
+### Module reasoning (integrate into prose; do not emit this as a heading)
 
-Write one opening bullet covering:
+Reason through the following internally. Use an opening sentence only when it establishes an essential module boundary that cannot be expressed clearly in the implementation bullets:
 
 - objective and business boundary;
 - actors/personas;
@@ -302,15 +271,22 @@ Write one opening bullet covering:
 
 - Describe the normal flow in logical order from initiation to completion.
 - Cover user/system actions, states, handoffs, decision points, queues, notifications, and exception paths that are supported by the source.
-- Add one `#### 4.x.1 Workflow` subsection only when the module has a meaningful sequential process; otherwise use capability bullets.
-- Use four to eight numbered steps. Each step must represent a complete stage or decision, not a single UI click, field, validation, notification, or logging action.
-- If a flow would require more than eight steps, group it into three to six named phases and describe the lower-level actions as concise bullets or requirements. Do not continue one workflow index across modules.
-- For integration, reporting, data-store, governance, and other non-sequential modules, prefer `#### Capability Behavior`, `#### Processing Rules`, or requirement tables instead of manufacturing a workflow.
+- Describe sequence with bullets when the module has a meaningful workflow; use capability or processing-rule bullets for non-sequential modules.
+- Include every material stage and decision needed to explain the source-backed process without imposing a fixed step count.
 - Do not invent screens, states, approval levels, classifications, or business rules absent from the evidence; mark proposed workflow mechanics clearly.
+
+### Concise gold-standard expression
+
+- Write direct implementation-scope bullets beneath each module heading; do not expose the reasoning framework as document structure.
+- Do not create standalone or inline pseudo-sections named Proposed Approach, Proposed Implementation, Implementation Approach, Key Outputs, Dependencies, Validation Evidence, Roles, Inputs, Requirements, or Outputs.
+- Where closely related actions form one sub-capability, use a single bullet with an inline bold lead-in, for example `- **Monitoring and alert activation:** Configure platform, integration and journey-health monitoring with severity-based notifications to agreed support channels.`
+- Each bullet must add a distinct scope action, rule, integration, boundary, qualification, or acceptance-relevant outcome. Remove repetitions and merge bullets that express the same obligation.
+- Integrate unique dependencies, proposal status, open points, outputs and validation conditions into the relevant scope bullet instead of appending repeated category lists to every module.
+- Avoid generic technology catalogues and inflated qualifiers. Name services only where they define a real Confirmed or explicitly Proposed design decision.
 
 ### Functional requirements
 
-Use one or more compact tables with no more than three columns:
+Use a compact table only when the source itself contains dense comparable requirements that cannot be expressed more clearly as direct bullets:
 
 | ID | Requirement | Detail |
 |---|---|---|
@@ -361,7 +337,7 @@ When AI/ML is in scope, cover only applicable capabilities such as drafting, sum
 
 ### Dependencies and validation
 
-End each module with `#### Dependencies and Validation` containing:
+Conclude the module naturally with concise dependency and validation bullets covering:
 
 - confirmed customer inputs/access/approvals;
 - upstream/downstream module dependencies;
@@ -370,7 +346,9 @@ End each module with `#### Dependencies and Validation` containing:
 
 DOCUMENT-WIDE COMPLETENESS CHECK
 
-Before returning the section, verify that every key feature, workflow step, use case, integration, data source, technical requirement, compliance requirement, security requirement, success metric, and expressly in-scope deliverable from the requirements baseline appears in at least one module. Do not omit difficult or ambiguous requirements; preserve them and flag the ambiguity.
+Before returning the section, verify that every deliverable has one or more meaningful modules and that every key feature, workflow step, use case, integration, data source, technical requirement, compliance requirement, security requirement, success metric, and expressly in-scope deliverable from the requirements baseline appears in at least one module. Do not omit difficult or ambiguous requirements; preserve them and flag the ambiguity.
+
+Do not create numbered or unnumbered headings named Task Statement, Objective, Inputs, Requirements, Outputs, Dependencies, or Validation. Those are architectural reasoning dimensions, not document subsections; weave them into the module introduction and delivery actions.
 
 EXCLUSIONS
 
@@ -379,7 +357,7 @@ EXCLUSIONS
 - Do not create diagram placeholders or ASCII diagrams.
 
 [META_GENERATED]
-## 5. Solution Architecture — AWS
+## 4. Solution Architecture — AWS
 
 PURPOSE
 Provide concise engineering context for the generated logical architecture visual.
@@ -395,13 +373,13 @@ REQUIRED STRUCTURE
 
 ### 5.1 Architecture and Flow
 
-- Start with three to six bullets covering only material workload, data, integration, compliance and POC constraints.
+- Start with concise bullets covering only material workload, data, integration, compliance and POC constraints supported by the evidence.
 - Add one brief boundary statement for the generated visual; do not repeat every node.
-- Use five to eight numbered steps for the primary end-to-end data flow and material fallback.
+- Use the natural number of steps required for the primary end-to-end data flow and material fallback; do not split actions merely to lengthen the sequence.
 
 ### 5.2 Decisions, Controls and Open Boundaries
 
-- Use one compact `Decision/Boundary`, `Rationale`, and `Status` table with three to six items. Status must be `Confirmed`, `Proposed`, or `Open`.
+- Use one compact `Decision/Boundary`, `Rationale`, and `Status` table containing only material decisions. Status must be `Confirmed`, `Proposed`, or `Open`.
 - Follow with concise bullets for decision-driving performance, availability, security and observability, audit, residency, retention and recovery requirements.
 - When a target is absent, state the confirmation needed instead of inventing one.
 
@@ -417,7 +395,7 @@ OUTPUT RULES
 - Do not state a multi-AZ, serverless, container, microservices, or managed-service pattern as decided unless the evidence supports it or it is explicitly labelled Proposed.
 
 [META_TABLE]
-## 6. Open Clarifications
+## 5. Open Clarifications
 
 PURPOSE
 Create the authoritative unresolved-item register for facts that materially affect design, scope, acceptance, cost, compliance, or dependency sequencing.
@@ -449,7 +427,7 @@ PROHIBITIONS
 - Do not include generic boilerplate such as `requirements to be confirmed` without naming the requirement and impact.
 
 [META_GENERATED]
-## 7. Out of Scope
+## 6. Out of Scope
 
 PURPOSE
 Make the POC boundary explicit while preserving the nuanced difference between a limited included baseline and an advanced deferred capability.
@@ -459,7 +437,7 @@ REQUIRED STRUCTURE
 - Write one opening paragraph explaining the basis of exclusion: expressly deferred, outside the stated POC objective, dependent on a later phase, or not supported by the supplied baseline.
 - Group meaningful exclusions as bullets beginning with a bold capability label; do not create exclusion subsections.
 - Use the actual deferred capability names from the source. Each bullet must state what is excluded and, where needed, what limited related capability remains included.
-- Include eight to fifteen concrete exclusions when the evidence supports that breadth; do not inflate a narrow project.
+- Include only concrete exclusions supported by the evidence or by the expressly selected POC/production boundary; do not target a count or inflate a narrow project.
 
 CONDITIONAL COVERAGE
 
@@ -468,13 +446,17 @@ CONDITIONAL COVERAGE
 - Integration: external systems/interfaces not expressly included.
 - AI/ML: fine-tuning, custom-model development, autonomous decisions, or unsupported modalities unless expressly in scope.
 - UI/channel: native mobile, portals, dashboards, voice, social, or other channels only when they are outside the stated baseline.
-- Operational: production rollout, 24x7 support, managed operations, broad training, or extensive documentation unless expressly included.
+- Operational: production rollout, support, managed operations, training, or documentation only when the source expressly excludes or defers it. Never exclude a requested support, training, testing, go-live, or documentation deliverable.
 - Compliance: certification or legal/regulatory approval unless expressly included.
 - Commercial: third-party licenses, cloud consumption, or services not included in the stated commercial boundary, without inventing terms.
 
 RULES
 
 - Do not exclude a capability included in Scope of Work.
+- Before writing each exclusion, compare it against key deliverables, functional requirements, the shared work breakdown, and source-labelled requirements. Any overlap stays in scope.
+- Put conflicting, optional, `To be confirmed`, or source-assumption boundaries in Open Clarifications unless the source explicitly assigns them to a future phase.
+- A POC limitation may state what is not implemented or accepted during the POC, but must not rewrite the customer's broader RFQ as permanently out of scope.
+- Architect-proposed commercial boundaries must be labelled `Proposed - subject to baseline confirmation`; never present them as customer-agreed exclusions.
 - Do not use broad exclusions that nullify the POC objective.
 - Do not add contractual change-control language or legal boilerplate.
 - Do not exclude testing needed to demonstrate the POC's Success Criteria.
@@ -490,7 +472,7 @@ and owners; otherwise use `To be confirmed`. Do not convert planning assumptions
 customer commitments.
 
 [META_GENERATED]
-## 8. Assumptions
+## 7. Assumptions
 
 PURPOSE
 State the planning conditions used to establish the delivery baseline and the consequences when they do not hold, separated from customer dependencies and unresolved questions.
@@ -507,7 +489,7 @@ Do not create assumption subsections. Group applicable items as concise bullets 
 
 CONTENT RULES
 
-- Generate eight to sixteen specific items according to project complexity.
+- Generate only the specific planning assumptions needed by the project; do not target a count.
 - Every item must derive from the source or be explicitly labelled as a planning assumption.
 - Identify the responsible party when useful: `{COMPANY_NAME_SHORT}`, `{AUTHOR_ORG_SHORT}`, a named vendor, or a project role.
 - Include the consequence when an unmet assumption affects schedule, scope, cost, quality, architecture, or acceptance.
@@ -532,7 +514,7 @@ STYLE
 - Do not duplicate Out of Scope verbatim.
 
 [META_GENERATED]
-## 9. Timeline and Deliverables
+## 8. Timeline and Deliverables
 
 PURPOSE
 Provide a practical delivery sequence only when the user has selected timeline content.
@@ -547,14 +529,14 @@ REQUIRED OUTPUT
 - Label architect-derived sequencing as `Proposed - subject to baseline confirmation`.
 
 [META_GENERATED]
-## 10. Success Criteria
+## 9. Success Criteria
 
 PURPOSE
 Define observable, reviewable evidence that the POC has demonstrated the in-scope capabilities without manufacturing unagreed numeric commitments.
 
 REQUIRED OUTPUT
 
-- Begin directly with seven to twelve concise bullets for a multi-module POC; use five to eight for a genuinely simple POC.
+- Begin directly with one concise criterion per material, testable outcome. Do not invent or subdivide criteria to meet a count.
 - Each bullet must contain: the capability/outcome, validation method/evidence, and any confirmed threshold.
 - Use the same module names and requirement terminology as Scope of Work.
 - Collectively cover:
@@ -584,29 +566,37 @@ FORMAT RULES
 - Do not add a separate testing or deliverable-acceptance section.
 
 [META_TABLE]
-## 11. AWS Pricing
+## 10. AWS Pricing
 
 PURPOSE
 Reproduce source-backed cloud pricing with the restrained reference layout, or clearly show what remains pending.
 
 IF A SOURCE-BACKED AWS PRICING CALCULATOR ESTIMATE EXISTS
 
-1. Reproduce the supplied calculator link/label exactly; never fabricate a URL.
-2. Use exactly this table structure:
+1. Put `AWS Pricing Calculator Link:` and the editable estimate link above every table; never fabricate an estimate URL.
+2. Add `### Estimated Volume Metrics` and reproduce the source-backed business sizing basis in this structure:
 
-| Item | MRR in USD |
+| Metric | Estimated Volume |
+|---|---|
+
+Include only relevant sourced metrics such as annual/monthly interactions, turns per interaction, AI/deterministic routing share, handovers, backend calls, users, peak concurrency, and retention.
+
+3. Add `### AWS Cost Summary` using this table structure:
+
+| Item | MRR and ARR in the calculator currency |
 |---|---|
 | AWS Pricing Calculator | <confirmed amount> |
 | AWS MRR | <confirmed amount> |
 | AWS ARR | <confirmed amount> |
 
-3. Preserve the exact MRR. Calculate ARR only when mathematically implied as MRR x 12 and make no other adjustment.
-4. Reproduce the confirmed volume, environment, and calculator assumptions. Clearly distinguish DEV/UAT/Production or other environments only when supplied.
+4. Preserve the exact MRR. Calculate ARR only when mathematically implied as MRR x 12 and make no other adjustment or unsupported currency conversion.
+5. Reproduce the confirmed volume, environment, and calculator assumptions. Clearly distinguish DEV/UAT/Production or other environments only when supplied.
 
 IF NO SOURCE-BACKED ESTIMATE EXISTS
 
 - State: `AWS pricing is pending completion of a source-backed AWS Pricing Calculator estimate.`
 - Do not produce an amount table with guessed values.
+- Put the generic AWS Pricing Calculator link above the source-backed volume metrics and open-input table so the estimate can be completed.
 - Provide a compact table of the material confirmed and open sizing inputs, using no more than three columns:
 
 | Pricing Input | Current Basis | Confirmation Needed |
@@ -631,7 +621,7 @@ otherwise. Do not invent response times, named people, procurement commitments, 
 operating obligations.
 
 [META_TABLE]
-## 12. {AUTHOR_ORG_SHORT} Project Team Effort
+## 11. {AUTHOR_ORG_SHORT} Project Team Effort
 
 PURPOSE
 Show the delivery roles and effort basis using the reference SOW's compact staffing table without turning an inferred team into a commitment.

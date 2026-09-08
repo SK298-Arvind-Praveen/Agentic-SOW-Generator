@@ -31,6 +31,8 @@ interface SOWGeneratorData {
   uploadedFiles?: File[];
   selectedSowSections?: string[];
   businessUnit?: string;
+  pricingRegion?: string;
+  pricingIncludeProposed?: boolean;
 }
 
 interface SOWGeneratorProps {
@@ -90,6 +92,8 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
     projectObjective: '',
     uploadedFiles: [],
     businessUnit: user?.business_unit || '',
+    pricingRegion: '',
+    pricingIncludeProposed: true,
   });
   // Starts empty — the user builds up the SOW section order deliberately
   // rather than starting from an implicit "everything included" state.
@@ -121,7 +125,7 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
       )) {
         updates.companyName = newCompanyName;
         hasUpdates = true;
-        console.log('🔄 Auto-populating company name:', newCompanyName);
+        console.log('Auto-populating company name:', newCompanyName);
       }
       
       // Only auto-populate project name initially, don't override user edits
@@ -133,7 +137,7 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
       )) {
         updates.authorOrganization = newProjectName;
         hasUpdates = true;
-        console.log('🔄 Auto-populating project name:', newProjectName);
+        console.log('Auto-populating project name:', newProjectName);
       }
       
       if (hasUpdates) {
@@ -157,23 +161,23 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
 
   // Auto-populate company name when accountName becomes available
   useEffect(() => {
-    console.log('🚀 SOWGenerator - Props changed:', { accountName, projectName, isProjectBased });
+    console.log('SOWGenerator - Props changed:', { accountName, projectName, isProjectBased });
     
     if (isProjectBased && accountName && (!formData.companyName || formData.companyName === '')) {
-      console.log('🔄 Auto-populating company name with:', accountName);
+      console.log('Auto-populating company name with:', accountName);
       setFormData(prev => ({
         ...prev,
         companyName: accountName
       }));
       
-      toast.success('✅ Company name auto-populated from account', {
+      toast.success('Company name auto-populated from account', {
         position: 'bottom-right',
         autoClose: 2000,
       });
     }
     
     if (isProjectBased && projectName && (!formData.authorOrganization || formData.authorOrganization === '' || formData.authorOrganization === 'ShellKode')) {
-      console.log('🔄 Auto-populating project name with:', projectName);
+      console.log('Auto-populating project name with:', projectName);
       setFormData(prev => ({
         ...prev,
         authorOrganization: projectName
@@ -196,6 +200,7 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
   const [markdownDraft, setMarkdownDraft] = useState('');
   const [editableMarkdownSections, setEditableMarkdownSections] = useState<EditableMarkdownSection[]>([]);
   const [isSavingMarkdown, setIsSavingMarkdown] = useState(false);
+  const [isRecalculatingPricing, setIsRecalculatingPricing] = useState(false);
   const [hasPreviewGenerated, setHasPreviewGenerated] = useState(false);
 
   // Auto-load preview from draft if coming from drafts modal
@@ -222,7 +227,7 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
           );
 
           if (isReady && (statusResponse.content || statusResponse.updated_content)) {
-            console.log('✅ Draft preview loaded and ready:', statusResponse);
+            console.log('Draft preview loaded and ready:', statusResponse);
             setPreviewData(statusResponse);
             setShowPreviewModal(true);
             setHasPreviewGenerated(true);
@@ -269,8 +274,8 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
               }
             }, 8000);
 
-            // Safety: stop polling after 6 minutes
-            setTimeout(() => clearInterval(pollInterval), 360000);
+            // Keep draft recovery bounded while allowing longer source-backed runs.
+            setTimeout(() => clearInterval(pollInterval), 600000);
           }
         } catch (error) {
           console.error('Error loading draft:', error);
@@ -409,7 +414,10 @@ Date                                         Date`
       authorName: '',
       documentDate: new Date().toISOString().split('T')[0],
       projectObjective: '',
-      uploadedFiles: []
+      uploadedFiles: [],
+      businessUnit: user?.business_unit || '',
+      pricingRegion: '',
+      pricingIncludeProposed: true,
     });
     setFileUploadError('');
     setSelectedSowSections([]);
@@ -772,7 +780,7 @@ Date                                         Date`
     setHasPreviewGenerated(false);
 
     // Show non-blocking toast notification instead of full-page loader
-    const toastId = toast.loading('🎨 Starting preview generation...', {
+    const toastId = toast.loading('Starting preview generation...', {
       position: 'bottom-right',
       autoClose: false,
     });
@@ -835,6 +843,10 @@ Date                                         Date`
         isProjectBased ? accountId : undefined,
         selectedSowSections,
         formData.businessUnit,
+        {
+          region: formData.pricingRegion,
+          includeProposed: formData.pricingIncludeProposed,
+        },
       );
 
       console.log('Preview API Response:', response);
@@ -906,7 +918,7 @@ Date                                         Date`
                 full_response: statusResponse
               });
 
-              toast.error(`❌ Preview failed: ${errorMsg}`, {
+              toast.error(`Preview failed: ${errorMsg}`, {
                 position: 'bottom-right',
                 autoClose: 8000,
                 closeButton: true,
@@ -934,7 +946,7 @@ Date                                         Date`
               // Verify we have valid content before showing modal
               if (hasContent) {
                 // Show success toast
-                toast.success('✅ Preview ready! Opening editor...', {
+                toast.success('Preview ready! Opening editor...', {
                   position: 'bottom-right',
                   autoClose: 2000,
                   closeButton: true,
@@ -945,7 +957,7 @@ Date                                         Date`
                 setShowPreviewModal(true);
                 setHasPreviewGenerated(true);
               } else {
-                toast.warning('⚠️ Preview completed but no content available', {
+                toast.warning('Preview completed but no content available', {
                   position: 'bottom-right',
                   autoClose: 5000,
                   closeButton: true,
@@ -956,7 +968,7 @@ Date                                         Date`
           } catch (error) {
             console.error('Status polling error:', error);
             stopPolling();
-            toast.error('❌ Failed to check preview status', {
+            toast.error('Failed to check preview status', {
               position: 'bottom-right',
               autoClose: 5000,
               closeButton: true,
@@ -971,22 +983,23 @@ Date                                         Date`
           pollInterval = setInterval(pollPreviewStatus, 4000);
         }
 
-        // Set a timeout to stop polling after 5 minutes (safety measure)
+        // Keep polling for long source-backed generations for up to ten minutes.
+        // The completed result remains recoverable from the server afterwards.
         if (!pollingFinished) {
           safetyTimeout = setTimeout(() => {
             stopPolling();
-            toast.warning('⏱️ Preview timed out. Please try again.', {
+            toast.warning('Preview is still processing. Reopen this page later to retrieve it.', {
               position: 'bottom-right',
               autoClose: 5000,
               closeButton: true,
             });
-          }, 300000); // 5 minutes timeout
+          }, 600000); // 10-minute safety window
         }
 
       } else {
         console.error('Preview API failed:', response);
         toast.update(toastId, {
-          render: `❌ ${response.error || response.message || 'Failed to generate preview'}`,
+          render: response.error || response.message || 'Failed to generate preview',
           type: 'error',
           isLoading: false,
           autoClose: 5000,
@@ -996,7 +1009,7 @@ Date                                         Date`
     } catch (error) {
       console.error('Preview error:', error);
       toast.update(toastId, {
-        render: `❌ ${error instanceof Error ? error.message : 'Failed to generate preview'}`,
+        render: error instanceof Error ? error.message : 'Failed to generate preview',
         type: 'error',
         isLoading: false,
         autoClose: 5000,
@@ -1036,7 +1049,7 @@ Date                                         Date`
         localStorage.removeItem('loadingFromDraft');
 
         toast.update(toastId, {
-          render: '✅ SOW finalized and saved successfully!',
+          render: 'SOW finalized and saved successfully!',
           type: 'success',
           isLoading: false,
           autoClose: 5000,
@@ -1113,6 +1126,25 @@ Date                                         Date`
       return;
     }
     setShowPreviewModal(true);
+  };
+
+  const handleRecalculatePricing = async () => {
+    const previewId = previewData?.preview_id || localStorage.getItem('lastPreviewId');
+    if (!previewId) return;
+    setIsRecalculatingPricing(true);
+    try {
+      const response = await apiService.recalculateAwsPricing(previewId, {
+        region: formData.pricingRegion,
+        includeProposed: formData.pricingIncludeProposed,
+      });
+      if (!response.success) throw new Error(response.error || 'AWS pricing recalculation failed');
+      setPreviewData(response);
+      toast.success('AWS pricing recalculated');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'AWS pricing recalculation failed');
+    } finally {
+      setIsRecalculatingPricing(false);
+    }
   };
 
   const renderPreviewSection = (section: string, content: unknown) => {
@@ -1401,14 +1433,14 @@ Date                                         Date`
                   <>
                     <div className="spinner-icon"></div>
                     <span className="button-text">
-                      🎨 Crafting Your Document...
+                      Crafting Your Document...
                     </span>
                   </>
                 ) : (
                   <>
                     <Wand2 className="button-icon" />
                     <span className="button-text">
-                      {hasPreviewGenerated ? '🚀 Finalize & Deliver' : '✨ Craft SOW Document'}
+                      {hasPreviewGenerated ? 'Finalize & Deliver' : 'Craft SOW Document'}
                     </span>
                   </>
                 )}
@@ -1546,6 +1578,42 @@ Date                                         Date`
                 selected={selectedSowSections}
                 onChange={setSelectedSowSections}
               />
+
+              {selectedSowSections.includes('aws_pricing') && (
+                <div className="pricing-options-panel" style={{ marginTop: '20px', padding: '18px', border: '1px solid #dbe4f0', borderRadius: '12px', background: '#f8fafc' }}>
+                  <h3 style={{ margin: '0 0 6px', fontSize: '16px' }}>AWS Pricing Calculator</h3>
+                  <p style={{ margin: '0 0 14px', color: '#64748b', fontSize: '13px' }}>
+                    A calculator estimate is created only from usage values found in the uploaded documents or additional details. Missing sizing inputs remain open for confirmation.
+                  </p>
+                  <div className="field-group" style={{ marginBottom: '12px' }}>
+                    <label htmlFor="pricingRegion" className="field-label">AWS Region</label>
+                    <input
+                      id="pricingRegion"
+                      className="field-input"
+                      list="aws-region-options"
+                      placeholder="Extract from source, or enter a region code"
+                      value={formData.pricingRegion || ''}
+                      onChange={(event) => setFormData(previous => ({ ...previous, pricingRegion: event.target.value }))}
+                    />
+                    <datalist id="aws-region-options">
+                      <option value="ap-south-1">Asia Pacific (Mumbai)</option>
+                      <option value="ap-south-2">Asia Pacific (Hyderabad)</option>
+                      <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                      <option value="us-east-1">US East (N. Virginia)</option>
+                      <option value="us-west-2">US West (Oregon)</option>
+                      <option value="eu-west-1">Europe (Ireland)</option>
+                    </datalist>
+                  </div>
+                  <label style={{ display: 'flex', gap: '9px', alignItems: 'flex-start', marginBottom: '10px', fontSize: '13px' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.pricingIncludeProposed ?? true}
+                      onChange={(event) => setFormData(previous => ({ ...previous, pricingIncludeProposed: event.target.checked }))}
+                    />
+                    Price architect-recommended AWS services as well as services explicitly named in the source, but only when the source provides their usage sizing
+                  </label>
+                </div>
+              )}
               
               {/* Supporting documents are the primary requirements source. */}
               <div className="field-group full-width" style={{ marginTop: '20px' }}>
@@ -1681,14 +1749,14 @@ Date                                         Date`
                   <>
                     <div className="spinner-icon"></div>
                     <span className="button-text">
-                      🎨 Crafting Your Document...
+                      Crafting Your Document...
                     </span>
                   </>
                 ) : (
                   <>
                     <Wand2 className="button-icon" />
                     <span className="button-text">
-                      {hasPreviewGenerated ? '🚀 Finalize & Deliver' : '✨ Craft SOW Document'}
+                      {hasPreviewGenerated ? 'Finalize & Deliver' : 'Craft SOW Document'}
                     </span>
                   </>
                 )}
@@ -1871,6 +1939,36 @@ Date                                         Date`
                     {previewData.metadata?.author_org_description || previewData.author_org_description}
                   </p>
                 </>
+              )}
+
+              {previewData.pricing_result && previewData.pricing_result.status !== 'not_selected' && (
+                <div className="preview-status-card" style={{ marginTop: '18px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'center' }}>
+                    <div>
+                      <strong>AWS Pricing Calculator</strong>
+                      <div style={{ marginTop: '4px', color: '#64748b', fontSize: '13px' }}>
+                        Status: {String(previewData.pricing_result.status).replace(/_/g, ' ')}
+                        {previewData.pricing_result.region ? ` • ${previewData.pricing_result.region}` : ''}
+                        {previewData.pricing_result.monthly_cost != null ? ` • USD ${Number(previewData.pricing_result.monthly_cost).toFixed(2)}/month` : ''}
+                      </div>
+                      {previewData.pricing_result.estimate_url && (
+                        <a href={previewData.pricing_result.estimate_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: '6px' }}>
+                          Open editable calculator estimate
+                        </a>
+                      )}
+                      {(previewData.pricing_result.missing_inputs?.length > 0 || previewData.pricing_result.stale) && (
+                        <div style={{ marginTop: '6px', color: '#b45309', fontSize: '13px' }}>
+                          {previewData.pricing_result.stale
+                            ? 'Pricing-relevant content changed; recalculate before finalising.'
+                            : `${previewData.pricing_result.missing_inputs.length} pricing input(s) require confirmation.`}
+                        </div>
+                      )}
+                    </div>
+                    <button className="modal-btn modal-btn-secondary" onClick={handleRecalculatePricing} disabled={isRecalculatingPricing}>
+                      {isRecalculatingPricing ? 'Recalculating...' : 'Recalculate'}
+                    </button>
+                  </div>
+                </div>
               )}
 
               {/* Display the latest preview content once, with Markdown formatting. */}

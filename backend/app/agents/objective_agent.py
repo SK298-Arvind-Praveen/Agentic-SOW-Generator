@@ -7,6 +7,7 @@ import os
 import re
 import boto3
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from typing import Dict, Any
 from app.core.bedrock_llm import BedrockLLM
 from app.core.document_context import chunk_document
@@ -91,7 +92,14 @@ class ObjectiveAgent:
         worker_count = min(4, len(chunks))
         with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="requirements") as executor:
             futures = {
-                executor.submit(self._analyze_chunk, objective, chunk, index, len(chunks)): index
+                executor.submit(
+                    copy_context().run,
+                    self._analyze_chunk,
+                    objective,
+                    chunk,
+                    index,
+                    len(chunks),
+                ): index
                 for index, chunk in enumerate(chunks, 1)
             }
             ordered: Dict[int, Dict[str, Any]] = {}
@@ -172,25 +180,147 @@ class ObjectiveAgent:
 
     @staticmethod
     def _parse_json(content: str) -> Dict[str, Any]:
-        content = (content or "").strip()
-        for prefix in ("```json", "```"):
-            if content.startswith(prefix):
-                content = content[len(prefix):]
-        if content.endswith("```"):
-            content = content[:-3]
-        content = content.strip()
-        try:
-            value = json.loads(content)
-            return value if isinstance(value, dict) else {}
-        except json.JSONDecodeError:
-            match = re.search(r"\{.*\}", content, re.DOTALL)
-            if not match:
-                return {}
+        raw = (content or "").strip()
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.I)
+        start = raw.find("{")
+        if start < 0:
+            return {}
+
+        candidates = [raw[start:]]
+        balanced = ObjectiveAgent._balanced_json_object(raw, start)
+        if balanced:
+            candidates.insert(0, balanced)
+        repaired = ObjectiveAgent._close_truncated_json(raw[start:])
+        if repaired:
+            candidates.append(repaired)
+        complete_members = ObjectiveAgent._truncate_to_complete_members(raw[start:])
+        if complete_members:
+            candidates.append(complete_members)
+
+        last_error = None
+        seen = set()
+        for candidate in candidates:
+            candidate = re.sub(r",\s*([}\]])", r"\1", candidate.strip())
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
             try:
-                value = json.loads(match.group())
-                return value if isinstance(value, dict) else {}
-            except json.JSONDecodeError:
-                return {}
+                value = json.loads(candidate, strict=False)
+                if isinstance(value, dict):
+                    if candidate != raw[start:]:
+                        print("[OBJECTIVE][JSON] Recovered a wrapped or truncated JSON response", flush=True)
+                    return value
+            except json.JSONDecodeError as exc:
+                last_error = exc
+        if last_error:
+            print(
+                f"[OBJECTIVE][JSON] Could not recover response: {last_error.msg} "
+                f"at character {last_error.pos}/{len(raw)}",
+                flush=True,
+            )
+        return {}
+
+    @staticmethod
+    def _balanced_json_object(text: str, start: int) -> str:
+        stack = []
+        in_string = False
+        escaped = False
+        for index in range(start, len(text)):
+            char = text[index]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char in "[{":
+                stack.append(char)
+            elif char in "]}":
+                if not stack:
+                    return ""
+                expected = "[" if char == "]" else "{"
+                if stack[-1] != expected:
+                    return ""
+                stack.pop()
+                if not stack:
+                    return text[start:index + 1]
+        return ""
+
+    @staticmethod
+    def _close_truncated_json(text: str) -> str:
+        """Close an otherwise valid top-level response cut off by token output."""
+        start = text.find("{")
+        if start < 0:
+            return ""
+        value = text[start:].strip()
+        stack = []
+        in_string = False
+        escaped = False
+        for char in value:
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char in "[{":
+                stack.append(char)
+            elif char in "]}" and stack:
+                expected = "[" if char == "]" else "{"
+                if stack[-1] != expected:
+                    return ""
+                stack.pop()
+        if not stack:
+            return value
+        if in_string:
+            if escaped:
+                value += "\\"
+            value += '"'
+        value = re.sub(r",\s*$", "", value)
+        if re.search(r":\s*$", value):
+            value += "null"
+        value += "".join("]" if char == "[" else "}" for char in reversed(stack))
+        return value
+
+    @staticmethod
+    def _truncate_to_complete_members(text: str) -> str:
+        """Salvage completed top-level fields when truncation cuts a key/value."""
+        start = text.find("{")
+        if start < 0:
+            return ""
+        stack = []
+        in_string = False
+        escaped = False
+        last_top_level_comma = None
+        for index in range(start, len(text)):
+            char = text[index]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char in "[{":
+                stack.append(char)
+            elif char in "]}" and stack:
+                stack.pop()
+            elif char == "," and stack == ["{"]:
+                last_top_level_comma = index
+        if last_top_level_comma is None:
+            return ""
+        return text[start:last_top_level_comma].rstrip() + "}"
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -243,6 +373,12 @@ volume, user count, or accuracy threshold into a confirmed requirement. Use null
 unknown facts. Recommended architecture belongs in proposed_aws_services or
 planning_assumptions. Do not invent facts about the customer.
 
+Evidence-status rule: an uploaded document can contain questions, vendor responses, assumptions
+and proposals as well as facts. Preserve explicit labels such as "Assumption", "Derived",
+"Proposed", "To be confirmed", "Not stated", "Needs clarification", "optional" and "future".
+Do not promote those statements to confirmed requirements. If two uploaded sources disagree,
+record the conflict in open_clarifications and retain both qualified positions.
+
 Return one valid JSON object using this contract:
 {{
   "project_overview": "2-4 factual sentences grounded in the source",
@@ -291,6 +427,10 @@ Rules:
 - When supporting documents are supplied, their explicit facts, scope and deliverables are
   authoritative. User guidance controls prioritisation, inclusion, deferral and presentation;
   it does not silently replace the evidence baseline.
+- Do not infer a current-state shortcoming solely from a requested target capability. A requested
+  feature proves desired scope, not that the existing platform lacks it.
+- Preserve each source-required contractual output in key_deliverables, but do not imply that every
+  output must become a separate top-level architectural delivery package.
 - Extract all useful detail from short input, but express unknowns as clarifications rather than fake precision.
 - Respond with JSON only, beginning with {{ and ending with }}.
 """

@@ -78,7 +78,7 @@ def generate_cover(data):
     draw.text(from_pdf(50, 95), "Prepared by", fill=(255, 255, 255), font=small_font)
     draw.text(from_pdf(50, 70), data["author_name"], fill=(255, 255, 255), font=small_font)
 
-    output = "cover_final.png"
+    output = "coverpage.png"
     img.save(output)
 
     print("✅ Cover generated correctly")

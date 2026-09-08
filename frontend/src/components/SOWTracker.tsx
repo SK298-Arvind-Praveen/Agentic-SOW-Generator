@@ -15,6 +15,7 @@ import {
 import { toast } from 'react-toastify';
 import apiService from '../services/apiService';
 import { downloadWithNativeSaveAs } from '../utils/downloadFile';
+import { formatTokenCount } from '../utils/tokenUsage';
 import './SOWTracker.css';
 import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
 
@@ -30,6 +31,7 @@ interface SOWRecord {
   drive_link: string;
   created_at?: string;
   business_unit?: string;
+  total_tokens?: number | string;
 }
 
 interface Statistics {
@@ -93,6 +95,7 @@ const SOWTracker: React.FC = () => {
             drive_link: doc.drive_link || '',
             created_at: doc.timestamp || doc.created_at,
             business_unit: doc.business_unit || taskMetadata.business_unit,
+            total_tokens: doc.total_tokens ?? taskMetadata.total_tokens,
           };
         });
 
@@ -423,6 +426,7 @@ const SOWTracker: React.FC = () => {
                     {renderSortIcon('date')}
                   </span>
                 </th>
+                <th>Total Tokens</th>
                 <th className="actions-column">Actions</th>
               </tr>
             </thead>
@@ -446,6 +450,7 @@ const SOWTracker: React.FC = () => {
                     </td>
                     {isAdmin && <td>{record.business_unit || 'Unassigned'}</td>}
                     <td>{new Date(record.document_date).toLocaleDateString()}</td>
+                    <td>{formatTokenCount(record.total_tokens)}</td>
                     <td className="actions-column">
                       {(record.s3_url || record.drive_link) && (
                         <button
@@ -461,7 +466,7 @@ const SOWTracker: React.FC = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={isAdmin ? 7 : 6} className="no-records">
+                  <td colSpan={isAdmin ? 8 : 7} className="no-records">
                     No SOW records found
                   </td>
                 </tr>

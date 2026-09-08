@@ -111,6 +111,36 @@ class ArchitectureDiagramTests(unittest.TestCase):
             ["architecture_overview", "integration_context", "data_flow"],
         )
         self.assertTrue(all(asset["caption"] == asset["title"] for asset in assets))
+        self.assertTrue(all(asset["description"] for asset in assets))
+
+    def test_flow_semantics_render_with_horizontal_ranks_and_standard_shapes(self):
+        raw = {
+            "title": "Approval Flow",
+            "description": "This diagram depicts request review and approval outcomes.",
+            "nodes": [
+                {"id": "start", "label": "Request received", "kind": "terminator", "layer": 0},
+                {"id": "capture", "label": "Capture request", "kind": "input_output", "layer": 0},
+                {"id": "review", "label": "Review request", "kind": "process", "layer": 0},
+                {"id": "approved", "label": "Approved?", "kind": "decision", "layer": 0},
+                {"id": "end", "label": "Complete", "kind": "terminator", "layer": 0},
+            ],
+            "edges": [
+                {"source": "start", "target": "capture"},
+                {"source": "capture", "target": "review"},
+                {"source": "review", "target": "approved"},
+                {"source": "approved", "target": "end", "label": "Yes"},
+            ],
+        }
+        service = DiagramService(_Config(), bedrock=_Bedrock("{}"))
+        enriched = service._enrich_diagram(raw, "data_flow", {})
+        spec = validate_spec(enriched, "Approval Flow")
+        positions, width, height = _geometry(spec)
+        xml = drawio_xml(spec)
+        self.assertGreater(len({position[0] for position in positions.values()}), 1)
+        self.assertGreater(width, height)
+        self.assertIn("shape=rhombus", xml)
+        self.assertIn("shape=parallelogram", xml)
+        self.assertIn("arcSize=50", xml)
 
     def test_layout_caps_aspect_ratio_and_number_of_columns_for_readability(self):
         raw = {
@@ -128,6 +158,58 @@ class ArchitectureDiagramTests(unittest.TestCase):
         positions, width, height = _geometry(spec)
         self.assertLessEqual(width / height, 2.0)
         self.assertLessEqual(len({position[0] for position in positions.values()}), 4)
+
+    def test_long_linear_flow_wraps_as_a_compact_serpentine(self):
+        raw = {
+            "title": "Case Flow",
+            "nodes": [
+                {"id": f"step_{index}", "label": f"Step {index}", "kind": "process", "layer": index}
+                for index in range(9)
+            ],
+            "edges": [
+                {"source": f"step_{index}", "target": f"step_{index + 1}"}
+                for index in range(8)
+            ],
+        }
+        spec = validate_spec(raw, "Case Flow")
+        positions, width, height = _geometry(spec)
+        self.assertGreater(width, height)
+        self.assertEqual(positions["step_3"][0], positions["step_4"][0])
+        self.assertGreater(positions["step_4"][1], positions["step_3"][1])
+        self.assertGreater(positions["step_4"][0], positions["step_5"][0])
+
+    def test_branch_heavy_flow_uses_bounded_landscape_grid(self):
+        nodes = [{"id": "start", "label": "Start", "kind": "terminator", "layer": 0}]
+        nodes.extend(
+            {"id": f"task_{index}", "label": f"Task {index}", "kind": "process", "layer": 1}
+            for index in range(8)
+        )
+        edges = [{"source": "start", "target": f"task_{index}"} for index in range(8)]
+        spec = validate_spec({"title": "Branched Flow", "nodes": nodes, "edges": edges}, "Branched Flow")
+        positions, width, height = _geometry(spec)
+        self.assertGreater(width, height)
+        self.assertLessEqual(len({position[1] for position in positions.values()}), 3)
+
+    def test_integration_peer_chain_is_rewritten_as_hub_and_spoke(self):
+        nodes = [
+            {"id": "platform", "label": "Customer Support Platform", "kind": "application", "layer": 1},
+            {"id": "hybris", "label": "SAP Hybris", "kind": "external", "layer": 0},
+            {"id": "genesys", "label": "Genesys", "kind": "external", "layer": 2},
+            {"id": "redshift", "label": "Redshift", "kind": "external", "layer": 3},
+            {"id": "whatsapp", "label": "WhatsApp", "kind": "channel", "layer": 4},
+        ]
+        edges = [
+            {"source": "hybris", "target": "genesys"},
+            {"source": "genesys", "target": "platform"},
+            {"source": "platform", "target": "redshift"},
+            {"source": "redshift", "target": "whatsapp"},
+        ]
+        rewritten_nodes, rewritten_edges = DiagramService._normalise_integration_topology(nodes, edges)
+        self.assertEqual(len(rewritten_edges), 4)
+        self.assertTrue(all("platform" in {edge["source"], edge["target"]} for edge in rewritten_edges))
+        spec = validate_spec({"title": "Integrations", "nodes": rewritten_nodes, "edges": rewritten_edges}, "Integrations")
+        positions, width, height = _geometry(spec)
+        self.assertGreater(width, height)
 
     def test_invalid_agent_output_uses_source_grounded_fallback(self):
         service = DiagramService(_Config(), bedrock=_Bedrock("not json"))
@@ -192,6 +274,32 @@ class ArchitectureDiagramTests(unittest.TestCase):
             ))
             relationship_targets = [rel.target_ref for rel in builder.doc.part.rels.values()]
             self.assertIn(asset["edit_url"], relationship_targets)
+            self.assertTrue(any(
+                "This diagram depicts" in paragraph.text
+                for paragraph in builder.doc.paragraphs
+            ))
+
+    def test_non_overview_diagrams_are_assigned_to_matching_sow_sections(self):
+        builder = DocumentBuilder(_Config())
+        builder.toc_entries = [
+            "1. Solution Architecture",
+            "2. Current Workflow and Pain Points",
+            "3. Integrations and Dependencies",
+        ]
+        assets = [
+            {"diagram_type": "architecture_overview", "title": "Solution Architecture"},
+            {"diagram_type": "data_flow", "title": "Request Workflow", "placement_heading": "Current Workflow"},
+            {"diagram_type": "integration_context", "title": "System Integrations", "placement_heading": "Integrations"},
+        ]
+        sections = {
+            "solution_architecture": "AWS design.",
+            "current_workflow_and_pain_points": "The current request workflow.",
+            "integrations_and_dependencies": "External system integrations.",
+        }
+        assigned = builder._assign_diagram_sections(assets, sections, {})
+        self.assertEqual(assigned[id(assets[0])], builder.toc_entries[0])
+        self.assertEqual(assigned[id(assets[1])], builder.toc_entries[1])
+        self.assertEqual(assigned[id(assets[2])], builder.toc_entries[2])
 
     def test_preview_endpoint_persists_an_edited_diagram(self):
         from app.core import server

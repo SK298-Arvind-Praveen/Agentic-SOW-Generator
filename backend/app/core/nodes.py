@@ -7,6 +7,8 @@ import os
 import re
 import sys
 import threading
+import time
+from contextvars import ContextVar, Token
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -21,7 +23,9 @@ from app.agents.company_research_agent import CompanyResearchAgent
 from app.agents.objective_agent import ObjectiveAgent
 from app.agents.rule_engine_agent import RuleEngineAgent
 from app.agents.poc_writer_agent import POCWriterAgent
+from app.agents.scope_architect_agent import ScopeArchitectAgent
 from app.diagram import DiagramService
+from app.pricing import AwsPricingService, render_aws_pricing_section
 from app.diagram.service import (
     ASSET_KEY as ARCHITECTURE_ASSETS_KEY,
     LEGACY_ASSET_KEY as ARCHITECTURE_ASSET_KEY,
@@ -33,20 +37,56 @@ from app.core.sow_quality import (
     merge_requirement_extractions,
     normalize_requirements,
 )
+from app.core.document_context import select_section_evidence
 import boto3
 
 # Initialize config once
 config = Config()
 
-# Global token tracking
-_token_usage = {
-    'total_input_tokens': 0,
-    'total_output_tokens': 0,
-    'total_tokens': 0,
-    'api_calls': 0,
-    'models': {},
-}
+# Per-generation token tracking. ContextVar identifies the active SOW while
+# the dictionary keeps totals available across preview/edit HTTP requests.
+_DEFAULT_TOKEN_RUN = "__default__"
+_token_usage_run: ContextVar[str] = ContextVar("token_usage_run", default=_DEFAULT_TOKEN_RUN)
+_token_usage_by_run = {}
 _token_usage_lock = threading.Lock()
+
+
+def _empty_token_usage():
+    return {
+        'total_input_tokens': 0,
+        'total_output_tokens': 0,
+        'total_tokens': 0,
+        'api_calls': 0,
+        'models': {},
+    }
+
+
+def start_token_usage(run_id: str) -> Token:
+    """Start an isolated token bucket and bind it to the current execution context."""
+    key = str(run_id or _DEFAULT_TOKEN_RUN)
+    token = _token_usage_run.set(key)
+    with _token_usage_lock:
+        _token_usage_by_run[key] = _empty_token_usage()
+    return token
+
+
+def bind_token_usage(run_id: str) -> Token:
+    """Bind an existing generation bucket for an edit or recalculation request."""
+    key = str(run_id or _DEFAULT_TOKEN_RUN)
+    token = _token_usage_run.set(key)
+    with _token_usage_lock:
+        _token_usage_by_run.setdefault(key, _empty_token_usage())
+    return token
+
+
+def unbind_token_usage(token: Token) -> None:
+    _token_usage_run.reset(token)
+
+
+def clear_token_usage(run_id: str) -> None:
+    """Release a completed or failed generation bucket."""
+    with _token_usage_lock:
+        _token_usage_by_run.pop(str(run_id or _DEFAULT_TOKEN_RUN), None)
 
 
 def _report_progress(state: AgentState, progress: int, step: str) -> None:
@@ -64,42 +104,37 @@ def _track_tokens(
     model_id: str = None,
 ):
     """Track token usage from Bedrock API response"""
-    global _token_usage
-    
     usage = response_body.get('usage', {})
     input_tokens = usage.get('input_tokens', 0)
     output_tokens = usage.get('output_tokens', 0)
-    
+    run_id = _token_usage_run.get()
     with _token_usage_lock:
-        _token_usage['total_input_tokens'] += input_tokens
-        _token_usage['total_output_tokens'] += output_tokens
-        _token_usage['total_tokens'] += (input_tokens + output_tokens)
-        _token_usage['api_calls'] += 1
+        usage_total = _token_usage_by_run.setdefault(run_id, _empty_token_usage())
+        usage_total['total_input_tokens'] += input_tokens
+        usage_total['total_output_tokens'] += output_tokens
+        usage_total['total_tokens'] += (input_tokens + output_tokens)
+        usage_total['api_calls'] += 1
         if model_id:
-            _token_usage['models'][model_id] = _token_usage['models'].get(model_id, 0) + 1
+            usage_total['models'][model_id] = usage_total['models'].get(model_id, 0) + 1
     
     print(f"   🔢 {call_name} - Input: {input_tokens:,} | Output: {output_tokens:,} | Total: {input_tokens + output_tokens:,}")
 
-def get_token_usage():
+def get_token_usage(run_id: str = None):
     """Get current token usage statistics"""
+    key = str(run_id or _token_usage_run.get())
     with _token_usage_lock:
-        return _token_usage.copy()
+        usage = _token_usage_by_run.get(key) or _empty_token_usage()
+        return {**usage, 'models': dict(usage.get('models') or {})}
 
-def reset_token_usage():
+def reset_token_usage(run_id: str = None):
     """Reset token usage counters"""
-    global _token_usage
+    key = str(run_id or _token_usage_run.get())
     with _token_usage_lock:
-        _token_usage = {
-            'total_input_tokens': 0,
-            'total_output_tokens': 0,
-            'total_tokens': 0,
-            'api_calls': 0,
-            'models': {},
-        }
+        _token_usage_by_run[key] = _empty_token_usage()
 
-def print_token_summary():
+def print_token_summary(run_id: str = None, usage: dict = None):
     """Print final token usage summary"""
-    usage = get_token_usage()
+    usage = usage or get_token_usage(run_id)
     print("\n" + "="*70)
     print("📊 BEDROCK API TOKEN USAGE SUMMARY")
     print("="*70)
@@ -1287,9 +1322,105 @@ def rule_validation_node(state: AgentState) -> AgentState:
     return {"validated_requirements": validated_requirements, "current_step": "validate"}
 
 
+def aws_pricing_node(state: AgentState) -> AgentState:
+    """Build a source-grounded AWS Calculator estimate when pricing is selected."""
+    selected = state.get("selected_sow_sections")
+    if selected is not None and "aws_pricing" not in selected:
+        return {"pricing_result": {"status": "not_selected"}, "current_step": "pricing"}
+    _report_progress(state, 65, "Preparing source-grounded AWS pricing inputs")
+    print("\n--- Step: Building AWS Pricing Estimate ---", flush=True)
+    result = AwsPricingService(config).generate(
+        state.get("validated_requirements") or {},
+        state.get("metadata") or {},
+        state.get("supporting_context") or "",
+    )
+    status = result.get("status", "failed")
+    if status == "priced":
+        message = "AWS estimate created and monthly cost verified"
+    elif status == "hybrid_priced":
+        message = "AWS partial calculator estimate supplemented with workload planning range"
+    elif status == "partial_priced":
+        message = "AWS calculator subtotal created; remaining service sizing requires confirmation"
+    elif status == "fallback_priced":
+        message = "AWS volumetric planning estimate created; calculator confirmation remains open"
+    elif status == "url_only":
+        message = "AWS estimate created; calculator link is ready"
+    elif status == "needs_input":
+        message = "AWS pricing inputs require confirmation"
+    else:
+        message = "AWS pricing calculator unavailable; recorded as pending"
+    calculator_link = result.get("estimate_url") or "https://calculator.aws/"
+    print(f"[PRICING] Calculator link: {calculator_link}", flush=True)
+    print(f"[PRICING] status={status}; services={len(result.get('services') or [])}; missing={len(result.get('missing_inputs') or [])}", flush=True)
+    _report_progress(state, 70, message)
+    return {"pricing_result": result, "current_step": "pricing"}
+
+
+def scope_architecture_node(state: AgentState) -> AgentState:
+    """Classify source capabilities into audited deliverable and module boundaries."""
+    scope_started_at = time.perf_counter()
+    selected = state.get("selected_sow_sections")
+    if selected is not None and "scope_of_work" not in selected:
+        return {
+            "scope_architecture_plan": {},
+            "scope_architecture_issues": [],
+            "scope_generation_seconds": time.perf_counter() - scope_started_at,
+            "current_step": "scope_architecture",
+        }
+    _report_progress(state, 59, "Classifying deliverables and modules")
+    print("\n--- Step: Architecting Scope Boundaries ---", flush=True)
+    requirements = normalize_requirements(
+        state.get("validated_requirements") or {},
+        "" if (state.get("supporting_context") or "").strip()
+        else (state.get("additional_details") or state.get("objective") or ""),
+        state.get("mode", "POC"),
+    )
+    analyzed = state.get("analyzed_requirements") or {}
+    for field in ("duration_weeks", "timeline", "aws_services", "confirmed_aws_services",
+                  "proposed_aws_services", "document_volume", "ui_required"):
+        if field in analyzed:
+            requirements[field] = analyzed[field]
+    supporting = state.get("supporting_context") or requirements.get("_original_objective") or ""
+    evidence = select_section_evidence(
+        supporting,
+        "scope deliverables modules workflows inputs outputs integrations acceptance boundaries "
+        "phase release wave day 1 later future deferred optional to be confirmed channels "
+        "go-live stabilisation sequence timeline duration sign-off commercial",
+        requirements=requirements,
+        max_chars=64000,
+    )
+    plan = ScopeArchitectAgent(
+        config,
+        template_type=state.get("mode", "POC"),
+    ).architect(
+        requirements,
+        state.get("metadata") or {},
+        evidence,
+        refinement_constraints=state.get("refinement_plan") or {},
+    )
+    issues = []
+    if not plan:
+        issues.append("The dedicated scope architect could not approve a complete deliverable/module classification.")
+    elif plan.get("classification_warning"):
+        issues.append(str(plan["classification_warning"]))
+    if not plan:
+        scope_status = "Scope classification requires review"
+    elif plan.get("classification_warning"):
+        scope_status = "Scope classification completed with local fallback"
+    else:
+        scope_status = "Scope architecture approved"
+    _report_progress(state, 63, scope_status)
+    return {
+        "scope_architecture_plan": plan,
+        "scope_architecture_issues": issues,
+        "scope_generation_seconds": time.perf_counter() - scope_started_at,
+        "current_step": "scope_architecture",
+    }
+
+
 def content_generation_node(state: AgentState) -> AgentState:
     """Generate SOW content"""
-    _report_progress(state, 60, "Preparing document sections")
+    _report_progress(state, 72, "Preparing document sections")
     print(f"\n--- Step: Generating Content ---")
     validated_requirements = state['validated_requirements']
     analyzed_requirements = state.get('analyzed_requirements', {})
@@ -1335,6 +1466,9 @@ def content_generation_node(state: AgentState) -> AgentState:
     if 'extracted_data_summary' in analyzed_requirements:
         final_requirements['extracted_data_summary'] = analyzed_requirements['extracted_data_summary']
         print(f"   ✅ Preserved extracted data summary")
+
+    pricing_result = state.get("pricing_result") or {}
+    final_requirements["aws_pricing_result"] = pricing_result
     
     if isinstance(final_requirements, dict):
         features_count = len(final_requirements.get('key_features', []))
@@ -1357,16 +1491,21 @@ def content_generation_node(state: AgentState) -> AgentState:
         rag_context=rag_context,
         supporting_context=supporting_context,
         selected_sow_sections=state.get('selected_sow_sections'),
+        scope_architecture_plan=state.get('scope_architecture_plan'),
+        refinement_plan=state.get('refinement_plan'),
         progress_callback=(
             lambda completed, total, section_name: _report_progress(
                 state,
-                60 + round((completed / max(total, 1)) * 30),
+                72 + round((completed / max(total, 1)) * 20),
                 f"Generated section {completed} of {total}: {section_name}",
             )
         ),
     )
 
     selected_sections = state.get('selected_sow_sections')
+    if selected_sections is None or "aws_pricing" in selected_sections:
+        poc_content["aws_pricing"] = render_aws_pricing_section(pricing_result)
+
     architecture_selected = selected_sections is None or 'architecture_diagram' in selected_sections
     if architecture_selected:
         architecture_narrative = (

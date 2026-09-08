@@ -9,7 +9,16 @@ paragraph per section, then concise bullets for non-comparable items or compact 
 comparable records. Put each bullet on its own Markdown line and keep it to one main idea.
 Default to no subsections. Use at most two direct subsections outside Scope of Work and no nested
 subsections. Treat coverage labels in local instructions as bold bullet labels rather than mandatory
-headings. Scope of Work may use one heading per genuine workstream; use bullets beneath it.
+headings. Scope of Work may use one heading per deliverable and one nested heading per cohesive module.
+
+Treat only unqualified source assertions as confirmed. Preserve source labels such as Assumption,
+Derived, Proposed, To be confirmed, Not stated, Needs clarification, optional, and future. A conflict
+between uploaded sources is an Open Clarification, not permission to select a preferred value. Do not
+diagnose a current-state gap solely because the target solution requests a capability.
+
+A source table row named a deliverable is a contractual output to preserve, not automatically a
+separate architectural delivery package. Separate top-level deliverables require independent phase,
+deployment, hand-off, or acceptance boundaries; otherwise cluster the outputs as cohesive modules.
 <!-- END_GLOBAL_TEMPLATE_CONTRACT -->
 
 [META_STATIC]
@@ -29,28 +38,27 @@ Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
 3. About {COMPANY_NAME}
 4. Objective
 5. Current State and Business Context
-6. Deliverables
-7. Scope of Work
-8. Technical Specifications and System Design
-9. Architecture and Integrations
-10. Data Migration and Readiness
-11. Security, Privacy and Compliance
-12. Customer Dependencies
-13. Assumptions
-14. Open Clarifications
-15. Out of Scope
-16. Timelines and Deliverables
-17. Testing and Acceptance Plan
-18. Deployment, Cutover and Rollback
-19. AWS Pricing
-20. Customer Responsibilities
-21. Duration of Work
-22. Shellkode Implementation Cost
-23. Success Criteria
-24. Risks and Mitigations
-25. Day-2 Operations and Support
-26. Deliverable Acceptance
-27. Change Management
+6. Scope of Work
+7. Technical Specifications and System Design
+8. Architecture and Integrations
+9. Data Migration and Readiness
+10. Security, Privacy and Compliance
+11. Customer Dependencies
+12. Assumptions
+13. Open Clarifications
+14. Out of Scope
+15. Timelines and Deliverables
+16. Testing and Acceptance Plan
+17. Deployment, Cutover and Rollback
+18. AWS Pricing
+19. Customer Responsibilities
+20. Duration of Work
+21. Shellkode Implementation Cost
+22. Success Criteria
+23. Risks and Mitigations
+24. Day-2 Operations and Support
+25. Deliverable Acceptance
+26. Change Management
 28. Project Plan Termination
 29. Contacts and Reporting
 30. Marketing Authorization
@@ -88,7 +96,8 @@ to the confirmed project context and avoid unsupported corporate claims.
 
 Write a decision-oriented production summary covering business problem, target operating outcome,
 solution boundary, production qualities, migration approach, principal dependencies, measurable
-acceptance basis, and intended handover. Use one brief paragraph followed by 5-8 concise bullets;
+acceptance basis, and intended handover. Use one brief paragraph followed by only the concise bullets
+needed to cover evidenced outcomes; do not add filler to meet a count;
 add a key-facts table only when confirmed comparable values exist. Do not
 claim projected benefits have already been achieved.
 
@@ -100,23 +109,9 @@ existing controls, and operational impact. Separate facts, inferences, and gaps.
 State Workflow, Pain Points and Root Causes, Business/Technical Drivers, and Evidence Gaps.
 
 [META_GENERATED]
-## Deliverables
-
-Create a one-page orientation view: objectives; in-scope capabilities; user groups; data sources;
-integrations; target environments; proposed AWS service families; explicit exclusions; production
-quality attributes; planning duration; deployment approach; and acceptance authority. Use a compact
-table headed `#`, `Module/Workstream`, and `Core Outcome`. Do not add a `Depends On` column.
-
-[META_GENERATED]
 ## Scope of Work
 
-Build a complete, testable work breakdown:
-### Mobilisation, Discovery and Baseline
-Use bullets for source/status, decisions, dependencies and outputs.
-### Solution Engineering and Integration
-Combine application/workflow, data/AI, integration, UI when required, platform/IaC and security controls as concise capability bullets. Use IDs FR-01 onward in a compact Requirement, Source/Status, Delivery Response, Output and Validation table.
-### Operational Readiness and Handover
-Use bullets for observability, documentation, training and knowledge transfer. Include DEL-01 onward in a compact Description, Format, Owner, Acceptance Evidence and Timing table.
+Use the shared architect-generated work breakdown. When it contains more than one deliverable, begin with one compact table using `#`, `Deliverable`, `Included Modules`, and `Core Outcome`; omit this table for a single deliverable. Group the detailed scope by `### Deliverable 1 - <Name>` and place its cohesive mini-problems under `#### <Module Name>`. A top-level deliverable requires an independent phase, deployment, hand-off, or acceptance boundary; contractual capability rows that are built and accepted together remain modules or outputs. Determine the number and boundaries from the source without a fixed limit or generic lifecycle taxonomy. Reason internally about the problem, objective, actors, inputs, requirements, delivery approach, outputs, dependencies and validation, but express the result as concise direct implementation-scope bullets. Do not create standalone pseudo-sections such as Proposed Approach, Key Outputs, Dependencies or Validation Evidence. Integrate unique boundaries, status and validation into the relevant bullet, merge repeated obligations, and use an inline bold lead-in only when it helps group one cohesive sub-capability. Preserve source-specific workflows, rules, data, integrations, exceptions, evidence status and phase boundaries. Use tables only for indispensable comparable source records.
 
 [META_GENERATED]
 ## Technical Specifications and System Design
@@ -161,7 +156,7 @@ security/compliance decisions, licenses, change windows, UAT participants, and o
 [META_GENERATED]
 ## Assumptions
 
-Write 10-15 concrete assumptions as bullets. State owner and impact. Distinguish planning
+Write only the concrete assumptions needed for this project as bullets. State owner and impact. Distinguish planning
 assumptions from facts; cover environment, data, integrations, availability of decision-makers,
 test windows, deployment approvals, support readiness, and timeline inputs without inventing values.
 
@@ -174,9 +169,11 @@ Affected Sections, and Status. Carry forward every material unknown and do not a
 [META_GENERATED]
 ## Out of Scope
 
-Group relevant exclusions under Functional, Data/AI, Integration, Platform, Migration, Security/
-Compliance, Operations/Support, and Commercial. Reconcile exclusions with the deliverables register
-and route additions through Change Management.
+Include only source-supported or expressly agreed exclusions. Never exclude a requested deliverable,
+support, training, testing, go-live, analytics, or documentation capability. Treat conflicts, optional
+items and unconfirmed boundaries as Open Clarifications unless explicitly deferred. Label any architect-
+proposed commercial boundary `Proposed - subject to baseline confirmation`. Reconcile every exclusion
+with the requirements and deliverables register and route additions through Change Management.
 
 [META_TABLE]
 ## Timelines and Deliverables
@@ -240,7 +237,7 @@ quality/security/DevOps/data specialties only as warranted; frontend only when u
 [META_GENERATED]
 ## Success Criteria
 
-Create 8-12 acceptance criteria SC-01 onward with Criterion, Confirmed/Proposed Target,
+Create one acceptance criterion per material testable outcome, numbered SC-01 onward, with Criterion, Confirmed/Proposed Target,
 Measurement, Evidence, Test Window, Authority. Cover workflow, functional correctness, data/AI
 quality if relevant, integration, performance, availability/resilience, security, migration,
 operations, documentation, and acceptance. Do not invent achieved results or agreed SLAs.

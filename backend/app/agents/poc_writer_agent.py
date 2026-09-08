@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import html
 import json
+import math
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -28,6 +30,10 @@ from app.core.sow_section_preferences import (
     section_catalogue,
     section_category,
 )
+
+
+def _normalise_heading_text(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).strip()
 
 
 class SectionType(Enum):
@@ -224,6 +230,8 @@ class POCWriterAgent:
         supporting_context: Optional[str] = None,
         selected_sow_sections: Optional[List[str]] = None,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        scope_architecture_plan: Optional[Dict[str, Any]] = None,
+        refinement_plan: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         mode = self.template_type
         selected_preferences = parse_selected_section_ids(selected_sow_sections, mode)
@@ -258,6 +266,24 @@ class POCWriterAgent:
         rendered: Dict[int, Tuple[str, str, bool]] = {}
         generation_jobs: List[Tuple[int, TemplateSection, str]] = []
         consistency_notes = self._consistency_notes(req, metadata, selected_set)
+        supplied_scope_plan = scope_architecture_plan is not None
+        self.scope_architecture_plan = dict(scope_architecture_plan or {})
+        self.refinement_plan = dict(refinement_plan or {})
+        if (
+            not supplied_scope_plan
+            and not self.scope_architecture_plan
+            and any(self._section_category(section) == "scope_of_work" for section in active_sections)
+        ):
+            scope_evidence = self._context_excerpt(
+                supporting_context,
+                rag_context,
+                section_name="Scope of Work deliverables modules workflows inputs outputs",
+                requirements=req,
+                limit=max(getattr(self.config, "SECTION_EVIDENCE_MAX_CHARS", 48_000), 64_000),
+            )
+            self.scope_architecture_plan = self._architect_scope(
+                req, metadata, scope_evidence
+            )
 
         print(f"\n🚀 Starting {mode} SOW generation ({len(active_sections)} sections)")
         for index, section in enumerate(active_sections, 1):
@@ -326,7 +352,7 @@ class POCWriterAgent:
                 thread_name_prefix="sow-section",
             ) as executor:
                 future_jobs = {
-                    executor.submit(generate_job, job): job
+                    executor.submit(copy_context().run, generate_job, job): job
                     for job in generation_jobs
                 }
                 completed = 0
@@ -456,17 +482,29 @@ class POCWriterAgent:
         source_context: str,
         prior_summaries: List[str],
     ) -> str:
+        if self._section_key(section.name, metadata) == "aws_pricing":
+            from app.pricing import render_aws_pricing_section
+            return render_aws_pricing_section(requirements.get("aws_pricing_result") or {})
         prompt = self._build_individual_prompt(
             section, requirements, metadata, source_context,
             prior_context="\n".join(prior_summaries[-4:]),
         )
-        content = self._call_bedrock(
-            prompt,
-            max_tokens=self._section_token_budget(section),
-            model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+        architected_scope = (
+            self._section_key(section.name, metadata) == "scope_of_work"
+            and (getattr(self, "scope_architecture_plan", {}) or {}).get("deliverables")
         )
+        if architected_scope:
+            content = self._generate_scope_deliverables(
+                requirements, metadata, source_context, prior_summaries
+            )
+        else:
+            content = self._call_bedrock(
+                prompt,
+                max_tokens=self._section_token_budget(section),
+                model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+            )
         issues = self._authoring_issues(content, section)
-        if issues:
+        if issues and not architected_scope:
             retry = f"""The previous draft of the {section.name!r} section failed these checks:
 {chr(10).join('- ' + issue for issue in issues)}
 
@@ -502,13 +540,427 @@ PREVIOUS DRAFT:
             content = self._deterministic_fallback(section, requirements)
         return content
 
+    def _generate_scope_deliverables(
+        self,
+        requirements: Dict[str, Any],
+        metadata: Dict[str, Any],
+        source_context: str,
+        prior_summaries: List[str],
+    ) -> str:
+        """Expand each architected deliverable independently, then assemble in plan order."""
+        plan = getattr(self, "scope_architecture_plan", {}) or {}
+        blocks: List[str] = []
+        deliverables = plan.get("deliverables") or []
+        multiple_deliverables = len(deliverables) > 1
+        if multiple_deliverables:
+            rows = ["| # | Deliverable | Included Modules | Core Outcome |", "|---:|---|---|---|"]
+            for deliverable_index, deliverable in enumerate(deliverables, 1):
+                name = re.sub(
+                    r"^\s*deliverable\s+\d+\s*[-:–—]\s*", "",
+                    str(deliverable.get("name") or "").strip(), flags=re.I,
+                ) or f"Work Package {deliverable_index}"
+                modules = ", ".join(
+                    str(item.get("name") or "").strip()
+                    for item in (deliverable.get("modules") or [])
+                    if str(item.get("name") or "").strip()
+                )
+                outcome = str(deliverable.get("purpose") or "").strip()
+                values = [str(deliverable_index), f"Deliverable {deliverable_index} - {name}", modules, outcome]
+                rows.append("| " + " | ".join(value.replace("|", "\\|").replace("\n", " ") for value in values) + " |")
+            blocks.append("\n".join(rows))
+
+        for deliverable_index, deliverable in enumerate(deliverables, 1):
+            modules = deliverable.get("modules") or []
+            deliverable_name = re.sub(
+                r"^\s*deliverable\s+\d+\s*[-:–—]\s*",
+                "",
+                str(deliverable.get("name") or "").strip(),
+                flags=re.I,
+            )
+            display_name = str(
+                deliverable.get("display_name")
+                or f"Deliverable {deliverable_index} - {deliverable_name}"
+            )
+            structure_instruction = (
+                f"Return only Markdown for this deliverable, beginning with `### {display_name}`.\n"
+                "Create exactly one `#### <Module Name>` heading for every module in the supplied blueprint, in order."
+                if multiple_deliverables else
+                "Return only Markdown for the modules. Do not emit a Deliverable heading or wrapper.\n"
+                "Create exactly one `### <Module Name>` heading for every module in the supplied blueprint, in order."
+            )
+            prompt = f"""You are a principal solutions architect writing one deliverable within Scope of Work.
+{structure_instruction}
+
+CUSTOMER: {metadata.get('company_name', '')}
+PROJECT: {metadata.get('project_title', '')}
+MODE: {self.template_type}
+
+DELIVERABLE BLUEPRINT:
+{json.dumps(deliverable, indent=2, default=str)}
+
+CROSS-CUTTING DECISIONS AND OPEN BOUNDARIES:
+{json.dumps({key: plan.get(key, []) for key in ('cross_cutting_decisions', 'open_boundaries')}, indent=2, default=str)}
+
+AUTHORITATIVE REQUIREMENTS:
+{json.dumps(requirements, indent=2, default=str)}
+
+SOURCE EVIDENCE:
+{source_context or '(none)'}
+
+CONSISTENCY NOTES:
+{chr(10).join(prior_summaries[-4:]) or '(none)'}
+
+For each module, think through the task statement, objective, actors, triggering inputs, architecture/functionality requirements, implementation actions, expected operating output, dependencies, exceptions and validation evidence. Express the result as direct, concise implementation-scope bullets in the style of a professionally authored SOW. Do not narrate the reasoning framework.
+
+Module writing rules:
+- Do not create standalone or inline pseudo-sections named Proposed Approach, Proposed Implementation, Implementation Approach, Key Outputs, Dependencies, Validation Evidence, Roles, Inputs, Requirements, or similar categories.
+- Do not repeat the module heading in an opening paragraph. Include an opening sentence only when it establishes a boundary that the bullets cannot express clearly.
+- Each bullet must add a distinct scope action, business rule, integration, boundary, qualification, or acceptance-relevant outcome. Remove any bullet that merely restates another bullet in different words.
+- Combine closely related actions into one bullet where separating them adds no scope clarity. For example: `- **Monitoring and alert activation:** Configure platform, integration and journey-health monitoring with severity-based notifications to agreed support channels.`
+- A bold inline lead-in is allowed only inside the same bullet as its content; it is not a separate paragraph or subsection.
+- Integrate a unique dependency, proposal status, open point, output, or validation condition into the relevant implementation bullet instead of repeating category lists at the end of every module.
+- Avoid exhaustive technology catalogues and adjectives such as comprehensive or enterprise-grade unless the evidence defines their meaning. Name an AWS service only when it represents a confirmed or clearly labelled Proposed design decision.
+- Preserve the complete source scope, but say each requirement once in the module where it naturally belongs. Do not repeat the same capability in Deliverables, module introductions, approach, outputs and validation wording.
+
+Preserve all source-specific workflows, business rules, systems, data, thresholds, roles, channels and exceptions assigned to the module. Clearly label architect-derived choices as Proposed and unresolved decisions as open clarifications. Do not invent facts or contractual commitments. Do not add unrelated lifecycle boilerplate. Use British Indian English and standard unordered Markdown bullets, not numbered lists. Tables are optional and only for genuinely comparable source requirements.
+"""
+            # Each deliverable receives its own output allowance, preventing a
+            # large multi-deliverable scope from being truncated by one call.
+            # Scope must remain concise and preview-safe. This is an output
+            # ceiling, not a required word/module count.
+            token_budget = min(5200, max(2200, 1100 + len(modules) * 450))
+            block = self._call_bedrock(
+                prompt,
+                max_tokens=token_budget,
+                model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+            ).strip()
+            expected_modules = [str(item.get("name") or "").strip() for item in modules]
+            block_key = _normalise_heading_text(block)
+            missing_deliverable_heading = (
+                multiple_deliverables and _normalise_heading_text(display_name) not in block_key
+            )
+            missing_modules = [
+                name for name in expected_modules
+                if name and _normalise_heading_text(name) not in block_key
+            ]
+            if block and (missing_deliverable_heading or missing_modules):
+                omissions = list(missing_modules)
+                if missing_deliverable_heading:
+                    omissions.insert(0, f"the exact heading '{display_name}'")
+                retry_structure = (
+                    "use the exact requested deliverable heading"
+                    if multiple_deliverables else
+                    "do not add a Deliverable 1 wrapper; use each module as a level-three heading"
+                )
+                retry_prompt = (
+                    prompt
+                    + "\n\nThe previous draft omitted or misformatted: "
+                    + ", ".join(omissions)
+                    + f". Rewrite this deliverable completely, {retry_structure}, "
+                    "and include every supplied module exactly once using the requested heading levels.\n\n"
+                    + block[:12000]
+                )
+                revised = self._call_bedrock(
+                    retry_prompt,
+                    max_tokens=token_budget,
+                    model_id=getattr(self.config, "FALLBACK_MODEL_ID", None),
+                ).strip()
+                if revised:
+                    block = revised
+            structure_issues = self._scope_block_structure_issues(block)
+            if block and structure_issues:
+                compact_prompt = (
+                    prompt
+                    + "\n\nRewrite the draft to remove these structural problems: "
+                    + "; ".join(structure_issues)
+                    + ". Preserve every source-backed scope item and every module, but remove repetition "
+                    "and integrate status, dependencies, outputs and validation into the relevant direct bullets.\n\n"
+                    + block[:16000]
+                )
+                revised = self._call_bedrock(
+                    compact_prompt,
+                    max_tokens=token_budget,
+                    model_id=getattr(self.config, "FALLBACK_MODEL_ID", None),
+                ).strip()
+                if revised and not self._scope_block_structure_issues(revised):
+                    block = revised
+            if block:
+                # Heading names and numbering are contractual document structure,
+                # so do not leave them to probabilistic model compliance.
+                if multiple_deliverables:
+                    module_start = re.search(r"(?m)^####\s+", block)
+                    if module_start:
+                        block = block[module_start.start():].strip()
+                    else:
+                        block = re.sub(r"(?im)^###\s+.*(?:\n+|$)", "", block, count=1).strip()
+                    block = self._sanitize_scope_reasoning_labels(block)
+                    blocks.append(f"### {display_name}\n\n{block}".strip())
+                else:
+                    # A single delivery package does not need an artificial
+                    # "Deliverable 1" level. Modules sit directly below Scope.
+                    block = re.sub(
+                        r"(?im)^###\s+deliverable\s+1\s*[-:–—].*(?:\n+|$)", "", block, count=1
+                    ).strip()
+                    block = re.sub(r"(?m)^####\s+", "### ", block)
+                    blocks.append(self._sanitize_scope_reasoning_labels(block))
+        return "\n\n".join(blocks)
+
+    @staticmethod
+    def _sanitize_scope_reasoning_labels(content: str) -> str:
+        """Flatten leaked analysis labels into ordinary scope bullets."""
+        category = (
+            r"(?:proposed\s+(?:implementation\s+)?approach|implementation\s+approach|"
+            r"key\s+outputs?|dependencies|validation\s+evidence|roles?|inputs?|"
+            r"functional\s+requirements?|requirements?|outputs?)"
+        )
+        cleaned: List[str] = []
+        for line in str(content or "").splitlines():
+            match = re.match(
+                rf"^\s*(?:[-*+]\s*)?(?:\*\*)?{category}\s*:\s*(?:\*\*)?\s*(.*)$",
+                line,
+                flags=re.I,
+            )
+            if match:
+                remainder = match.group(1).strip()
+                if remainder:
+                    cleaned.append(f"- {remainder}")
+                continue
+            if re.match(rf"^\s*#+\s+{category}\s*:?\s*$", line, flags=re.I):
+                continue
+            cleaned.append(line)
+        return re.sub(r"\n{3,}", "\n\n", "\n".join(cleaned)).strip()
+
+    @staticmethod
+    def _scope_block_structure_issues(content: str) -> List[str]:
+        """Reject repeated reasoning labels without imposing a length/count limit."""
+        issues: List[str] = []
+        category = (
+            r"(?:proposed\s+(?:implementation\s+)?approach|implementation\s+approach|"
+            r"key\s+outputs?|dependencies|validation\s+evidence|roles?|inputs?|"
+            r"functional\s+requirements?|requirements?|outputs?)"
+        )
+        if re.search(rf"(?im)^\s*(?:\*\*)?{category}\s*:\s*(?:\*\*)?", content or ""):
+            issues.append("module reasoning labels are present as separate category blocks")
+        if re.search(rf"(?im)^\s*(?:#+\s+){category}\s*:?\s*$", content or ""):
+            issues.append("module reasoning categories are rendered as headings")
+        return issues
+
+    def _architect_scope(
+        self,
+        requirements: Dict[str, Any],
+        metadata: Dict[str, Any],
+        source_context: str,
+    ) -> Dict[str, Any]:
+        """Compatibility entry point delegated to the dedicated scope architect."""
+        from app.agents.scope_architect_agent import ScopeArchitectAgent
+        return ScopeArchitectAgent(
+            self.config,
+            template_type=self.template_type,
+            call_fn=self._call_bedrock,
+        ).architect(requirements, metadata, source_context)
+
+    def _legacy_architect_scope(
+        self,
+        requirements: Dict[str, Any],
+        metadata: Dict[str, Any],
+        source_context: str,
+    ) -> Dict[str, Any]:
+        """Legacy implementation retained temporarily for old serialized test fixtures."""
+        prompt = f"""You are the principal solution architect for this engagement.
+Analyse the complete source and create the internal work-breakdown blueprint used to author the SOW.
+Return JSON only; do not write SOW prose.
+
+CUSTOMER: {metadata.get('company_name', '')}
+PROJECT: {metadata.get('project_title', '')}
+MODE: {self.template_type}
+
+NORMALISED REQUIREMENTS:
+{json.dumps(requirements, indent=2, default=str)}
+
+AUTHORITATIVE SOURCE EVIDENCE:
+{source_context or '(none)'}
+
+Return this shape:
+{{
+  "deliverables": [
+    {{
+      "name": "outcome-oriented deliverable name",
+      "purpose": "business and solution boundary",
+      "separation_basis": "independent phase, deployment, acceptance boundary, or other source-backed reason",
+      "modules": [
+        {{
+          "name": "cohesive mini-problem or workstream",
+          "task_statement": "problem this module solves",
+          "objective": "target operating outcome",
+          "actors": [],
+          "inputs": [],
+          "requirements": [],
+          "delivery_approach": [],
+          "outputs": [],
+          "dependencies": [],
+          "validation_evidence": [],
+          "source_basis": [],
+          "evidence_status": "Confirmed|Source Assumption|Proposed|Open"
+        }}
+      ]
+    }}
+  ],
+  "cross_cutting_decisions": [],
+  "open_boundaries": []
+}}
+
+Architecture rules:
+- Determine the natural number of deliverables and modules from the problem; there is no target, minimum, or maximum count.
+- A deliverable is a separately deployable or acceptably complete business outcome, release, or phase. It is not a synonym for a source table row, feature, integration, technical layer, workstream, or module.
+- First cluster capabilities that share the same users, release boundary, operating workflow, deployment and acceptance event. Promote a cluster to a separate deliverable only when it has a credible independent phase, deployment or acceptance boundary, and record that reason in separation_basis.
+- Treat source headings or tables called "Deliverables" as evidence of contractual outputs, not proof that every row must become a top-level architectural deliverable. Preserve every row, but normally assign closely related rows as modules or outputs within a broader delivery package.
+- Perform a final cohesion audit before returning JSON: if two proposed deliverables would be designed, built, demonstrated and accepted together, merge them while retaining every module and source requirement.
+- Every deliverable must contain the modules needed to deliver its outcome. A module is a cohesive mini-problem, not a generic document category.
+- Decompose source workflows, business rules, integrations, data, AI behaviour, user interaction, platform work, security, testing, and readiness where they materially affect delivery.
+- For every module reason from task/problem through objective, inputs, requirements and implementation approach to observable output and validation.
+- Preserve all source-specific systems, actors, thresholds, classifications, workflows, exceptions, channels, data objects and future-phase boundaries.
+- Respect status language inside the evidence. Text explicitly labelled Assumption, Derived, Proposed, To be confirmed, Not stated, Needs clarification, optional or future must retain that status; it is not confirmed merely because it appears in an uploaded file. Conflicting sources create an open boundary.
+- Do not invent facts. Mark architect-derived design choices as Proposed and unresolved customer decisions as open boundaries.
+- Do not create empty boilerplate modules merely to cover a standard delivery lifecycle.
+"""
+        raw = self._call_bedrock(
+            prompt,
+            max_tokens=8192,
+            model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+        )
+        parsed = self._extract_json(raw)
+        if not parsed:
+            return {}
+        try:
+            value = json.loads(parsed)
+        except json.JSONDecodeError:
+            return {}
+        deliverables = value.get("deliverables") if isinstance(value, dict) else None
+        if not isinstance(deliverables, list):
+            return {}
+        # Remove structurally empty model output; the section writer will fall
+        # back to the authoritative baseline rather than trust a broken plan.
+        clean_deliverables = []
+        for item in deliverables:
+            if not isinstance(item, dict) or not str(item.get("name") or "").strip():
+                continue
+            modules = [
+                module for module in (item.get("modules") or [])
+                if isinstance(module, dict) and str(module.get("name") or "").strip()
+            ]
+            if not modules:
+                continue
+            clean_deliverables.append({**item, "modules": modules})
+        value["deliverables"] = clean_deliverables
+        if not value["deliverables"]:
+            return {}
+        if self._scope_plan_looks_fragmented(value):
+            reviewed = self._review_fragmented_scope_plan(
+                value, requirements, metadata, source_context
+            )
+            if reviewed:
+                value = reviewed
+        for index, deliverable in enumerate(value["deliverables"], 1):
+            clean_name = re.sub(
+                r"^\s*deliverable\s+\d+\s*[-:–—]\s*",
+                "",
+                str(deliverable.get("name") or "").strip(),
+                flags=re.I,
+            )
+            deliverable["name"] = clean_name
+            deliverable["number"] = index
+            deliverable["display_name"] = f"Deliverable {index} - {clean_name}"
+        return value
+
+    @staticmethod
+    def _scope_plan_looks_fragmented(plan: Dict[str, Any]) -> bool:
+        """Flag capability buckets masquerading as independent deliverables."""
+        deliverables = plan.get("deliverables") or []
+        if len(deliverables) < 2:
+            return False
+        module_counts = [len(item.get("modules") or []) for item in deliverables]
+        thin_deliverables = sum(count <= 2 for count in module_counts)
+        missing_boundaries = sum(
+            not str(item.get("separation_basis") or "").strip()
+            for item in deliverables
+        )
+        return thin_deliverables >= max(2, math.ceil(len(deliverables) * 0.6)) or (
+            len(deliverables) >= 3
+            and missing_boundaries >= max(2, math.ceil(len(deliverables) * 0.6))
+        )
+
+    def _review_fragmented_scope_plan(
+        self,
+        plan: Dict[str, Any],
+        requirements: Dict[str, Any],
+        metadata: Dict[str, Any],
+        source_context: str,
+    ) -> Dict[str, Any]:
+        """Ask a second architect pass to merge artificial capability deliverables."""
+        original_deliverables = plan.get("deliverables") or []
+        original_module_count = sum(len(item.get("modules") or []) for item in original_deliverables)
+        prompt = f"""You are the architecture review authority for a Statement of Work.
+The draft work breakdown appears fragmented. Return JSON only in exactly the same shape as DRAFT_PLAN.
+
+CUSTOMER: {metadata.get('company_name', '')}
+PROJECT: {metadata.get('project_title', '')}
+MODE: {self.template_type}
+
+DRAFT_PLAN:
+{json.dumps(plan, indent=2, default=str)}
+
+NORMALISED REQUIREMENTS:
+{json.dumps(requirements, indent=2, default=str)}
+
+SOURCE EVIDENCE:
+{source_context or '(none)'}
+
+Review rules:
+- Merge deliverables that are merely channels, integrations, platform layers, functional capabilities, or source-table rows belonging to the same implemented and accepted solution.
+- Retain every module, requirement, source_basis item, output, dependency, qualification, and open boundary. Do not reduce coverage while merging.
+- Keep separate deliverables only for a real independent phase, release, deployment, commercial hand-off, or acceptance event; state that reason in separation_basis.
+- Do not target a particular count. A single coherent deliverable with many modules is valid; multiple deliverables are valid only when their boundaries are real.
+- Preserve evidence status. Source Assumption, Proposed, Open, To be confirmed, optional and future items must not become Confirmed.
+"""
+        raw = self._call_bedrock(
+            prompt,
+            max_tokens=8192,
+            model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+        )
+        parsed = self._extract_json(raw)
+        if not parsed:
+            return {}
+        try:
+            reviewed = json.loads(parsed)
+        except json.JSONDecodeError:
+            return {}
+        revised_deliverables = reviewed.get("deliverables") if isinstance(reviewed, dict) else None
+        if not isinstance(revised_deliverables, list) or not revised_deliverables:
+            return {}
+        revised_deliverables = [
+            item for item in revised_deliverables
+            if isinstance(item, dict)
+            and str(item.get("name") or "").strip()
+            and isinstance(item.get("modules"), list)
+            and item.get("modules")
+        ]
+        revised_module_count = sum(len(item["modules"]) for item in revised_deliverables)
+        # A cohesion pass may merge containers, but it must never achieve that
+        # by silently dropping source-backed modules.
+        if revised_module_count < original_module_count:
+            return {}
+        if len(revised_deliverables) >= len(original_deliverables):
+            return {}
+        reviewed["deliverables"] = revised_deliverables
+        return reviewed
+
     @staticmethod
     def _authoring_issues(content: str, section: TemplateSection) -> List[str]:
         issues = section_quality_issues(content, section.name)
         name = re.sub(r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", section.name).casefold()
         word_count = len(re.findall(r"\b\w+\b", content or ""))
         word_limit = POCWriterAgent._section_word_limit(section)
-        if word_count > word_limit:
+        if word_limit is not None and word_count > word_limit:
             issues.append(
                 f"exceeds the {word_limit}-word section limit; remove repetition and non-essential detail"
             )
@@ -543,38 +995,29 @@ PREVIOUS DRAFT:
                 issues.append("Document Control is missing the required five-column control table")
             if "revision basis" not in normalized:
                 issues.append("Document Control is missing Revision Basis")
-        elif name in {"deliverables", "deliverable scope at a glance"}:
-            if not any(all(label in line for label in ("module/workstream", "core outcome")) for line in table_lines):
-                issues.append("Deliverables is missing the required module and outcome table")
-            if any("depends on" in line for line in table_lines):
-                issues.append("Deliverables must not contain a Depends On column")
         elif name in {"scope of work", "detailed scope of work"}:
-            module_headings = re.findall(r"(?m)^###\s+4\.\d+\s+.+$", content or "")
-            if len(module_headings) < 2:
-                issues.append("Detailed Scope needs at least two numbered module/workstream subsections")
-            if len(module_headings) > 6:
-                issues.append("Detailed Scope has more than six modules; consolidate supporting layers unless the source explicitly requires them")
-            if len(nested_headings) > max(2, len(module_headings)):
-                issues.append("Detailed Scope has too many nested subsections; use concise bullets under each module")
-            if not any(all(label in line for label in ("id", "requirement", "detail")) for line in table_lines):
-                issues.append("Detailed Scope is missing a compact ID / Requirement / Detail table")
-            if "dependencies and validation" not in normalized:
-                issues.append("Detailed Scope is missing module dependencies and validation evidence")
-            workflow_blocks = re.split(
-                r"(?m)^####\s+(?:\d+(?:\.\d+)*\s+)?workflow\s*$",
+            deliverables = re.findall(r"(?im)^###\s+.*\bdeliverable\b.*$", content or "")
+            modules = re.findall(r"(?m)^####\s+.+$", content or "")
+            if deliverables:
+                if not modules:
+                    issues.append("Scope of Work must decompose each deliverable into architected modules")
+                deliverable_blocks = re.split(
+                    r"(?im)(?=^###\s+.*\bdeliverable\b.*$)", content or ""
+                )[1:]
+                if any(not re.search(r"(?m)^####\s+.+$", block) for block in deliverable_blocks):
+                    issues.append("Every deliverable in Scope of Work must contain at least one module")
+            else:
+                if not re.search(r"(?m)^###\s+.+$", content or ""):
+                    issues.append("Scope of Work must decompose the scope by deliverable/module boundaries into architected modules")
+                if modules:
+                    issues.append("Module headings cannot be nested without a deliverable heading")
+            forbidden = re.findall(
+                r"(?im)^#{3,6}\s+(?:\d+(?:\.\d+)*[.)]?\s*)?"
+                r"(?:task statement|objective|inputs?|outputs?|requirements?)\s*$",
                 content or "",
-                flags=re.I,
-            )[1:]
-            total_workflow_steps = 0
-            for workflow in workflow_blocks:
-                workflow = re.split(r"(?m)^#{3,5}\s+", workflow, maxsplit=1)[0]
-                count = len(re.findall(r"(?m)^\s*\d+[.)]\s+", workflow))
-                total_workflow_steps += count
-                if count > 8:
-                    issues.append("A Workflow subsection exceeds eight steps and must be consolidated into phases")
-                    break
-            if total_workflow_steps > 30:
-                issues.append("Detailed Scope contains more than thirty workflow steps across modules; remove sparse or non-sequential workflows")
+            )
+            if forbidden:
+                issues.append("Task statement, objective, inputs, requirements and outputs must be integrated into module content, not emitted as numbered headings")
         elif name.startswith("solution architecture"):
             for required in ("architecture and flow", "decisions, controls and open boundaries"):
                 if required not in normalized:
@@ -594,7 +1037,7 @@ PREVIOUS DRAFT:
         return issues
 
     @staticmethod
-    def _section_word_limit(section: TemplateSection) -> int:
+    def _section_word_limit(section: TemplateSection) -> Optional[int]:
         """Return a compact but workable maximum for one generated section."""
         name = re.sub(
             r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", section.name
@@ -605,9 +1048,9 @@ PREVIOUS DRAFT:
             return 180
         if name.startswith("about "):
             return 220
-        if any(term in name for term in ("detailed scope", "technical specification")):
-            return 900
-        if name == "scope of work":
+        if "scope of work" in name:
+            return None
+        if "technical specification" in name:
             return 900
         if "architecture" in name:
             return 550
@@ -634,6 +1077,41 @@ PREVIOUS DRAFT:
                 metadata.get("company_description")
                 or "No separate company research was available; use only the confirmed project context."
             )
+        category = self._section_category(section)
+        refinement_contract = "(not a regeneration request)"
+        if getattr(self, "refinement_plan", None):
+            affected = {
+                str(value).strip() for value in self.refinement_plan.get("affected_sections") or []
+            }
+            if category in affected:
+                refinement_contract = (
+                    "This section is explicitly affected. Apply only the requested changes, preserve "
+                    "all unrelated baseline facts and boundaries, and enforce every structured "
+                    "constraint in the refinement plan.\n"
+                    + json.dumps(self.refinement_plan, indent=2, default=str)
+                )
+            else:
+                refinement_contract = (
+                    "This section is NOT affected by the refinement request. Preserve its baseline "
+                    "meaning, facts, scope status, tables, and subsection structure. Do not introduce "
+                    "new requirements, assumptions, phases, commitments, or template material."
+                )
+        architecture_blueprint = "(not applicable to this section)"
+        if category in {
+            "scope_of_work", "architecture_diagram",
+            "timelines_deliverables", "customer_dependencies", "assumptions",
+            "out_of_scope", "open_clarifications", "success_criteria",
+            "project_team_effort",
+        }:
+            architecture_blueprint = json.dumps(
+                getattr(self, "scope_architecture_plan", {}) or {}, indent=2, default=str
+            ) or "(not available; derive directly from the authoritative baseline)"
+        word_limit = self._section_word_limit(section)
+        length_instruction = (
+            "- No fixed word, deliverable, or module limit applies to Scope of Work. Use the detail and structure required to cover the source completely without repetition."
+            if word_limit is None else
+            f"- Hard maximum: {word_limit} words, including tables and lists.\n- Use fewer words when the source is sparse."
+        )
         return f"""You are a principal solutions architect and senior commercial technical writer.
 Write the body of one section in a benchmark-quality {type_label} Statement of Work.
 
@@ -648,10 +1126,13 @@ AUTHORITATIVE REQUIREMENTS BASELINE
 
 USER GENERATION GUIDANCE
 {requirements.get('_generation_guidance') or '(none)'}
-- Apply this guidance consistently across every section, including scope, deliverables,
+- Apply this guidance consistently across every section, including scope,
   exclusions, future scope, assumptions and acceptance treatment.
 - When supporting evidence is present, guidance controls how evidence is prioritised or
   scoped but does not authorise unrelated facts or deliverables.
+
+REFINEMENT PRESERVATION CONTRACT
+{refinement_contract}
 
 SOURCE EXCERPT (supporting evidence; may be empty)
 {supporting_context or '(none)'}
@@ -661,6 +1142,9 @@ CLIENT RESEARCH CONTEXT (use only when writing About Client)
 
 DOCUMENT CONSISTENCY NOTES
 {prior_context or '(none)'}
+
+SHARED SOLUTION-ARCHITECTURE WORK BREAKDOWN
+{architecture_blueprint}
 
 USER-SELECTED DOCUMENT CUSTOMISATION
 - Topics to include: {', '.join(SECTION_LABELS.get(item, item) for item in getattr(self, 'selected_section_preferences', [])) or '(none)'}
@@ -678,8 +1162,8 @@ TEMPLATE AUTHORING INSTRUCTIONS:
 {self._replace_placeholders(section.content, metadata, requirements)}
 
 SECTION LENGTH BUDGET
-- Hard maximum: {self._section_word_limit(section)} words, including tables and lists.
-- Use fewer words when the source is sparse. Completeness means covering the necessary
+{length_instruction}
+- Completeness means covering the necessary
   decision, scope, dependency, responsibility, and validation information once; it does
   not mean expanding every possible implementation detail.
 
@@ -689,10 +1173,16 @@ NON-NEGOTIABLE AUTHORING STANDARD
   organisation, organise, centralised, analyse, behaviour, colour, programme,
   licence (noun), and fulfilment. Preserve official product names, API fields,
   source quotations, and other identifiers exactly as supplied.
-- Treat user/source values as confirmed; treat architect-derived choices as "Proposed"; put
-  unknown material facts under "Open clarification" or state that they require confirmation.
+- Treat only unqualified source assertions as confirmed. Preserve source-authored labels such as
+  Assumption (as "Source Assumption"), Derived, Proposed, To be confirmed, Not stated, Needs clarification, optional and
+  future. Conflicts between uploaded sources are Open; do not silently choose one. Treat
+  architect-derived choices as "Proposed" and put unknown material facts under Open Clarifications.
 - Never invent customer facts, dates, prices, volumes, user counts, compliance claims, SLAs,
   model versions, named contacts, or achieved results.
+- Do not diagnose a current-state deficiency merely because the target solution includes that
+  capability. Describe a gap as confirmed only when a source states or directly demonstrates it.
+- A source-required capability must not appear in Out of Scope. A conflicting, optional or
+  unconfirmed capability belongs in Open Clarifications or a clearly labelled future phase.
 - Do not present a planning target as an agreed acceptance criterion. If the source is silent,
   propose a testable target and explicitly label it "proposed for baseline confirmation".
 - Be specific about capability, owner, input, output, boundary, dependency, and validation method.
@@ -708,21 +1198,22 @@ NON-NEGOTIABLE AUTHORING STANDARD
 - Default to no subsection headings. Use a single opening paragraph of no more than 60 words,
   followed by concise bullets. Convert labels such as Roles, Data, Dependencies, Controls,
   Validation, or Risks into bold lead-in bullets instead of separate headings.
-- Outside Scope of Work, use at most two direct subsections and no nested subsections. Scope of
-  Work may use one direct subsection per genuine module/workstream, but normally no nested
-  subsections; add one Workflow subheading only when sequence materially improves understanding.
+- Outside Scope of Work, use at most two direct subsections and no nested subsections. In Scope of
+  Work, use `### Deliverable 1 - <name>` and `#### <Module Name>` headings. Do not create headings for
+  Task Statement, Objective, Inputs, Requirements, Outputs, Dependencies, or Validation; integrate
+  those concerns naturally into the module opening and implementation bullets.
 - Avoid more than one consecutive prose paragraph. Use concise bullets for three or more
   non-comparable items and Markdown tables only for genuinely comparable records. Aim for at
   least 60% of non-table content after the opening to be concise bullet points.
 - Use ### and #### for real subsection headings and standard '-' bullets only.
 - Put every bullet on its own Markdown line. Use one idea per bullet, normally one sentence
-  of no more than 25 words, and keep lists to three-to-seven items unless the source requires more. Use two leading
+  of no more than 25 words. Use the natural number of source-supported items and never add filler to meet a count. Use two leading
   spaces for a nested bullet and never embed bullet symbols inside a prose paragraph.
 - Keep heading hierarchy complete and consistent. The DOCX renderer normalizes every
   generated heading to 1.1 / 1.2 / 4.1 / 4.1.1 form; never use a bold Normal paragraph
   as a substitute for a heading and never skip from a module heading to an unstructured label.
 - Use bullet lists for workflows and sequences; never emit Markdown ordered lists.
-  Keep each workflow to four-to-eight concise bullet stages.
+  Keep each workflow to the natural set of meaningful stages without splitting low-value micro-actions.
 - For tables, emit a valid pipe table with one separator row; use <br> only for multiple items in a cell.
 - Use no more than five table columns, and prefer two to four. Put explanatory detail below
   the table or split it into sequential compact tables instead of creating narrow columns.
@@ -788,6 +1279,8 @@ NON-NEGOTIABLE AUTHORING STANDARD
         # Give the model enough room for Markdown structure without allowing a
         # multi-thousand-word section that later has to be cut down.
         word_limit = POCWriterAgent._section_word_limit(section)
+        if word_limit is None:
+            return 8192
         return max(900, min(3200, word_limit * 2))
 
     @staticmethod
@@ -949,8 +1442,6 @@ NON-NEGOTIABLE AUTHORING STANDARD
             "document version control": "document_control_and_basis",
             "objective": "project_overview",
             "purpose and scope of this deliverable": "project_overview",
-            "deliverables": "scope_at_a_glance",
-            "deliverable scope at a glance": "scope_at_a_glance",
             "current state": "current_state_and_business_context",
             "executive summary and project overview": "project_overview",
             "detailed scope of work": "scope_of_work",

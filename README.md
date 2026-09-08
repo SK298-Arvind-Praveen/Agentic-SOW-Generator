@@ -72,7 +72,7 @@ SOWv2 automates the creation of professional SOW and POC documents by:
 ### Backend
 | Tool | Version |
 |------|---------|
-| Python | 3.14 |
+| Python | 3.12 |
 | Flask | 3.x |
 | LangGraph | 0.2.x |
 | LangChain | 0.3.x |
@@ -182,6 +182,28 @@ pip install -r config/requirements_clean.txt
 cd frontend
 npm install
 ```
+
+### 3a. AWS Pricing Calculator setup
+
+The calculator adapter is vendored under `tools/aws-pricing-calculator` from
+AWS's MIT-0 sample. It uses the public AWS Pricing Calculator APIs; it does not
+deploy infrastructure or require AWS credentials. Install its pinned Node
+dependencies and the local Chromium worker once:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/aws-pricing-calculator/setup.ps1
+```
+
+This is intentionally separate from Python `requirements_clean.txt`: pip cannot
+install Node packages or a Chromium binary. The generated calculator URL works
+without Chromium; Chromium is only used to read the rendered monthly total back
+into the preview. If that read fails, the SOW keeps the validated calculator URL
+and reports that the total must be opened in AWS Pricing Calculator.
+
+Pricing is evidence-gated. Services, usage values, environments, and region must
+come from the uploaded documents/additional details or an explicit region choice.
+Missing rate-driving inputs are left as confirmation items—no default capacity or
+cost is invented. A preview can be recalculated after correcting those inputs.
 
 ### 4. AWS storage setup (once per AWS account)
 

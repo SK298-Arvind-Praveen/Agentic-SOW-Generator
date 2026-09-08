@@ -15,6 +15,7 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpCircle,
+  RefreshCw,
   X,
   Edit,
   BarChart3
@@ -25,6 +26,7 @@ import 'react-datepicker/dist/react-datepicker.css';
 import apiService, { Document } from '../services/apiService';
 import { downloadWithNativeSaveAs } from '../utils/downloadFile';
 import { latestDocumentForVersion, sortVersionKeysNewestFirst } from '../utils/versionOrdering';
+import { formatTokenCount } from '../utils/tokenUsage';
 import './Dashboard.css';
 import './SOWGenerator.css';
 import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
@@ -58,7 +60,7 @@ const Dashboard: React.FC = () => {
   });
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [rowVersions, setRowVersions] = useState<{ [key: string]: Array<{ version: string; date: string; author: string; status: string; s3_url: string }> }>({});
+  const [rowVersions, setRowVersions] = useState<{ [key: string]: Array<{ version: string; date: string; author: string; status: string; s3_url: string; total_tokens?: number | string }> }>({});
   const [recordsSearchQuery, setRecordsSearchQuery] = useState('');
   const [showRecordsFilter, setShowRecordsFilter] = useState(false);
   const [recordsFilterBy, setRecordsFilterBy] = useState<'company' | 'author'>('company');
@@ -181,7 +183,8 @@ const Dashboard: React.FC = () => {
           status: item.task?.status || doc.status,
           progress: item.task?.progress || doc.progress,
           current_step: item.task?.current_step || doc.current_step,
-          is_processing: item.is_processing
+          is_processing: item.is_processing,
+          total_tokens: doc.total_tokens,
         };
       });
       
@@ -241,7 +244,8 @@ const Dashboard: React.FC = () => {
               version: latestKey,
               status: doc.status || 'Completed',
               task_id: doc.task_id,
-              docCount
+              docCount,
+              total_tokens: doc.total_tokens,
             };
 
             // Pre-load older versions for expand table
@@ -254,7 +258,8 @@ const Dashboard: React.FC = () => {
                   date: vDoc?.document_date || vDoc?.timestamp?.split('T')[0] || 'N/A',
                   author: vDoc?.author_name || 'N/A',
                   status: vDoc?.status || 'Completed',
-                  s3_url: vDoc?.s3_url || vDoc?.drive_link || ''
+                  s3_url: vDoc?.s3_url || vDoc?.drive_link || '',
+                  total_tokens: vDoc?.total_tokens,
                 };
               });
             }
@@ -518,7 +523,7 @@ const Dashboard: React.FC = () => {
     setShowProductionPreviewModal(false);
 
     // Show non-blocking toast notification
-    const toastId = toast.loading('🎨 Starting production conversion...', {
+    const toastId = toast.loading('Starting production conversion...', {
       position: 'bottom-right',
       autoClose: false,
     });
@@ -610,7 +615,7 @@ const Dashboard: React.FC = () => {
 
             if (statusResponse.has_error || statusResponse.status === 'failed' || statusResponse.status === 'error') {
               clearInterval(pollInterval);
-              toast.error(`❌ Conversion failed: ${statusResponse.error || statusResponse.message || 'Unknown error'}`, {
+              toast.error(`Conversion failed: ${statusResponse.error || statusResponse.message || 'Unknown error'}`, {
                 position: 'bottom-right',
                 autoClose: 8000,
                 closeButton: true,
@@ -623,7 +628,7 @@ const Dashboard: React.FC = () => {
 
               if (statusResponse.content || statusResponse.updated_content) {
                 // Show success toast
-                toast.success('✅ Production conversion ready! Opening editor...', {
+                toast.success('Production conversion ready! Opening editor...', {
                   position: 'bottom-right',
                   autoClose: 2000,
                   closeButton: true,
@@ -633,7 +638,7 @@ const Dashboard: React.FC = () => {
                 setProductionPreviewData(statusResponse);
                 setShowProductionPreviewModal(true);
               } else {
-                toast.warning('⚠️ Conversion completed but no content available', {
+                toast.warning('Conversion completed but no content available', {
                   position: 'bottom-right',
                   autoClose: 5000,
                   closeButton: true,
@@ -642,7 +647,7 @@ const Dashboard: React.FC = () => {
             }
           } catch (err) {
             clearInterval(pollInterval);
-            toast.error('❌ Failed to check conversion status', {
+            toast.error('Failed to check conversion status', {
               position: 'bottom-right',
               autoClose: 5000,
               closeButton: true,
@@ -660,7 +665,7 @@ const Dashboard: React.FC = () => {
         }, 300000);
       } else {
         toast.update(toastId, {
-          render: `❌ ${response.error || response.message || 'Failed to initiate production conversion'}`,
+          render: response.error || response.message || 'Failed to initiate production conversion',
           type: 'error',
           isLoading: false,
           autoClose: 5000,
@@ -669,13 +674,22 @@ const Dashboard: React.FC = () => {
       }
     } catch (error) {
       toast.update(toastId, {
-        render: `❌ ${error instanceof Error ? error.message : 'Unknown error occurred'}`,
+        render: error instanceof Error ? error.message : 'Unknown error occurred',
         type: 'error',
         isLoading: false,
         autoClose: 5000,
         closeButton: true,
       });
     }
+  };
+
+  const handleRegenerate = (record: Document) => {
+    const documentId = getDocumentProperty(record, 'document_id');
+    if (!documentId) {
+      toast.error('This record has no document identifier');
+      return;
+    }
+    navigate(`/sow-records?regenerate=${encodeURIComponent(documentId)}`);
   };
 
   const handleProductionEditFromPreview = async () => {
@@ -859,7 +873,8 @@ const Dashboard: React.FC = () => {
                   s3_url: doc.s3_url || '',
                   task_id: doc.task_id,
                   timestamp: doc.timestamp,
-                  version: latestVersion
+                  version: latestVersion,
+                  total_tokens: doc.total_tokens,
                 });
                 
                 // Store other versions for expansion
@@ -872,7 +887,8 @@ const Dashboard: React.FC = () => {
                       date: vDoc?.document_date || vDoc?.timestamp?.split('T')[0] || 'N/A',
                       author: vDoc?.author_name || 'N/A',
                       status: 'Completed',
-                      s3_url: vDoc?.s3_url || vDoc?.drive_link || ''
+                      s3_url: vDoc?.s3_url || vDoc?.drive_link || '',
+                      total_tokens: vDoc?.total_tokens,
                     };
                   });
                   
@@ -1187,6 +1203,7 @@ const Dashboard: React.FC = () => {
                               {renderSortIcon('date')}
                             </span>
                           </th>
+                          <th>Total Tokens</th>
                           <th>Status</th>
                           <th style={{ textAlign: 'center' }}>Actions</th>
                         </tr>
@@ -1232,6 +1249,7 @@ const Dashboard: React.FC = () => {
                                 <td>{getDocumentProperty(record, 'name') || 'N/A'} - {record.version || 'v1'}</td>
                                 <td>{getDocumentProperty(record, 'author') || 'N/A'}</td>
                                 <td>{getDocumentProperty(record, 'date') || 'N/A'}</td>
+                                <td>{formatTokenCount(record.total_tokens)}</td>
                                 <td>
                                   {record.is_processing ? (
                                     <span className="status-badge processing">
@@ -1255,15 +1273,13 @@ const Dashboard: React.FC = () => {
                                         <Download width={"16px"} height={"16px"} className="download-icon" />
                                       </button>
                                     )}
-                                    {selectedSOW === 'poc' && (
-                                      <button 
-                                        className="action-btn production-btn"
-                                        onClick={() => handleToProduction(record as any)}
-                                        title="Convert to Production"
-                                      >
-                                        <ArrowUpCircle width={"16px"} height={"16px"} />
-                                      </button>
-                                    )}
+                                    <button
+                                      className="action-btn production-btn"
+                                      onClick={() => handleRegenerate(record as any)}
+                                      title="Regenerate and refine"
+                                    >
+                                      <RefreshCw width={"16px"} height={"16px"} />
+                                    </button>
                                   </div>
                                 </td>
                               </tr>
@@ -1273,6 +1289,7 @@ const Dashboard: React.FC = () => {
                                   <td>{getDocumentProperty(record, 'name')} - {version.version}</td>
                                   <td>{version.author}</td>
                                   <td>{version.date}</td>
+                                  <td>{formatTokenCount(version.total_tokens)}</td>
                                   <td><span className="status-badge completed">Completed</span></td>
                                   <td style={{ textAlign: 'center' }}>
                                     <div className="action-buttons" style={{ justifyContent: 'center' }}>
@@ -1324,6 +1341,7 @@ const Dashboard: React.FC = () => {
                         </span>
                       </th>
                       <th>Status</th>
+                      <th>Total Tokens</th>
                       <th>Actions</th>
                     </tr>
                     
@@ -1399,13 +1417,14 @@ const Dashboard: React.FC = () => {
                         </select>
                       </th>
                       <th></th>
+                      <th></th>
                     </tr>
 
                   </thead>
                   <tbody>
                     {isLoadingDocuments ? (
                       <tr>
-                        <td colSpan={7} className="no-records">
+                        <td colSpan={8} className="no-records">
                           Loading documents...
                         </td>
                       </tr>
@@ -1438,6 +1457,7 @@ const Dashboard: React.FC = () => {
                               <span className="status-badge pending">Pending</span>
                             )}
                           </td>
+                          <td>{formatTokenCount(doc.total_tokens)}</td>
                           <td>
                             <div className="action-buttons">
                               {getDocumentProperty(doc, 's3_url') && (
@@ -1462,7 +1482,7 @@ const Dashboard: React.FC = () => {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={7} className="no-records">
+                        <td colSpan={8} className="no-records">
                           No documents found
                         </td>
                       </tr>

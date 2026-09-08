@@ -62,6 +62,31 @@ export interface Document {
   business_unit?: string;
   owner_email?: string;
   owner_name?: string;
+  total_tokens?: number | string;
+  project_id?: string;
+  account_id?: string;
+  parent_document_id?: string;
+  source_scope_id?: string;
+  source_documents?: SourceDocument[];
+  token_usage?: {
+    total_input_tokens?: number;
+    total_output_tokens?: number;
+    total_tokens?: number;
+    api_calls?: number;
+    models?: Record<string, number>;
+  };
+}
+
+export interface SourceDocument {
+  source_id: string;
+  filename: string;
+  content_hash: string;
+  revision: number;
+  uploaded_at: string;
+  comparison?: 'unchanged' | 'changed' | 'new_or_replaced';
+  previous_source_id?: string;
+  extracted_characters?: number;
+  reused?: boolean;
 }
 
 export interface DocumentsResponse {
@@ -569,6 +594,48 @@ class APIService {
     }
   }
 
+  async regenerateSOW(
+    documentId: string,
+    instructions: string,
+    supportingDocs: File[] = [],
+  ): Promise<GenerateSOWResponse> {
+    const baseUrl = API_CONFIG.BASE_URL.replace(/\/$/, '');
+    const formData = new FormData();
+    formData.append('instructions', instructions);
+    formData.append('supporting_doc_count', String(supportingDocs.length));
+    supportingDocs.forEach(file => formData.append('supporting_docs', file));
+    const response = await this.authenticatedFetch(
+      `${baseUrl}/api/documents/${encodeURIComponent(documentId)}/regenerate`,
+      { method: 'POST', body: formData },
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return { success: false, error: payload.error || `Regeneration failed (${response.status})` };
+    }
+    return payload as GenerateSOWResponse;
+  }
+
+  async fetchSourceDocuments(documentId: string): Promise<{ success: boolean; documents: SourceDocument[]; error?: string }> {
+    try {
+      return await this.makeRequest(
+        `/api/documents/${encodeURIComponent(documentId)}/sources`,
+        'GET',
+      ) as { success: boolean; documents: SourceDocument[]; error?: string };
+    } catch (error) {
+      return { success: false, documents: [], error: error instanceof Error ? error.message : 'Unable to load documents' };
+    }
+  }
+
+  async downloadSourceDocument(documentId: string, sourceId: string): Promise<Blob> {
+    const baseUrl = API_CONFIG.BASE_URL.replace(/\/$/, '');
+    const response = await this.authenticatedFetch(
+      `${baseUrl}/api/documents/${encodeURIComponent(documentId)}/sources/${encodeURIComponent(sourceId)}`,
+      { method: 'GET' },
+    );
+    if (!response.ok) throw new Error(`Supporting-document download failed (${response.status})`);
+    return response.blob();
+  }
+
   /**
    * Fetch recent POC documents
    */
@@ -672,6 +739,10 @@ class APIService {
     accountId?: string,
     selectedSowSections?: string[],
     businessUnit?: string,
+    pricingOptions?: {
+      region?: string;
+      includeProposed?: boolean;
+    },
   ): Promise<any> {
     const apiMode = this.mapModeToAPI(mode);
 
@@ -685,6 +756,9 @@ class APIService {
         formData.append('file', file);
         formData.append('selected_sow_sections', JSON.stringify(selectedSowSections || []));
         if (businessUnit) formData.append('business_unit', businessUnit);
+        if (pricingOptions?.region) formData.append('pricing_region', pricingOptions.region);
+        formData.append('pricing_include_proposed', String(pricingOptions?.includeProposed ?? true));
+        formData.append('pricing_read_cost', 'true');
 
         // Add supporting documents if provided
         if (supportingDocs && supportingDocs.length > 0) {
@@ -723,6 +797,9 @@ class APIService {
       formData.append('project_name', projectName);
       formData.append('selected_sow_sections', JSON.stringify(selectedSowSections || []));
       if (businessUnit) formData.append('business_unit', businessUnit);
+      if (pricingOptions?.region) formData.append('pricing_region', pricingOptions.region);
+      formData.append('pricing_include_proposed', String(pricingOptions?.includeProposed ?? true));
+      formData.append('pricing_read_cost', 'true');
 
       // Add project_id and account_id if provided (for linking to project)
       if (projectId) {
@@ -781,6 +858,21 @@ class APIService {
         error: error instanceof Error ? error.message : 'Unknown error occurred'
       };
     }
+  }
+
+  async recalculateAwsPricing(
+    previewId: string,
+    options: { region?: string; includeProposed?: boolean },
+  ): Promise<any> {
+    return this.makeRequest(
+      `/api/preview/${encodeURIComponent(previewId)}/aws-pricing/recalculate`,
+      'POST',
+      {
+        pricing_region: options.region || '',
+        pricing_include_proposed: options.includeProposed ?? true,
+        pricing_read_cost: true,
+      },
+    );
   }
 
   /**

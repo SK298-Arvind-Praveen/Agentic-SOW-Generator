@@ -232,6 +232,28 @@ class Config:
         self.DRAWIO_EDITOR_URL = os.environ.get(
             "DRAWIO_EDITOR_URL", "https://app.diagrams.net"
         ).rstrip("/")
+
+        # AWS Pricing Calculator MCP runtime. It is vendored separately from
+        # Python requirements because it is a Node.js application.
+        pricing_root = self.BASE_DIR.parent / "tools" / "aws-pricing-calculator"
+        self.AWS_PRICING_ENABLED = os.environ.get(
+            "AWS_PRICING_ENABLED", "true"
+        ).strip().lower() not in {"0", "false", "no", "off"}
+        self.AWS_PRICING_NODE_BINARY = os.environ.get("AWS_PRICING_NODE_BINARY", "node")
+        self.AWS_PRICING_CALCULATOR_BUNDLE = Path(os.environ.get(
+            "AWS_PRICING_CALCULATOR_BUNDLE",
+            str(pricing_root / "dist" / "mcp-server.js"),
+        ))
+        self.AWS_PRICING_COST_READER = Path(os.environ.get(
+            "AWS_PRICING_COST_READER",
+            str(pricing_root / "scripts" / "read-cost.js"),
+        ))
+        self.AWS_PRICING_TIMEOUT_SECONDS = max(
+            15, int(os.environ.get("AWS_PRICING_TIMEOUT_SECONDS", "90"))
+        )
+        self.AWS_PRICING_COST_TIMEOUT_SECONDS = max(
+            30, int(os.environ.get("AWS_PRICING_COST_TIMEOUT_SECONDS", "120"))
+        )
         
         # =====================================================================
         # SCHEMA CLEANER CONFIGURATION

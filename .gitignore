@@ -67,3 +67,8 @@ Thumbs.db
 *.log
 *.tmp
 *.bak
+
+# The AWS Pricing Calculator is a vendored Node runtime. Keep its executable
+# bundle in source control so backend pricing works immediately after checkout.
+!tools/aws-pricing-calculator/dist/
+!tools/aws-pricing-calculator/dist/mcp-server.js

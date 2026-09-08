@@ -72,6 +72,26 @@ class DynamoDBHandlerOptimized:
         """Generate unique document ID"""
         return f"DOC_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
 
+    def get_document_by_id(self, document_id: str):
+        """Fetch the newest row for a document id without assuming a sort key."""
+        try:
+            response = self.table.query(
+                KeyConditionExpression='document_id = :document_id',
+                ExpressionAttributeValues={':document_id': str(document_id)},
+                ScanIndexForward=False,
+                Limit=1,
+            )
+            items = response.get('Items', [])
+            return items[0] if items else None
+        except ClientError:
+            response = self.table.scan(
+                FilterExpression='document_id = :document_id',
+                ExpressionAttributeValues={':document_id': str(document_id)},
+                Limit=100,
+            )
+            items = response.get('Items', [])
+            return sorted(items, key=lambda item: str(item.get('timestamp') or ''), reverse=True)[0] if items else None
+
     def get_next_version(self, company_name: str, project_name: str, mode: str) -> str:
         """
         ✅ VERSION MANAGEMENT: Get next version number for a project + mode combination
@@ -451,6 +471,24 @@ class DynamoDBHandlerOptimized:
                 "owner_email": metadata.get("owner_email"),
                 "owner_name": metadata.get("owner_name"),
             }
+            if metadata.get("total_tokens") is not None:
+                item["total_tokens"] = int(metadata.get("total_tokens") or 0)
+            if metadata.get("token_usage"):
+                item["token_usage"] = metadata["token_usage"]
+            if metadata.get("aws_pricing"):
+                item["aws_pricing"] = metadata["aws_pricing"]
+            if metadata.get("source_documents"):
+                item["source_documents"] = metadata["source_documents"]
+            if metadata.get("source_scope_id"):
+                item["source_scope_id"] = str(metadata["source_scope_id"])
+            if metadata.get("parent_document_id"):
+                item["parent_document_id"] = str(metadata["parent_document_id"])
+            if metadata.get("refinement_instructions"):
+                item["refinement_instructions"] = str(metadata["refinement_instructions"])
+            if isinstance(metadata.get("selected_sow_sections"), list):
+                item["selected_sow_sections"] = [
+                    str(value) for value in metadata["selected_sow_sections"]
+                ]
 
             # ✅ NEW: Add account_id and project_id if provided
             if account_id:
@@ -492,6 +530,8 @@ class DynamoDBHandlerOptimized:
                 "business_unit": metadata.get("business_unit"),
                 "owner_email": metadata.get("owner_email"),
                 "owner_name": metadata.get("owner_name"),
+                "total_tokens": item.get("total_tokens"),
+                "token_usage": item.get("token_usage"),
                 "deduplication": {
                     "similar_found": len(similar_docs),
                     "kept_count": len(similar_docs) + 1,
@@ -585,8 +625,13 @@ class DynamoDBHandlerOptimized:
                     }
                 
                 # Add version to the appropriate mode
-                if version not in grouped[company]['projects'][project][mode]:
-                    grouped[company]['projects'][project][mode].append(version)
+                mode_versions = grouped[company]['projects'][project][mode]
+                if isinstance(mode_versions, list):
+                    # Upgrade legacy in-memory shape to the documented
+                    # version -> document list response used by the dashboard.
+                    mode_versions = {}
+                    grouped[company]['projects'][project][mode] = mode_versions
+                mode_versions.setdefault(version, []).append(item)
                 
                 # Increment document count
                 grouped[company]['document_count'] += 1
@@ -596,8 +641,10 @@ class DynamoDBHandlerOptimized:
                 for project in company['projects'].values():
                     for mode in ['POC', 'PROD', 'POC_TO_PROD']:
                         if project[mode]:
-                            # Sort versions (v1, v2, v3, ...)
-                            project[mode].sort(key=lambda v: int(v[1:]) if v[1:].isdigit() else 0)
+                            project[mode] = dict(sorted(
+                                project[mode].items(),
+                                key=lambda entry: int(entry[0][1:]) if entry[0][1:].isdigit() else 0,
+                            ))
 
             print(f"   ✓ Grouped into {len(grouped)} companies")
             
@@ -939,6 +986,14 @@ class DynamoDBHandlerOptimized:
                     'business_unit': item.get('business_unit'),
                     'owner_email': item.get('owner_email'),
                     'owner_name': item.get('owner_name'),
+                    'total_tokens': item.get('total_tokens'),
+                    'token_usage': item.get('token_usage'),
+                    'project_id': item.get('project_id'),
+                    'account_id': item.get('account_id'),
+                    'source_documents': item.get('source_documents', []),
+                    'source_scope_id': item.get('source_scope_id'),
+                    'parent_document_id': item.get('parent_document_id'),
+                    'selected_sow_sections': item.get('selected_sow_sections'),
                 })
 
             return sorted(

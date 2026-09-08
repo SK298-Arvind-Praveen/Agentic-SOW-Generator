@@ -25,7 +25,6 @@ const SECTION_LABELS: Record<string, string> = {
   about_client: 'About Client',
   project_overview: 'Objective',
   current_state_and_business_context: 'Current State and Business Context',
-  scope_at_a_glance: 'Deliverables',
   scope_of_work: 'Scope of Work',
   architecture_diagram: 'Architecture Diagram',
   customer_dependencies: 'Customer Dependencies',

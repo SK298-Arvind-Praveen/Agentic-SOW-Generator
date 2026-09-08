@@ -14,6 +14,8 @@ from app.core.nodes import (
     research_node,
     analyze_objective_node,
     rule_validation_node,
+    scope_architecture_node,
+    aws_pricing_node,
     content_generation_node,
     pdf_build_node
 )
@@ -29,6 +31,8 @@ def create_graph():
     workflow.add_node("research", research_node)
     workflow.add_node("analyze", analyze_objective_node)
     workflow.add_node("validate", rule_validation_node)
+    workflow.add_node("scope_architecture", scope_architecture_node)
+    workflow.add_node("pricing", aws_pricing_node)
     workflow.add_node("generate", content_generation_node)
     workflow.add_node("build", pdf_build_node)
     
@@ -63,7 +67,9 @@ def create_graph():
     # workflow.add_edge("ingest", "research") # Removed unconditional edge
     workflow.add_edge("research", "analyze")
     workflow.add_edge("analyze", "validate")
-    workflow.add_edge("validate", "generate")
+    workflow.add_edge("validate", "scope_architecture")
+    workflow.add_edge("scope_architecture", "pricing")
+    workflow.add_edge("pricing", "generate")
     workflow.add_edge("generate", "build")
     workflow.add_edge("build", END)
     
@@ -84,6 +90,8 @@ def create_preview_graph():
     workflow.add_node("research", research_node)
     workflow.add_node("analyze", analyze_objective_node)
     workflow.add_node("validate", rule_validation_node)
+    workflow.add_node("scope_architecture", scope_architecture_node)
+    workflow.add_node("pricing", aws_pricing_node)
     workflow.add_node("generate", content_generation_node)
     
     # Define conditional entry point
@@ -116,7 +124,9 @@ def create_preview_graph():
     )
     workflow.add_edge("research", "analyze")
     workflow.add_edge("analyze", "validate")
-    workflow.add_edge("validate", "generate")
+    workflow.add_edge("validate", "scope_architecture")
+    workflow.add_edge("scope_architecture", "pricing")
+    workflow.add_edge("pricing", "generate")
     workflow.add_edge("generate", END)  # Stop here, don't build document
     
     # Compile
@@ -137,6 +147,8 @@ def create_fast_preview_graph():
     workflow.add_node("research", research_node)
     workflow.add_node("analyze", analyze_objective_node)
     workflow.add_node("validate", rule_validation_node)
+    workflow.add_node("scope_architecture", scope_architecture_node)
+    workflow.add_node("pricing", aws_pricing_node)
     workflow.add_node("generate", content_generation_node)
     
     # Define conditional entry point
@@ -169,7 +181,9 @@ def create_fast_preview_graph():
     )
     workflow.add_edge("research", "analyze")
     workflow.add_edge("analyze", "validate")
-    workflow.add_edge("validate", "generate")
+    workflow.add_edge("validate", "scope_architecture")
+    workflow.add_edge("scope_architecture", "pricing")
+    workflow.add_edge("pricing", "generate")
     workflow.add_edge("generate", END)
     
     # Compile

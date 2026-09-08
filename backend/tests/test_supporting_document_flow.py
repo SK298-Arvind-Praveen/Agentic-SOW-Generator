@@ -201,6 +201,26 @@ class SupportingDocumentFlowTests(unittest.TestCase):
         self.assertIn("Supporting document corpus", requirements["source_basis"])
         self.assertNotIn("generic AWS", requirements["project_overview"])
 
+    def test_objective_json_parser_recovers_wrapped_json(self):
+        parsed = ObjectiveAgent._parse_json(
+            "Analysis follows:\n```json\n{\"key_features\":[\"Agent handover\"]}\n```\nDone"
+        )
+        self.assertEqual(parsed["key_features"], ["Agent handover"])
+
+    def test_objective_json_parser_recovers_truncated_top_level_object(self):
+        parsed = ObjectiveAgent._parse_json(
+            '{"project_overview":"Customer support automation",'
+            '"key_features":["Chatbot","Agent handover"]'
+        )
+        self.assertEqual(parsed["project_overview"], "Customer support automation")
+        self.assertEqual(parsed["key_features"], ["Chatbot", "Agent handover"])
+
+    def test_objective_json_parser_salvages_fields_before_partial_key(self):
+        parsed = ObjectiveAgent._parse_json(
+            '{"project_overview":"Customer support automation","key_feat'
+        )
+        self.assertEqual(parsed["project_overview"], "Customer support automation")
+
     def test_preview_endpoint_passes_uploaded_docx_evidence_into_agent_state(self):
         """Exercise the same multipart endpoint used by the browser UI."""
         from app.core import server

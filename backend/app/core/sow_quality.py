@@ -33,14 +33,14 @@ LIST_FIELDS = (
 REQUIRED_GENERATED_KEYS = {
     "POC": {
         "document_control_and_basis", "project_overview",
-        "current_state_and_business_context", "scope_at_a_glance",
+        "current_state_and_business_context",
         "scope_of_work", "architecture_diagram", "assumptions",
         "open_clarifications", "out_of_scope", "success_criteria",
         "aws_pricing", "shellkode_implementation_cost",
     },
     "PROD": {
         "project_overview", "current_state_and_business_context",
-        "scope_at_a_glance", "scope_of_work",
+        "scope_of_work",
         "technical_specifications_system_design", "architecture_integrations",
         "customer_dependencies", "assumptions", "open_clarifications",
         "out_of_scope", "timelines_and_deliverables", "testing_and_acceptance_plan",
@@ -48,7 +48,7 @@ REQUIRED_GENERATED_KEYS = {
     },
     "POC_TO_PROD": {
         "project_overview", "poc_evidence_and_outcomes",
-        "production_gap_assessment", "scope_at_a_glance", "scope_of_work",
+        "production_gap_assessment", "scope_of_work",
         "technical_specifications_system_design", "architecture_integrations",
         "migration_cutover_and_rollback", "customer_dependencies", "assumptions",
         "open_clarifications", "out_of_scope", "timelines_and_deliverables",

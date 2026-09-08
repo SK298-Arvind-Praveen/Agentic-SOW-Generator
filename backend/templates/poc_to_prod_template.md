@@ -9,7 +9,16 @@ paragraph per section, then concise bullets for non-comparable items or compact 
 comparable records. Put each bullet on its own Markdown line and keep it to one main idea.
 Default to no subsections. Use at most two direct subsections outside Scope of Work and no nested
 subsections. Treat coverage labels in local instructions as bold bullet labels rather than mandatory
-headings. Scope of Work may use one heading per genuine workstream; use bullets beneath it.
+headings. Scope of Work may use one heading per deliverable and one nested heading per cohesive module.
+
+Treat only unqualified source assertions as confirmed. Preserve source labels such as Assumption,
+Derived, Proposed, To be confirmed, Not stated, Needs clarification, optional, and future. A conflict
+between uploaded sources is an Open Clarification, not permission to select a preferred value. Do not
+diagnose a current-state gap solely because the target solution requests a capability.
+
+A source table row named a deliverable is a contractual output to preserve, not automatically a
+separate architectural delivery package. Separate top-level deliverables require independent phase,
+deployment, hand-off, or acceptance boundaries; otherwise cluster the outputs as cohesive modules.
 <!-- END_GLOBAL_TEMPLATE_CONTRACT -->
 
 [META_STATIC]
@@ -30,29 +39,28 @@ Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
 4. Objective
 5. POC Evidence and Outcomes
 6. Production Gap Assessment
-7. Deliverables
-8. Scope of Work
-9. Technical Specifications and System Design
-10. Architecture and Integrations
-11. Data Migration and Readiness
-12. Security, Privacy and Compliance
-13. Migration, Cutover and Rollback
-14. Customer Dependencies
-15. Assumptions
-16. Open Clarifications
-17. Out of Scope
-18. Timelines and Deliverables
-19. Testing and Acceptance Plan
-20. AWS Pricing
-21. Customer Responsibilities
-22. Duration of Work
-23. Shellkode Implementation Cost
-24. Success Criteria
-25. Risks and Mitigations
-26. Day-2 Operations and Support
-27. Deliverable Acceptance
-28. Change Management
-29. Project Plan Termination
+7. Scope of Work
+8. Technical Specifications and System Design
+9. Architecture and Integrations
+10. Data Migration and Readiness
+11. Security, Privacy and Compliance
+12. Migration, Cutover and Rollback
+13. Customer Dependencies
+14. Assumptions
+15. Open Clarifications
+16. Out of Scope
+17. Timelines and Deliverables
+18. Testing and Acceptance Plan
+19. AWS Pricing
+20. Customer Responsibilities
+21. Duration of Work
+22. Shellkode Implementation Cost
+23. Success Criteria
+24. Risks and Mitigations
+25. Day-2 Operations and Support
+26. Deliverable Acceptance
+27. Change Management
+28. Project Plan Termination
 30. Contacts and Reporting
 31. Marketing Authorization
 32. Terms and Conditions
@@ -110,21 +118,9 @@ compliance, data, integrations, reliability/recovery, deployment, testing, obser
 documentation, governance, and commercials. Do not imply POC behavior meets production SLAs.
 
 [META_GENERATED]
-## Deliverables
-
-Summarize production objectives, capabilities retained from POC, assets to reuse/refactor/replace,
-hardening work, users/data/integrations, environments, exclusions, planning horizon, cutover model,
-and acceptance. Use a compact table headed `#`, `Module/Workstream`, and `Core Outcome`, followed
-by a concise deliverables list. Do not add a `Depends On` column.
-
-[META_GENERATED]
 ## Scope of Work
 
-Create a production work breakdown with FR- and DEL-identified requirements/deliverables:
-baseline and gap closure; application/workflow hardening; data/AI engineering; integration;
-user experience if required; platform/IaC; security/compliance; observability; documentation,
-training and handover. For every item state POC disposition (reuse/refactor/replace/new), output,
-owner, dependency, and validation.
+Use the shared architect-generated work breakdown. When it contains more than one deliverable, begin with one compact table using `#`, `Deliverable`, `Included Modules`, and `Core Outcome`; omit this table for a single deliverable. Group the detailed scope by `### Deliverable 1 - <Name>` and place its cohesive mini-problems under `#### <Module Name>`. A top-level deliverable requires an independent phase, deployment, hand-off, or acceptance boundary; contractual capability rows that transition and are accepted together remain modules or outputs. Determine the number and boundaries from the source without a fixed limit or generic lifecycle taxonomy. Reason internally about the problem, objective, actors, inputs, requirements, production approach, outputs, dependencies and validation, but express the result as concise direct implementation-scope bullets. Do not create standalone pseudo-sections such as Proposed Approach, Key Outputs, Dependencies or Validation Evidence. Integrate unique boundaries, status and validation into the relevant bullet, merge repeated obligations, and use an inline bold lead-in only for one cohesive sub-capability. State the POC disposition wherever applicable and preserve source-specific workflows, rules, data, integrations, exceptions, evidence status and phase boundaries. Use tables only for indispensable comparable source records.
 
 [META_GENERATED]
 ## Technical Specifications and System Design
@@ -172,7 +168,7 @@ windows, UAT, go-live and operations readiness. Include owner role, needed-by, i
 [META_GENERATED]
 ## Assumptions
 
-Write 10-15 POC-to-production assumptions with owner/impact. Address reusability of POC assets,
+Write only the POC-to-production assumptions needed for this project, with owner/impact. Address reusability of POC assets,
 source completeness, environment access, data rights, decisions, test windows, change controls,
 operational ownership, and schedule basis without presenting assumptions as facts.
 
@@ -185,8 +181,11 @@ Sections, Status. Include gaps from the source POC and every material production
 [META_GENERATED]
 ## Out of Scope
 
-Group relevant production exclusions and clearly state which POC features/assets are not assumed
-production-ready. Reconcile with the gap assessment and route additions through Change Management.
+Include only source-supported or expressly agreed production exclusions and clearly state which POC
+features/assets are not production-ready. Never exclude a requested production deliverable. Treat
+conflicts, optional items and unconfirmed boundaries as Open Clarifications unless explicitly deferred.
+Label architect-proposed boundaries `Proposed - subject to baseline confirmation`; reconcile them with
+the gap assessment and requirements register before routing additions through Change Management.
 
 [META_TABLE]
 ## Timelines and Deliverables

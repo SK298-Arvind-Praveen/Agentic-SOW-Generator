@@ -26,6 +26,14 @@ def test_saving_a_version_does_not_delete_existing_history():
             "business_unit": "GenAI",
             "owner_email": "admin@shellkode.com",
             "owner_name": "Sample Admin",
+            "total_tokens": 123456,
+            "token_usage": {
+                "total_input_tokens": 100000,
+                "total_output_tokens": 23456,
+                "total_tokens": 123456,
+                "api_calls": 4,
+                "models": {"writer": 4},
+            },
         },
         "s3://documents/v14.docx",
     )
@@ -39,6 +47,8 @@ def test_saving_a_version_does_not_delete_existing_history():
     assert saved["business_unit"] == "GenAI"
     assert saved["owner_email"] == "admin@shellkode.com"
     assert saved["owner_name"] == "Sample Admin"
+    assert saved["total_tokens"] == 123456
+    assert saved["token_usage"]["total_output_tokens"] == 23456
 
 
 def test_company_documents_reads_all_query_pages_and_keeps_newest_first():

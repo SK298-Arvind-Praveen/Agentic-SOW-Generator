@@ -121,6 +121,48 @@
 
 .sow-empty-cta:hover { filter: brightness(1.05); transform: translateY(-1px); }
 
+.sow-refinement-modal { width: min(760px, 94vw); }
+.sow-sources-modal { width: min(720px, 94vw); }
+.sow-refinement-modal .modal-header p,
+.sow-sources-modal .modal-header p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px; }
+.sow-refinement-body { display: flex; flex-direction: column; gap: 10px; }
+.sow-refinement-body > label:first-child { font-size: 13px; font-weight: var(--font-semibold); color: var(--text-secondary); }
+.sow-refinement-body textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 150px;
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+.sow-refinement-body textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 24%, transparent); border-color: var(--accent); }
+.sow-refinement-upload {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--accent-dark);
+  background: var(--bg-surface);
+  cursor: pointer;
+}
+.sow-refinement-upload:hover { border-color: var(--accent); background: var(--accent-soft); }
+.sow-refinement-upload input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; }
+.sow-refinement-help { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.sow-refinement-file-list { margin: 2px 0 0; padding-left: 20px; color: var(--text-secondary); font-size: 12px; }
+.sow-source-list { display: flex; flex-direction: column; gap: 8px; }
+.sow-source-row { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+.sow-source-row > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.sow-source-row strong { overflow-wrap: anywhere; color: var(--text-primary); font-size: 13px; }
+.sow-source-row span { color: var(--text-muted); font-size: 11px; }
+.sow-source-empty { color: var(--text-muted); line-height: 1.5; }
+
 @media (max-width: 640px) {
   .sow-records-page { padding: 16px; }
   .sow-filter-date-row { flex-direction: column; }

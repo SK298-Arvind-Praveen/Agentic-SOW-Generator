@@ -16,9 +16,9 @@ class SowSectionPreferenceTests(unittest.TestCase):
         section = SimpleNamespace(name="Project Overview")
         detailed = SimpleNamespace(name="Detailed Scope of Work")
         self.assertEqual(POCWriterAgent._section_word_limit(section), 320)
-        self.assertEqual(POCWriterAgent._section_word_limit(detailed), 900)
+        self.assertIsNone(POCWriterAgent._section_word_limit(detailed))
         self.assertEqual(POCWriterAgent._section_token_budget(section), 900)
-        self.assertEqual(POCWriterAgent._section_token_budget(detailed), 1800)
+        self.assertEqual(POCWriterAgent._section_token_budget(detailed), 8192)
         verbose = " ".join(["detail"] * 321)
         issues = POCWriterAgent._authoring_issues(verbose, section)
         self.assertTrue(any("320-word section limit" in issue for issue in issues))
@@ -63,7 +63,6 @@ class SowSectionPreferenceTests(unittest.TestCase):
             "About ShellKode": "about_shellkode",
             "About {COMPANY_NAME}": "about_client",
             "Objective": "project_overview",
-            "Deliverables": "scope_of_work",
             "Scope of Work": "scope_of_work",
             "Architecture and Integrations": "architecture_diagram",
             "Customer Dependencies": "customer_dependencies",
@@ -82,6 +81,7 @@ class SowSectionPreferenceTests(unittest.TestCase):
         }
         for title, category in expected_categories.items():
             self.assertEqual(section_category(title), category, title)
+        self.assertIsNone(section_category("Deliverables"))
         self.assertEqual(
             section_category("Acceptance and Signatories to Statement of Work"),
             "acceptance_signatories",
@@ -153,11 +153,11 @@ class SowSectionPreferenceTests(unittest.TestCase):
 
         toc = output["toc_structure"]
         self.assertLess(toc.index("AWS Pricing"), toc.index("Objective"))
-        self.assertLess(toc.index("Current State"), toc.index("Deliverables"))
+        self.assertLess(toc.index("Current State"), toc.index("Scope of Work"))
 
         output_keys = list(output)
         self.assertLess(output_keys.index("aws_pricing"), output_keys.index("project_overview"))
-        self.assertLess(output_keys.index("current_state_and_business_context"), output_keys.index("scope_at_a_glance"))
+        self.assertLess(output_keys.index("current_state_and_business_context"), output_keys.index("scope_of_work"))
 
     def test_dynamic_toc_numbers_document_control_and_acceptance(self):
         backend = Path(__file__).resolve().parents[1]

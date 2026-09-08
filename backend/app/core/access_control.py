@@ -313,7 +313,16 @@ class RBACStore:
             response = self.table.get_item(Key={"PK": "CONFIG", "SK": "SOW_SECTIONS"})
             sections = response.get("Item", {}).get("sections")
             if isinstance(sections, list):
-                return sections
+                # Retire the former standalone Deliverables section even when
+                # an older DynamoDB catalogue still contains it. Deliverables
+                # are now represented inside Scope of Work.
+                return [
+                    section for section in sections
+                    if str(section.get("id") or "").casefold() not in {
+                        "deliverables", "scope_at_a_glance", "deliverable_scope_at_a_glance"
+                    }
+                    and str(section.get("label") or "").strip().casefold() != "deliverables"
+                ]
         except (BotoCoreError, ClientError) as exc:
             if not isinstance(exc, ClientError) or exc.response.get("Error", {}).get("Code") != "ResourceNotFoundException":
                 logger.warning("Section catalogue lookup failed: %s", exc)

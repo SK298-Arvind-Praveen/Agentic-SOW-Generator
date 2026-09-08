@@ -63,7 +63,12 @@ const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selecte
   const loadSections = async () => {
     try {
       const response = await apiService.fetchSowSections();
-      if (response.success && Array.isArray(response.sections)) setOptions(response.sections);
+      if (response.success && Array.isArray(response.sections)) {
+        setOptions(response.sections.filter((section: SectionOption) =>
+          !['deliverables', 'scope_at_a_glance', 'deliverable_scope_at_a_glance'].includes(section.id)
+          && section.label.trim().toLowerCase() !== 'deliverables'
+        ));
+      }
     } catch (error) {
       console.warn('Using bundled SOW section catalogue:', error);
     }

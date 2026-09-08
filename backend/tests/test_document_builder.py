@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from docx import Document
@@ -13,10 +14,14 @@ from pypdf import PdfReader
 
 from app.document.document_builder import (
     CHROME_INSET_IN,
+    HORIZONTAL_MARGIN_IN,
+    PAGE_WIDTH_IN,
     DocumentBuilder,
     SectionBuilder,
+    _add_field,
     _bookmark_name,
     _find_libreoffice_binary,
+    _flatten_pageref_fields,
     _pageref_results_from_xml,
 )
 
@@ -33,6 +38,18 @@ class _Config:
 
 
 class DocumentBuilderTests(unittest.TestCase):
+    def test_plain_external_url_is_rendered_as_clickable_hyperlink(self):
+        document = Document()
+        SectionBuilder(document, SimpleNamespace()).parse_content(
+            "**AWS Pricing Calculator Link:** https://calculator.aws/#/estimate?id=abc"
+        )
+        hyperlink_relationships = [
+            relationship.target_ref
+            for relationship in document.part.rels.values()
+            if relationship.reltype.endswith("/hyperlink")
+        ]
+        self.assertIn("https://calculator.aws/#/estimate?id=abc", hyperlink_relationships)
+
     def test_open_clarifications_table_reserves_readable_area_column(self):
         widths = SectionBuilder._column_widths([
             ["Module/Area", "Open Item", "Status / Note"],
@@ -48,6 +65,17 @@ class DocumentBuilderTests(unittest.TestCase):
         self.assertLessEqual(len(second), 40)
         self.assertNotEqual(first, second)
         self.assertTrue(first.startswith("SOW_1034_"))
+
+    def test_calculated_pageref_can_be_materialised_for_google_docs(self):
+        document = Document()
+        paragraph = document.add_paragraph("Scope of Work")
+        paragraph.add_run("\t")
+        _add_field(paragraph, "PAGEREF SOW_1_Scope \\h", "7", size=11)
+        flattened = _flatten_pageref_fields(document._element.xml.encode("utf-8"))
+        xml = flattened.decode("utf-8")
+        self.assertNotIn("PAGEREF", xml)
+        self.assertIn(">7</w:t>", xml)
+        self.assertIn("Scope of Work", xml)
 
     def test_finds_bundled_libreoffice_when_it_is_not_on_path(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -112,6 +140,9 @@ class DocumentBuilderTests(unittest.TestCase):
             document = Document(output)
             self.assertEqual(document.styles["Normal"].font.size.pt, 11.0)
             self.assertEqual(document.styles["Heading 1"].font.size.pt, 20.0)
+            self.assertEqual(document.styles["Heading 2"].font.size.pt, 15.0)
+            self.assertEqual(document.styles["Heading 3"].font.size.pt, 15.0)
+            self.assertEqual(document.styles["Heading 4"].font.size.pt, 15.0)
             self.assertEqual(document.styles["Normal"].paragraph_format.alignment, 3)
             self.assertEqual(document.styles["Normal"].paragraph_format.space_after.pt, 8.0)
             self.assertAlmostEqual(
@@ -168,6 +199,17 @@ class DocumentBuilderTests(unittest.TestCase):
             self.assertTrue(any(p.style.name == "Heading 2" and p.text == "1.1 Business Need" for p in document.paragraphs))
             self.assertTrue(any(p.style.name == "Heading 2" and p.text == "2.1 Module A" for p in document.paragraphs))
             self.assertTrue(any(p.style.name == "Heading 3" and p.text == "2.1.1 Workflow" for p in document.paragraphs))
+            subsection_headings = [
+                paragraph for paragraph in document.paragraphs
+                if paragraph.style.name in {"Heading 2", "Heading 3", "Heading 4"}
+            ]
+            self.assertTrue(subsection_headings)
+            self.assertTrue(all(
+                run.font.size and run.font.size.pt == 15.0
+                for paragraph in subsection_headings
+                for run in paragraph.runs
+                if run.text
+            ))
 
             numbered = [
                 paragraph for paragraph in document.paragraphs
@@ -204,20 +246,27 @@ class DocumentBuilderTests(unittest.TestCase):
             self.assertEqual(round(cover_section.page_width.inches, 2), 8.27)
             self.assertEqual(round(cover_section.page_height.inches, 2), 11.69)
 
-            # Dynamic cover labels remain native w:t runs, while the section
-            # break shares the final cover text paragraph. There is no separate
-            # empty break carrier or page-sized inline cover image for Word
-            # Online/SharePoint to promote to a blank page.
-            self.assertIn("Example Customer", paragraph_texts)
-            self.assertIn("Agentic CRM Platform", paragraph_texts)
-            self.assertIn("Test Author", paragraph_texts)
+            # Dynamic cover labels live in modern page-anchored DrawingML text
+            # boxes. They remain editable w:t values without relying on flow
+            # paragraphs or renderer-dependent frame positioning.
+            cover_xml = document._element.xml
+            self.assertIn("Example Customer", cover_xml)
+            self.assertIn("Agentic CRM Platform", cover_xml)
+            self.assertIn("Test Author", cover_xml)
             self.assertNotIn("Client Name", paragraph_texts)
             self.assertNotIn("<Author Name>", paragraph_texts)
-            date_paragraph = next(
+            self.assertEqual(cover_xml.count("<wps:wsp>"), 6)
+            self.assertNotIn("w:framePr", cover_xml)
+            self.assertIn('name="Cover Company"', cover_xml)
+            self.assertIn('<w:sz w:val="64"', cover_xml)
+            self.assertIn('<w:sz w:val="30"', cover_xml)
+            self.assertIn('<w:sz w:val="28"', cover_xml)
+            self.assertIn('<w:sz w:val="24"', cover_xml)
+            cover_boundary = next(
                 paragraph for paragraph in document.paragraphs
-                if paragraph.text == "18 August 2026"
+                if paragraph._p.pPr is not None and paragraph._p.pPr.sectPr is not None
             )
-            self.assertIsNotNone(date_paragraph._p.pPr.sectPr)
+            self.assertTrue(cover_boundary._p.xpath(".//w:drawing"))
             self.assertEqual(len(document.inline_shapes), 0)
 
             with zipfile.ZipFile(output) as package:
@@ -369,6 +418,10 @@ class DocumentBuilderTests(unittest.TestCase):
             self.assertIn('w:jc w:val="right"', header_xml)
             self.assertIn("PAGE", footer_xml)
             self.assertIn("NUMPAGES", footer_xml)
+            expected_toc_tab = round(
+                (PAGE_WIDTH_IN - 2 * HORIZONTAL_MARGIN_IN - 0.18) * 1440
+            )
+            self.assertIn(f'w:pos="{expected_toc_tab}"', document_xml)
             self.assertIn('<w:updateFields w:val="true"', settings_xml)
             self.assertNotIn("Courier", document_xml)
             for font_attribute in ("ascii", "hAnsi", "eastAsia", "cs"):
