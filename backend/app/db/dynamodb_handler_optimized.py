@@ -596,7 +596,11 @@ class DynamoDBHandlerOptimized:
                     if str(item.get('owner_email', '')).casefold().strip() == owner_email
                 ]
             elif business_unit:
-                items = [item for item in items if item.get('business_unit') == business_unit]
+                allowed_units = (
+                    set(business_unit) if isinstance(business_unit, (list, tuple, set))
+                    else {business_unit}
+                )
+                items = [item for item in items if item.get('business_unit') in allowed_units]
 
             # Group by company -> project -> mode -> versions
             grouped = {}
@@ -736,9 +740,13 @@ class DynamoDBHandlerOptimized:
                     if str(item.get('owner_email', '')).casefold().strip() == owner_email
                 ]
             elif business_unit:
+                allowed_units = (
+                    set(business_unit) if isinstance(business_unit, (list, tuple, set))
+                    else {business_unit}
+                )
                 filtered_items = [
                     item for item in filtered_items
-                    if item.get('business_unit') == business_unit
+                    if item.get('business_unit') in allowed_units
                 ]
             
             if project_name:

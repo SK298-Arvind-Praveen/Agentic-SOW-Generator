@@ -4,6 +4,7 @@ from app.core.sow_quality import (
     clean_markdown_preserving_structure,
     merge_requirement_extractions,
     normalize_requirements,
+    remove_missing_information_disclaimers,
     validate_generated_sections,
 )
 
@@ -58,6 +59,48 @@ class SowQualityTests(unittest.TestCase):
         self.assertIn("aws_pricing", missing)
         self.assertNotIn("testing_and_acceptance_plan", missing)
         self.assertNotIn("risks_and_mitigations", missing)
+
+    def test_missing_information_disclaimers_are_removed_from_normal_sections(self):
+        source = (
+            "- **Mapping:** Define the source-to-target mapping; source volumes are not stated in the BRD.\n"
+            "- **Performance:** Configure TAT timers; no numeric latency target is confirmed.\n"
+            "- **Retention:** No retention policy is confirmed; retention remains an open clarification."
+        )
+        cleaned = remove_missing_information_disclaimers(source)
+        self.assertIn("Define the source-to-target mapping", cleaned)
+        self.assertIn("Configure TAT timers", cleaned)
+        self.assertNotIn("not stated", cleaned)
+        self.assertNotIn("confirmed", cleaned)
+        self.assertNotIn("Retention", cleaned)
+
+    def test_generation_gate_catches_extended_missing_information_language(self):
+        missing, issues = validate_generated_sections(
+            {"scope_of_work": "x" * 90 + " Pending customer confirmation."},
+            "POC",
+            required_keys={"scope_of_work"},
+        )
+        self.assertEqual(missing, [])
+        self.assertTrue(any("describes absent information" in item for item in issues))
+
+    def test_generation_gate_rejects_absence_language_even_in_open_clarifications(self):
+        missing, issues = validate_generated_sections(
+            {"open_clarifications": "| Module/Area | Open Item | Status / Note |\n|---|---|---|\n| Pricing | Volume was not provided |  |"},
+            "POC",
+            required_keys={"open_clarifications"},
+        )
+        self.assertEqual(missing, [])
+        self.assertTrue(any("describes absent information" in item for item in issues))
+
+    def test_missing_information_cleanup_covers_absence_and_availability_phrases(self):
+        source = (
+            "- Configure migration reconciliation; full-volume reconciliation is excluded due to the absence of record counts.\n"
+            "- Integrate Cisco call controls; credentials are not available in the supplied material.\n"
+            "- Preserve the source-backed ticket classification hierarchy."
+        )
+        cleaned = remove_missing_information_disclaimers(source)
+        self.assertNotIn("absence of", cleaned.casefold())
+        self.assertNotIn("not available", cleaned.casefold())
+        self.assertIn("Preserve the source-backed ticket classification hierarchy", cleaned)
 
 
 if __name__ == "__main__":

@@ -85,11 +85,12 @@ The company works across industries including BFSI, Retail & E-commerce, Logisti
 [META_GENERATED]
 ## About {COMPANY_NAME}
 
-Write exactly two brief, source-grounded prose paragraphs about {COMPANY_NAME}. Cover only the
-company background and business context relevant to this engagement. Do not use subsections,
+Write exactly two brief, source-grounded prose paragraphs about {COMPANY_NAME}. Cover only its
+company profile, industry, products/services and established business operations. Do not describe
+this project, its problem, requirements, proposed solution, engagement, or ShellKode's involvement. Do not use subsections,
 bullets, numbered lists, or tables. Do not invent industry position, scale, revenue, locations,
 products, regulations, or achievements. When source information is limited, keep both paragraphs
-to the confirmed project context and avoid unsupported corporate claims.
+to confirmed company facts; omit unsupported details without commenting that information is missing.
 
 [META_GENERATED]
 ## Objective
@@ -176,7 +177,9 @@ operational ownership, and schedule basis without presenting assumptions as fact
 ## Open Clarifications
 
 Create a decision log with ID, Clarification, Why It Matters, Owner Role, Required By, Affected
-Sections, Status. Include gaps from the source POC and every material production unknown.
+Sections, Status. Include gaps from the source POC and every material production open item as a
+direct answerable question. Never state that information was not provided, specified, stated,
+supplied, available or confirmed; leave an unavailable status/value cell blank.
 
 [META_GENERATED]
 ## Out of Scope
@@ -206,9 +209,16 @@ POC results as production evidence without explicit applicability and revalidati
 [META_TABLE]
 ## AWS Pricing
 
-Separate POC spend, one-time transition/test spend, and steady-state production cost drivers.
-Use source estimates if present; otherwise planning ranges/basis and required usage decisions.
-Never invent approved funding or precise calculator totals.
+Put the editable AWS Pricing Calculator link above all tables. Show only a two-column
+`Estimated Volume Metrics` table of source-backed business workload measures such as interactions,
+turns, inference share, handovers, backend calls, users, concurrency and retention. Follow it with a
+two-column `AWS Cost Summary` containing the calculator estimate, AWS MRR and AWS ARR in the
+calculator currency. Do not expose raw service configuration fields, unresolved calculator
+parameters, or a confirmation-needed column. Route unresolved material inputs to Open Clarifications.
+Always retain the standard workload and cost rows, leaving unavailable values blank without commentary.
+Use a broad non-binding fallback only when time-based business volumetrics support it. Distinguish
+POC, transition/test and production usage only where sourced. Never invent approved funding,
+precise calculator totals, or an unsupported currency conversion.
 
 [META_STATIC]
 ## Customer Responsibilities

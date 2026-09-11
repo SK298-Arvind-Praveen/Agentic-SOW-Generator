@@ -387,6 +387,22 @@ class PocBenchmarkContractTests(unittest.TestCase):
         self.assertNotIn("Validation Evidence", cleaned)
         self.assertIn("- Alarm demonstrated.", cleaned)
 
+    def test_scope_removes_evidence_status_meta_bullets(self):
+        cleaned = POCWriterAgent._sanitize_scope_reasoning_labels(
+            "#### Monitoring\n- Configure metrics.\n- **Evidence status:** Source Assumption."
+        )
+        self.assertNotIn("Evidence status", cleaned)
+        self.assertNotIn("Source Assumption", cleaned)
+
+    def test_about_company_cleanup_removes_engagement_problem_context(self):
+        agent = POCWriterAgent.__new__(POCWriterAgent)
+        cleaned = agent._clean_content(
+            "Axis Securities operates in financial services.\n\n"
+            "The requirements relevant to this engagement are addressed in the project scope.",
+            "About Axis Securities",
+        )
+        self.assertEqual(cleaned, "Axis Securities operates in financial services.")
+
 
 if __name__ == "__main__":
     unittest.main()

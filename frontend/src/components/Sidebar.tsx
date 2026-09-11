@@ -12,6 +12,7 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   color: string;
   adminOnly?: boolean;
+  accountsOnly?: boolean;
   isActive: (pathname: string) => boolean;
 }
 
@@ -22,6 +23,7 @@ const NAV_ITEMS: NavItem[] = [
     description: 'Manage accounts and projects',
     icon: Database,
     color: '#8b5cf6',
+    accountsOnly: true,
     isActive: (p) => p.startsWith('/accounts') || p.startsWith('/projects')
   },
   {
@@ -62,7 +64,7 @@ const NAV_ITEMS: NavItem[] = [
 const Sidebar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAdmin } = useAuth();
+  const { isAdmin, canAccessAccounts } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -82,7 +84,7 @@ const Sidebar: React.FC = () => {
 
       <div className="sidebar-content">
         <nav className="sidebar-nav">
-          {NAV_ITEMS.filter(item => !item.adminOnly || isAdmin).map((item) => {
+          {NAV_ITEMS.filter(item => (!item.adminOnly || isAdmin) && (!item.accountsOnly || canAccessAccounts)).map((item) => {
             const IconComponent = item.icon;
             const isActive = item.isActive(location.pathname);
 

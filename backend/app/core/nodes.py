@@ -1189,8 +1189,7 @@ def research_node(state: AgentState) -> AgentState:
     
     metadata['author_org_description'] = results.get(metadata['author_org'], 
         "Shellkode specializes in developing advanced data and AI solutions for businesses.")
-    metadata['company_description'] = results.get(metadata['company_name'], 
-        f"{metadata['company_name']} is the customer organization for this engagement; project-specific context is documented in this SOW.")
+    metadata['company_description'] = results.get(metadata['company_name'], "")
     
     print(f"✅ Company research completed")
     print(f"   Vendor: {metadata['author_org']}")
@@ -1238,6 +1237,26 @@ def analyze_objective_node(state: AgentState) -> AgentState:
 
     objective_agent = ObjectiveAgent(config)
     analyzed_requirements = objective_agent.analyze_objective(objective, supporting_context)
+
+    quality = objective_agent.evaluate_input_quality(
+        analyzed_requirements,
+        f"{objective}\n{supporting_context}",
+    )
+    analyzed_requirements["_input_quality"] = quality
+    if not quality["accepted"]:
+        reason = quality.get("reason") or "The supplied content is unrelated to SOW generation or lacks usable project requirements."
+        message = (
+            "Generation stopped after objective analysis: the supplied content does not contain "
+            f"enough relevant project or solution scope to create a defensible SOW. {reason} "
+            "Provide a business problem, desired outcome, requirements, workflows, systems, or deliverables."
+        )
+        print(f"[OBJECTIVE][REJECTED] {reason}", flush=True)
+        _report_progress(state, 45, "Input rejected during objective analysis")
+        return {
+            "analyzed_requirements": analyzed_requirements,
+            "errors": [message],
+            "current_step": "objective_rejected",
+        }
 
     print(f"✅ Objective analysis completed")
     

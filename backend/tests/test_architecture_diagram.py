@@ -74,6 +74,11 @@ class ArchitectureDiagramTests(unittest.TestCase):
         self.assertTrue(base64.b64decode(asset["image_base64"]).startswith(b"\x89PNG"))
         self.assertTrue(asset["edit_url"].startswith("https://app.diagrams.net/"))
 
+    def test_edit_url_uses_external_query_instead_of_word_bookmark_fragment(self):
+        url = edit_url("<mxGraphModel><root /></mxGraphModel>")
+        self.assertIn("&create=", url)
+        self.assertNotIn("#create=", url)
+
     def test_evidence_gate_plans_multiple_distinct_diagrams_without_exceeding_cap(self):
         diagrams = []
         for diagram_type, title in (
@@ -211,17 +216,14 @@ class ArchitectureDiagramTests(unittest.TestCase):
         positions, width, height = _geometry(spec)
         self.assertGreater(width, height)
 
-    def test_invalid_agent_output_uses_source_grounded_fallback(self):
+    def test_invalid_agent_output_halts_generation(self):
         service = DiagramService(_Config(), bedrock=_Bedrock("not json"))
-        asset = service.generate_asset(
-            {"aws_services": ["Amazon Bedrock", "Amazon DynamoDB"]},
-            {"company_name": "Example", "project_title": "Support Assistant"},
-            "",
-        )
-        labels = {node["label"] for node in asset["spec"]["nodes"]}
-        self.assertTrue(asset["used_fallback"])
-        self.assertIn("Amazon Bedrock", labels)
-        self.assertIn("Amazon DynamoDB", labels)
+        with self.assertRaises(RuntimeError):
+            service.generate_asset(
+                {"aws_services": ["Amazon Bedrock", "Amazon DynamoDB"]},
+                {"company_name": "Example", "project_title": "Support Assistant"},
+                "",
+            )
 
     def test_drawio_edit_round_trip_validates_png_and_xml(self):
         spec = fallback_spec(

@@ -43,50 +43,11 @@ class RuleEngineAgent:
     ) -> Dict[str, Any]:
         """Apply rules, then deterministically restore source-grounded data."""
         baseline = normalize_requirements(requirements, objective, mode)
-        if not self.rules:
-            return self._post_validate(baseline, baseline, objective, mode)
-
-        prompt = f"""You are the quality and scope-control reviewer for a {mode} Statement of Work.
-
-SOURCE OBJECTIVE:
-{objective}
-
-NORMALIZED REQUIREMENTS:
-{json.dumps(baseline, indent=2, default=str)}
-
-QUALITY RULES:
-{self._format_rules_as_text()}
-
-Return a single JSON object that improves completeness and clarity while following these controls:
-1. Preserve every confirmed/user-supplied value exactly. Never remove a source detail.
-2. Do not invent dates, prices, data volumes, concurrency, SLAs, compliance frameworks,
-   integrations, model versions, customer facts, or acceptance thresholds.
-3. Put reasonable design choices in planning_assumptions and material unknowns in
-   open_clarifications. A planning assumption is not a commitment.
-4. Add testing_approach, architecture_notes, dependencies, out_of_scope,
-   risks_and_mitigations, and traceability_notes as useful lists.
-5. Make scope testable: each deliverable should have an output and an acceptance method.
-6. For POC_TO_PROD, preserve POC evidence separately from proposed production hardening.
-7. Keep confirmed_aws_services distinct from proposed_aws_services.
-8. Use [] or null when something remains unknown.
-
-Respond with JSON only."""
-
-        candidate: Dict[str, Any] = {}
-        try:
-            result = self.llm.generate(
-                prompt,
-                task="analysis",
-                max_tokens=min(getattr(self.config, "MAX_TOKENS", 8192), 8192),
-                temperature=0.1,
-                call_name="Requirements Validation",
-                fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
-            )
-            candidate = json.loads(self._clean_json_response(result.text))
-        except Exception as exc:
-            print(f"⚠ Requirements validation used deterministic fallback: {exc}")
-
-        validated = self._post_validate(candidate, baseline, objective, mode)
+        # This stage is a policy gate, not an authoring task. Asking a model to
+        # echo the complete baseline repeatedly produced oversized, malformed
+        # JSON without adding trustworthy source facts. Normalisation and
+        # source restoration already implement the required controls exactly.
+        validated = self._post_validate({}, baseline, objective, mode)
         print(f"✓ Requirements validated against {len(self.rules)} rule categories")
         print(f"✓ Source-grounded values restored deterministically")
         return validated

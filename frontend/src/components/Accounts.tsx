@@ -50,6 +50,8 @@ interface Statistics {
 const Accounts: React.FC = () => {
   const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
+  const selectableBusinessUnits = isAdmin ? BUSINESS_UNITS : (user?.business_units || []);
+  const showBusinessUnit = isAdmin || selectableBusinessUnits.length > 1;
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [statistics, setStatistics] = useState<Statistics | null>(null);
   const [loading, setLoading] = useState(true);
@@ -99,11 +101,11 @@ const Accounts: React.FC = () => {
       const params: any = {};
       if (segmentFilter) params.segment = segmentFilter;
       if (priorityFilter) params.priority = priorityFilter;
-      if (isAdmin && businessUnitFilter) params.business_unit = businessUnitFilter;
+      if (showBusinessUnit && businessUnitFilter) params.business_unit = businessUnitFilter;
 
       const [accountsRes, statsRes] = await Promise.all([
         apiService.fetchAccounts(params),
-        apiService.fetchAccountStatistics(isAdmin ? businessUnitFilter : undefined)
+        apiService.fetchAccountStatistics(showBusinessUnit ? businessUnitFilter : undefined)
       ]);
 
       if (accountsRes.success) setAccounts(accountsRes.accounts || []);
@@ -368,10 +370,10 @@ const Accounts: React.FC = () => {
         </div>
 
         <div className="filter-controls">
-          {isAdmin && (
+          {showBusinessUnit && (
             <select value={businessUnitFilter} onChange={(e) => setBusinessUnitFilter(e.target.value)} className="filter-select">
               <option value="">All Business Units</option>
-              {BUSINESS_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+              {selectableBusinessUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}
             </select>
           )}
           <button
@@ -417,7 +419,7 @@ const Accounts: React.FC = () => {
           <thead>
             <tr>
               <th>Account Name</th>
-              {isAdmin && <th>Business Unit</th>}
+              {showBusinessUnit && <th>Business Unit</th>}
               <th>Segment</th>
               <th>Priority</th>
               <th>Projects</th>
@@ -430,7 +432,7 @@ const Accounts: React.FC = () => {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={isAdmin ? 9 : 8} className="loading-cell">Loading accounts...</td>
+                <td colSpan={showBusinessUnit ? 9 : 8} className="loading-cell">Loading accounts...</td>
               </tr>
             ) : getFilteredAccounts().length > 0 ? (
               getFilteredAccounts().map((account) => (
@@ -440,7 +442,7 @@ const Accounts: React.FC = () => {
                   className="account-row"
                 >
                   <td className="account-name-cell">{account.account_name}</td>
-                  {isAdmin && <td>{account.business_unit || 'Unassigned'}</td>}
+                  {showBusinessUnit && <td>{account.business_unit || 'Unassigned'}</td>}
                   <td>
                     <span
                       className="segment-badge"
@@ -492,7 +494,7 @@ const Accounts: React.FC = () => {
               ))
             ) : (
               <tr>
-                <td colSpan={isAdmin ? 9 : 8} className="no-data-cell">No accounts found</td>
+                <td colSpan={showBusinessUnit ? 9 : 8} className="no-data-cell">No accounts found</td>
               </tr>
             )}
           </tbody>
@@ -525,7 +527,7 @@ const Accounts: React.FC = () => {
                 </div>
 
                 <div className="form-row">
-                  {isAdmin && (
+                  {showBusinessUnit && (
                     <div className="form-group">
                       <label>Business Unit *</label>
                       <select
@@ -535,7 +537,7 @@ const Accounts: React.FC = () => {
                         required
                       >
                         <option value="">Select business unit...</option>
-                        {BUSINESS_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                        {selectableBusinessUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}
                       </select>
                     </div>
                   )}

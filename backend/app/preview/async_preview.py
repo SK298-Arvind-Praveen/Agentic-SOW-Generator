@@ -96,6 +96,8 @@ def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fa
             
             # Run the actual graph
             final_state = preview_graph.invoke(graph_state)
+            if final_state.get("errors"):
+                raise ValueError(str(final_state["errors"][0]))
             
             # Phase 5: Finalizing (90-100%)
             with preview_lock:
@@ -144,6 +146,11 @@ def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fa
             print(f"[PREVIEW {preview_id}] FAILED — {e}", flush=True)
             import traceback
             traceback.print_exc()
+            # A failed/truncated run is still valuable for Sonnet viability
+            # analysis. Preserve and print every token consumed before the gate.
+            from app.core.nodes import get_token_usage, print_token_summary
+            failed_usage = get_token_usage(preview_id)
+            print_token_summary(usage=failed_usage)
             
             # Update with error status
             with preview_lock:
@@ -151,6 +158,10 @@ def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fa
                     preview_storage[preview_id]["status"] = "failed"
                     preview_storage[preview_id]["error"] = str(e)
                     preview_storage[preview_id]["current_step"] = f"Error: {str(e)}"
+                    preview_storage[preview_id]["token_usage"] = failed_usage
+                    preview_storage[preview_id]["total_tokens"] = int(
+                        failed_usage.get("total_tokens") or 0
+                    )
             from app.core.nodes import clear_token_usage
             clear_token_usage(preview_id)
         finally:

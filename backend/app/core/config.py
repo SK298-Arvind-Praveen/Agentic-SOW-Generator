@@ -55,22 +55,25 @@ class Config:
         # Bedrock inference profiles are region-specific. Keep its region
         # independent from DynamoDB/S3 so storage can live in another region.
         self.BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
-        # Task-specific model routing. BEDROCK_MODEL_ID remains a backwards-
-        # compatible override for deployments that intentionally want one model
-        # everywhere. New deployments use inexpensive models for extraction and
-        # reserve Claude for customer-facing prose and exceptional retries.
-        legacy_model = os.environ.get("BEDROCK_MODEL_ID")
+        # All task routes default to the organisation-approved application
+        # inference profile. Per-task variables remain available for controlled
+        # future overrides without changing call sites.
+        default_inference_profile = (
+            "arn:aws:bedrock:us-east-1:106611079163:"
+            "application-inference-profile/20kstbja9ona"
+        )
+        legacy_model = os.environ.get("BEDROCK_MODEL_ID") or default_inference_profile
         self.FAST_MODEL_ID = os.environ.get(
             "BEDROCK_FAST_MODEL_ID",
-            legacy_model or "us.amazon.nova-micro-v1:0",
+            legacy_model,
         )
         self.ANALYSIS_MODEL_ID = os.environ.get(
             "BEDROCK_ANALYSIS_MODEL_ID",
-            legacy_model or "us.amazon.nova-2-lite-v1:0",
+            legacy_model,
         )
         self.WRITER_MODEL_ID = os.environ.get(
             "BEDROCK_WRITER_MODEL_ID",
-            legacy_model or "us.anthropic.claude-sonnet-4-20250514-v1:0",
+            legacy_model,
         )
         self.DIAGRAM_MODEL_ID = os.environ.get(
             "BEDROCK_DIAGRAM_MODEL_ID",
@@ -82,7 +85,7 @@ class Config:
         )
         self.FALLBACK_MODEL_ID = os.environ.get(
             "BEDROCK_FALLBACK_MODEL_ID",
-            legacy_model or self.WRITER_MODEL_ID,
+            legacy_model,
         )
         # Compatibility for older call sites while they migrate to task routing.
         self.MODEL_ID = legacy_model or self.WRITER_MODEL_ID
@@ -106,8 +109,8 @@ class Config:
         # Large single responses were the main source of truncated/invalid JSON.
         # The writer now works section-by-section, so these are safe upper bounds
         # rather than a target for every call.
-        self.MAX_TOKENS = 8192
-        self.SECTION_MAX_TOKENS = 6000
+        self.MAX_TOKENS = 32768
+        self.SECTION_MAX_TOKENS = 32768
         self.TEMPERATURE = 0.2
         # The preview UI currently stops polling after five minutes. Independent
         # SOW sections share one immutable baseline and can safely be authored in

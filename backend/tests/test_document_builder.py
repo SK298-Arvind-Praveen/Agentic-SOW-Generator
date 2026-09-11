@@ -152,6 +152,11 @@ class DocumentBuilderTests(unittest.TestCase):
             )
             text = "\n".join(paragraph.text for paragraph in document.paragraphs)
             self.assertIn("Table of Contents", text)
+            toc_title = next(
+                paragraph for paragraph in document.paragraphs
+                if paragraph.text == "Table of Contents"
+            )
+            self.assertNotEqual(toc_title.style.name, "Heading 1")
             self.assertIn("Text after the first table must remain visible.", text)
             paragraph_texts = [paragraph.text for paragraph in document.paragraphs]
             toc_index = paragraph_texts.index("Table of Contents")
@@ -279,6 +284,7 @@ class DocumentBuilderTests(unittest.TestCase):
             self.assertIn('w:numId="91"', numbering)
             self.assertNotIn('w:numId="92"', numbering)
             self.assertIn("1.1 Business Need", xml)
+            self.assertEqual(xml.count('TOC \\o "1-4" \\h \\z \\u'), 1)
             pageref_targets = re.findall(r"PAGEREF\s+([^\s<]+)\s+\\h", xml)
             bookmark_names = set(re.findall(r'<w:bookmarkStart[^>]+w:name="([^"]+)"', xml))
             self.assertTrue(pageref_targets)
@@ -409,7 +415,9 @@ class DocumentBuilderTests(unittest.TestCase):
                     "word/_rels/fontTable.xml.rels"
                 ).decode("utf-8")
                 package_names = set(package.namelist())
-            self.assertEqual(document_xml.count('<w:br w:type="page"'), 2)
+            # The cover-to-TOC transition is a native next-page section break;
+            # only the TOC-to-body transition needs an explicit page break.
+            self.assertEqual(document_xml.count('<w:br w:type="page"'), 1)
             self.assertNotIn('<w:pageBreakBefore w:val="0"', document_xml)
             self.assertIn("w:drawing", header_xml)
             self.assertIn("w:tbl", header_xml)
@@ -422,6 +430,10 @@ class DocumentBuilderTests(unittest.TestCase):
                 (PAGE_WIDTH_IN - 2 * HORIZONTAL_MARGIN_IN - 0.18) * 1440
             )
             self.assertIn(f'w:pos="{expected_toc_tab}"', document_xml)
+            self.assertEqual(
+                document_xml.count('TOC \\o "1-4" \\h \\z \\u'),
+                1,
+            )
             self.assertIn('<w:updateFields w:val="true"', settings_xml)
             self.assertNotIn("Courier", document_xml)
             for font_attribute in ("ascii", "hAnsi", "eastAsia", "cs"):

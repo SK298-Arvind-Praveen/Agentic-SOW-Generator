@@ -32,7 +32,9 @@ Sparse input is expected. Expand it into a professional SOW by decomposing state
 - Use British Indian English throughout, not US spelling. Prefer `organisation`, `organise`, `centralised`, `analyse`, `behaviour`, `colour`, `programme`, `licence` (noun), and `fulfilment`. Preserve official product names, API fields, quoted source text, and identifiers exactly as supplied.
 - Use the same project name, customer name, module names, requirement IDs, actors, integrations, AWS services, environments, quantities, and status labels everywhere.
 - Establish one deliverable/module work breakdown inside Scope of Work and reuse it in Architecture, Open Clarifications, Out of Scope, Assumptions, Success Criteria, Pricing inputs, and Team Effort.
-- Treat contractual deliverable rows as outputs to preserve, not automatically as separate top-level delivery packages. Use a separate deliverable only for an independent business outcome with its own phase, deployment, hand-off, or acceptance boundary; otherwise retain the row as a module or output within a cohesive package.
+- Preserve explicitly numbered or named customer-authored deliverables as top-level deliverables when each
+  defines a distinct reviewable business outcome. They do not require separate deployments or acceptance
+  dates. Treat ordinary feature rows, artefact lists, technical layers, and checklists as modules or outputs.
 - Preserve supplied requirement identifiers. When IDs are absent, create stable IDs using short module prefixes such as `EM-01`, `KB-01`, or `WF-01`; never renumber them differently in another section.
 - Do not contradict inclusion boundaries. A baseline capability included in Scope of Work must not be excluded in Out of Scope; distinguish a limited included capability from an advanced deferred capability.
 - Do not invent a week-by-week schedule or committed duration. Sequence may be proposed as dependency logic, but dates and durations remain open unless supplied.
@@ -168,11 +170,12 @@ The company works across industries including BFSI, Retail & E-commerce, Logisti
 [META_GENERATED]
 ## About {COMPANY_NAME}
 
-Write exactly two brief, source-grounded prose paragraphs about {COMPANY_NAME}. Cover only the
-company background and business context relevant to this engagement. Do not use subsections,
+Write exactly two brief, source-grounded prose paragraphs about {COMPANY_NAME}. Cover only its
+company profile, industry, products/services and established business operations. Do not describe
+this project, its problem, requirements, proposed solution, engagement, or ShellKode's involvement. Do not use subsections,
 bullets, numbered lists, or tables. Do not invent industry position, scale, revenue, locations,
 products, regulations, or achievements. When source information is limited, keep both paragraphs
-to the confirmed project context and say no more than the evidence supports.
+to confirmed company facts; omit unsupported details without commenting that information is missing.
 
 [META_GENERATED]
 ## 1. Objective
@@ -415,7 +418,9 @@ INCLUSION RULES
 - Add specific gaps discovered while authoring Current State, Detailed Scope, Architecture, Pricing, Success Criteria, or Team Effort.
 - Include, where applicable: roles/permissions, sample data, volumes/peaks, data quality, migration reconciliation, interfaces/APIs, authentication, error handling, AI evaluation dataset, quality thresholds, human-review workflow, exact disclaimers/guardrails, regulatory approval owner, retention/deletion, environments, NFRs, RTO/RPO, acceptance evidence, calculator inputs, staffing, duration, and production boundary.
 - Phrase each item as one answerable question or confirmation request, not a vague topic.
-- State the impact or next action in `Status / Note` and preserve supplied statuses verbatim.
+- Never say that information was not provided, specified, stated, supplied, available or confirmed.
+  Ask the question directly and leave `Status / Note` blank when no source-backed status or action exists.
+- State a source-backed impact or next action in `Status / Note` and preserve meaningful supplied statuses verbatim.
 - Use the same module names as Section 2.
 
 PROHIBITIONS
@@ -594,19 +599,14 @@ Include only relevant sourced metrics such as annual/monthly interactions, turns
 
 IF NO SOURCE-BACKED ESTIMATE EXISTS
 
-- State: `AWS pricing is pending completion of a source-backed AWS Pricing Calculator estimate.`
-- Do not produce an amount table with guessed values.
-- Put the generic AWS Pricing Calculator link above the source-backed volume metrics and open-input table so the estimate can be completed.
-- Provide a compact table of the material confirmed and open sizing inputs, using no more than three columns:
-
-| Pricing Input | Current Basis | Confirmation Needed |
-|---|---|---|
-
-- Cover only relevant inputs: region, environments, requests/transactions, users/concurrency, storage/retention, data transfer, model usage, compute pattern, database/search sizing, logging, resilience, and support plan.
+- Put the generic AWS Pricing Calculator link above the tables.
+- Always emit the standard Estimated Volume Metrics rows. Populate source-backed values and leave every unavailable value cell blank without commentary.
+- When time-based business volumetrics exist, show a broad, non-binding volumetric planning range. If no defensible workload volume exists, retain blank calculator, MRR and ARR cells.
+- Do not expose raw AWS Calculator service fields, unresolved parameters, or a confirmation-needed column in the SOW. Route unresolved material inputs to Open Clarifications instead.
 
 PROHIBITIONS
 
-- Do not use complexity-based MRR ranges.
+- Do not use a complexity-only MRR range without a time-based business workload volume.
 - Do not invent a single "realistic" number, AWS funding status, discount, approval, service-level cost breakdown, or false precision.
 - Do not treat implementation fees as AWS consumption.
 

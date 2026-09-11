@@ -217,3 +217,16 @@
   .user-form-grid { grid-template-columns: 1fr; }
   .user-form-span { grid-column: auto; }
 }
+.user-role-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.user-role-fieldset {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+}
+.user-role-fieldset legend { padding: 0 6px; color: var(--text-secondary); font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.user-role-fieldset label { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+.user-role-fieldset input { width: auto; }

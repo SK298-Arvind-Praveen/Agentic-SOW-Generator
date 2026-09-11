@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import re
 from typing import Any, Callable, Dict, List, Optional
 
@@ -44,7 +43,7 @@ class ScopeArchitectAgent:
             llm = BedrockLLM(config, bedrock)
         self.llm = llm
 
-    def _call(self, prompt: str, call_name: str, max_tokens: int = 5000) -> str:
+    def _call(self, prompt: str, call_name: str, max_tokens: int = 32768) -> str:
         boundary_decision = call_name in {"Scope Boundary Classification", "Scope Boundary Audit"}
         task = "writer" if boundary_decision else "analysis"
         model_id = (
@@ -76,6 +75,66 @@ class ScopeArchitectAgent:
         refinement_constraints: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         refinement_constraints = dict(refinement_constraints or {})
+        source_deliverables = self._explicit_source_deliverables(requirements, source_context)
+        try:
+            declared_count = int(requirements.get("declared_deliverable_count") or 0)
+        except (TypeError, ValueError):
+            declared_count = 0
+        derived_outcome_names = self._source_outcome_boundary_names(requirements)
+        if (
+            source_deliverables
+            and 2 <= declared_count <= 10
+            and len(source_deliverables) >= declared_count
+            and not refinement_constraints.get("requested_deliverable_count")
+        ):
+            refinement_constraints.update({
+                "requested_deliverable_count": declared_count,
+                "requested_deliverable_names": [item["name"] for item in source_deliverables[:declared_count]],
+                "constraint_source": "explicit_source_deliverables",
+            })
+            print(
+                f"[SCOPE-ARCHITECT] Preserving {declared_count} declared source deliverable(s): "
+                + ", ".join(item["name"] for item in source_deliverables[:declared_count]),
+                flush=True,
+            )
+        elif (
+            len(source_deliverables) >= 2
+            and len(derived_outcome_names) >= len(source_deliverables)
+            and not refinement_constraints.get("requested_deliverable_count")
+        ):
+            refinement_constraints.update({
+                "requested_deliverable_count": len(derived_outcome_names),
+                "requested_deliverable_names": derived_outcome_names,
+                "constraint_source": "explicit_source_deliverables",
+            })
+            print(
+                f"[SCOPE-ARCHITECT] Preserving {len(derived_outcome_names)} distinct source outcomes: "
+                + ", ".join(derived_outcome_names),
+                flush=True,
+            )
+        elif (
+            len(derived_outcome_names) >= 3
+            and sum(
+                len(requirements.get(key) or [])
+                for key in ("key_deliverables", "functional_requirements")
+                if isinstance(requirements.get(key) or [], list)
+            ) >= 4
+            and not refinement_constraints.get("requested_deliverable_count")
+        ):
+            # A BRD may enumerate outcome deliverables without consistently
+            # labelling each row "Deliverable". Preserve stable business outcome
+            # families instead of allowing the classifier to collapse them into
+            # one implementation package merely because deployment is shared.
+            refinement_constraints.update({
+                "requested_deliverable_count": len(derived_outcome_names),
+                "requested_deliverable_names": derived_outcome_names,
+                "constraint_source": "source_outcome_families",
+            })
+            print(
+                f"[SCOPE-ARCHITECT] Preserving {len(derived_outcome_names)} source-backed outcome families: "
+                + ", ".join(derived_outcome_names),
+                flush=True,
+            )
         # Objective analysis already produced a structured requirements baseline.
         # Build the inventory locally instead of spending a large model call
         # restating those same facts. Use the LLM inventory only for truly sparse
@@ -90,6 +149,8 @@ class ScopeArchitectAgent:
         plan = self._classify(
             inventory, requirements, metadata, source_context, refinement_constraints
         )
+        if not plan:
+            raise RuntimeError("Scope boundary classification returned invalid or empty JSON")
         discovered = self._validated_discovered_capabilities(
             plan.pop("discovered_capabilities", []), source_context, inventory
         )
@@ -102,8 +163,17 @@ class ScopeArchitectAgent:
             )
         plan = self._complete_assignments(plan, inventory)
         plan = self._enforce_refinement_constraints(plan, inventory, refinement_constraints)
+        requested_count = int(refinement_constraints.get("requested_deliverable_count") or 0)
+        if requested_count and len(plan.get("deliverables") or []) != requested_count:
+            raise RuntimeError(
+                f"Scope architecture did not preserve the required {requested_count} deliverable boundaries"
+            )
         plan, issues = self._normalise_plan(plan, inventory)
-        fragmentation = self._module_fragmentation_issues(plan, inventory)
+        fragmentation = (
+            []
+            if refinement_constraints.get("requested_deliverable_count")
+            else self._module_fragmentation_issues(plan, inventory)
+        )
         if fragmentation:
             print(
                 f"[SCOPE-ARCHITECT] Module consolidation required: {'; '.join(fragmentation)}",
@@ -119,7 +189,11 @@ class ScopeArchitectAgent:
                 revised, inventory, refinement_constraints
             )
             revised, revised_issues = self._normalise_plan(revised, inventory)
-            revised_fragmentation = self._module_fragmentation_issues(revised, inventory)
+            revised_fragmentation = (
+                []
+                if refinement_constraints.get("requested_deliverable_count")
+                else self._module_fragmentation_issues(revised, inventory)
+            )
             if not revised_issues and not revised_fragmentation:
                 plan, issues = revised, []
                 print(
@@ -131,18 +205,58 @@ class ScopeArchitectAgent:
                 issues = revised_issues + revised_fragmentation
         if issues:
             print(f"[SCOPE-ARCHITECT] Plan rejected: {', '.join(issues)}", flush=True)
-            fallback = self._fallback_plan(inventory, metadata, issues)
-            fallback = self._enforce_refinement_constraints(
-                fallback, inventory, refinement_constraints
-            )
-            fallback, _fallback_issues = self._normalise_plan(fallback, inventory)
-            return fallback
+            raise RuntimeError("Scope architecture validation failed; generation halted: " + "; ".join(issues))
         print(
             f"[SCOPE-ARCHITECT] Approved {len(plan['deliverables'])} deliverable(s), "
             f"{sum(len(item['modules']) for item in plan['deliverables'])} module(s)",
             flush=True,
         )
         return plan
+
+    @staticmethod
+    def _explicit_source_deliverables(
+        requirements: Dict[str, Any], source_context: str
+    ) -> List[Dict[str, str]]:
+        """Validate explicit deliverable boundaries against verbatim source evidence."""
+        source_key = re.sub(r"\s+", " ", str(source_context or "").casefold())
+        clean: List[Dict[str, str]] = []
+        seen = set()
+        for item in requirements.get("source_deliverables") or []:
+            if not isinstance(item, dict):
+                continue
+            name = re.sub(r"\s+", " ", str(item.get("name") or "")).strip()
+            quote = re.sub(r"\s+", " ", str(item.get("evidence_quote") or "")).strip()
+            key = name.casefold()
+            if not name or not quote or quote.casefold() not in source_key or key in seen:
+                continue
+            seen.add(key)
+            clean.append({"name": name, "evidence_quote": quote})
+        # A single labelled item does not establish a multi-deliverable structure.
+        return clean if 2 <= len(clean) <= 10 else []
+
+    @staticmethod
+    def _source_outcome_boundary_names(requirements: Dict[str, Any]) -> List[str]:
+        """Identify broad contractual outcomes when explicit headings are incomplete.
+
+        This is deliberately activated only by the caller after at least two
+        source-validated deliverable headings have established that the source
+        uses a multi-deliverable structure.
+        """
+        source_items: List[Any] = []
+        for key in ("key_deliverables", "functional_requirements"):
+            values = requirements.get(key) or []
+            source_items.extend(values if isinstance(values, list) else [values])
+        text = "\n".join(
+            str(item.get("name") if isinstance(item, dict) else item or "")
+            for item in source_items
+        ).casefold()
+        families = [
+            ("Data Migration", ("migration", "historical data", "data transfer")),
+            ("Ticketing and Case Management", ("ticket", "case management", "escalation", "follow-up")),
+            ("Email Desk and Communication", ("email", "mailbox", "compose", "communication")),
+            ("Management Reporting and Dashboards", ("report", "dashboard", "analytics", "scorecard")),
+        ]
+        return [name for name, signals in families if any(signal in text for signal in signals)]
 
     @staticmethod
     def _fallback_inventory(requirements: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -356,17 +470,23 @@ class ScopeArchitectAgent:
         ]
         if len(deliverables) == requested and all(
             deliverable.get("modules") for deliverable in deliverables
-        ):
+        ) and constraints.get("constraint_source") != "source_outcome_families":
             for index, deliverable in enumerate(deliverables):
                 deliverable["name"] = names[index]
                 deliverable["boundary_type"] = "acceptance"
                 deliverable["separation_basis"] = (
-                    "Explicit deliverable boundary requested for this SOW refinement"
+                    "Explicit customer-authored deliverable boundary"
+                    if constraints.get("constraint_source") == "explicit_source_deliverables"
+                    else (
+                        "Distinct source-backed business outcome boundary"
+                        if constraints.get("constraint_source") == "source_outcome_families"
+                        else "Explicit deliverable boundary requested for this SOW refinement"
+                    )
                 )
             plan["deliverables"] = deliverables
             plan["user_deliverable_constraint_applied"] = True
             print(
-                f"[SCOPE-ARCHITECT] Applied explicit refinement boundary: {requested} deliverable(s)",
+                f"[SCOPE-ARCHITECT] Applied mandatory outcome boundary: {requested} deliverable(s)",
                 flush=True,
             )
             return plan
@@ -402,11 +522,23 @@ class ScopeArchitectAgent:
                 if len(token) > 2 and token not in stopwords
             }
 
+        def boundary_words(value: Any) -> set[str]:
+            tokens = words(value)
+            if "migration" in tokens:
+                tokens.update({"migrate", "historical", "data", "attachment", "reconciliation"})
+            if "ticketing" in tokens or "case" in tokens:
+                tokens.update({"ticket", "case", "classification", "tat", "sla", "escalation", "follow", "lifecycle"})
+            if "email" in tokens or "communication" in tokens:
+                tokens.update({"email", "mail", "compose", "inbox", "outbox", "acknowledgement", "template", "routing"})
+            if "reporting" in tokens or "dashboard" in tokens:
+                tokens.update({"report", "reporting", "dashboard", "analytics", "scorecard", "insight"})
+            return tokens
+
         groups: List[List[Dict[str, Any]]] = [[] for _ in range(requested)]
         remaining = list(modules)
         # Seed every requested deliverable with its strongest matching module.
         for index, name in enumerate(names):
-            name_words = words(name)
+            name_words = boundary_words(name)
             best_index = max(
                 range(len(remaining)),
                 key=lambda candidate: len(name_words & words(
@@ -420,7 +552,7 @@ class ScopeArchitectAgent:
                 str(module.get("name") or "") + " "
                 + " ".join(map(str, module.get("requirements") or []))
             )
-            scores = [len(module_words & words(name)) for name in names]
+            scores = [len(module_words & boundary_words(name)) for name in names]
             best_score = max(scores)
             candidates = [index for index, score in enumerate(scores) if score == best_score]
             target = min(candidates, key=lambda index: len(groups[index]))
@@ -433,12 +565,20 @@ class ScopeArchitectAgent:
                 if index < len(deliverables) else "User-directed delivery outcome"
             ),
             "boundary_type": "acceptance",
-            "separation_basis": "Explicit deliverable boundary requested for this SOW refinement",
+            "separation_basis": (
+                "Explicit customer-authored deliverable boundary"
+                if constraints.get("constraint_source") == "explicit_source_deliverables"
+                else (
+                    "Distinct source-backed business outcome boundary"
+                    if constraints.get("constraint_source") == "source_outcome_families"
+                    else "Explicit deliverable boundary requested for this SOW refinement"
+                )
+            ),
             "modules": group,
         } for index, group in enumerate(groups)]
         plan["user_deliverable_constraint_applied"] = True
         print(
-            f"[SCOPE-ARCHITECT] Applied explicit refinement boundary: {requested} deliverable(s)",
+            f"[SCOPE-ARCHITECT] Applied mandatory outcome boundary: {requested} deliverable(s)",
             flush=True,
         )
         return plan
@@ -579,35 +719,43 @@ PROJECT: {metadata.get('project_title', '')}
 MODE: {self.template_type}
 
 CAPABILITY INVENTORY:
-{json.dumps(inventory, indent=2, default=str)}
-
-NORMALISED REQUIREMENTS:
-{json.dumps(requirements, indent=2, default=str)}
-
-SOURCE EVIDENCE:
-{source or '(none)'}
+{json.dumps(inventory, separators=(',', ':'), default=str)}
 
 POTENTIAL DELIVERY-BOUNDARY EVIDENCE (locally extracted; validate against the source):
 {boundary_evidence or '(none detected)'}
 
+VALIDATED EXPLICIT SOURCE DELIVERABLES (preserve each; this list may be incomplete):
+{json.dumps(self._explicit_source_deliverables(requirements, source), indent=2)}
+
 EXPLICIT USER REFINEMENT CONSTRAINTS (mandatory when present):
 {json.dumps(refinement_constraints or {}, indent=2, default=str)}
 
-Return {{"discovered_capabilities":[{{"id":"CAP-SRC-001","name":"source-only capability omitted from the supplied inventory", "requirements":[], "source_basis":[], "evidence_quote":"short exact source excerpt", "evidence_status":"Confirmed|Source Assumption|Proposed|Open", "disposition":"in_scope|future|optional|open", "boundary_basis":""}}], "deliverables":[{{"name":"outcome-oriented delivery package", "purpose":"business outcome and boundary", "boundary_type":"single_package|phase|release|deployment|acceptance|commercial_handoff", "separation_basis":"source-backed independent boundary or why this is the cohesive overall package", "modules":[{{"name":"cohesive mini-problem/workstream", "capability_ids":["CAP-001"], "task_statement":"", "objective":"", "actors":[], "inputs":[], "requirements":[], "delivery_approach":[], "outputs":[], "dependencies":[], "validation_evidence":[], "source_basis":[], "evidence_status":"Confirmed|Source Assumption|Proposed|Open"}}]}}], "cross_cutting_decisions":[], "open_boundaries":[{{"capability_id":"CAP-999","reason":"future, optional or open item"}}]}}.
+Return {{"discovered_capabilities":[], "deliverables":[{{"name":"outcome-oriented delivery package", "purpose":"brief business outcome and boundary", "boundary_type":"single_package|phase|release|deployment|acceptance|commercial_handoff", "separation_basis":"brief source-backed boundary", "modules":[{{"name":"cohesive mini-problem/workstream", "capability_ids":["CAP-001"], "task_statement":"brief implementation scope", "objective":"brief operating outcome", "evidence_status":"Confirmed|Source Assumption|Proposed|Open"}}]}}], "cross_cutting_decisions":[], "open_boundaries":[{{"capability_id":"CAP-999","reason":"future, optional or open item"}}]}}.
 
 Classification rules:
 - Assign every in_scope capability ID exactly once. Never omit or duplicate an ID.
-- Before grouping, compare the complete source with the supplied inventory. Put a capability in
-  discovered_capabilities only when it is absent from the inventory and is needed to preserve an
-  explicit Day-1/later-phase, release, channel/surface, deployment or acceptance boundary. Its
-  evidence_quote must be a short exact excerpt from SOURCE EVIDENCE. You may reference its supplied
-  CAP-SRC ID in a module. Do not rediscover or rename capabilities already present in the inventory.
+- The supplied inventory is authoritative. Do not copy its requirements, source evidence, actors,
+  inputs, outputs, dependencies or validation details into the plan; modules reference them by ID.
 - Do not place future, optional or open capability IDs inside a delivery module; preserve them in open_boundaries.
 - A deliverable is a separately deployable or acceptably complete business outcome, release, or phase.
 - Features, channels, integrations, AWS layers, document rows, and workstreams are normally modules,
   not separate deliverables, when they share one design, deployment, demonstration and acceptance event.
 - Create multiple deliverables only for credible independent phase, release, deployment, hand-off,
   commercial, timeline, go-live or acceptance boundaries. Do not target a count.
+- EXPLICIT USER REFINEMENT CONSTRAINTS take precedence over inferred cohesion. When their
+  constraint_source is explicit_source_deliverables, the customer-authored names and count are
+  contractual boundaries: preserve them even when they share one implementation or acceptance event.
+- Distinct explicitly labelled customer deliverables may represent independently reviewable business
+  outcomes without separate deployments. Data migration, operational workflow capability, channel/email
+  capability, and reporting/management capability are valid separate deliverables when the source names
+  them that way. Place their detailed requirements beneath them as modules.
+- Preserve every VALIDATED EXPLICIT SOURCE DELIVERABLE as a distinct named outcome. The list may be
+  incomplete, so add another deliverable when the remaining capabilities form a comparably distinct,
+  independently reviewable outcome; never reduce the plan merely to match the extracted list length.
+- When returning more than one deliverable, use phase, release, deployment, acceptance, or
+  commercial_handoff as boundary_type. `single_package` is valid only when exactly one deliverable exists.
+- Do not mistake a generic artefact list, feature checklist, AWS layer, or table row for an explicit
+  source deliverable; those remain modules or outputs.
 - Strong split evidence includes explicit Deliverable/Phase/Wave labels; Day 1 versus later scope;
   a core platform followed by an extension; separate go-live or stabilisation sequencing; a distinct
   duration, commercial line, sign-off, dependency gate, target channel/surface, or deployment boundary.
@@ -621,8 +769,9 @@ Classification rules:
   the assessed capability (for example, voice readiness versus voice implementation).
 - A module is a cohesive mini-problem; combine units solved through the same workflow and technical change.
 - Preserve future/optional/open status and do not invent facts or commitments.
+- Return the smallest valid JSON needed to express grouping and boundaries. Never restate capability text.
 """
-        return _json_object(self._call(prompt, "Scope Boundary Classification"))
+        return _json_object(self._call(prompt, "Scope Boundary Classification", max_tokens=32768))
 
     @staticmethod
     def _boundary_evidence(source: str) -> str:
@@ -747,17 +896,21 @@ Classification rules:
                         module["evidence_status"] = safest
         if len(clean_deliverables) > 1:
             valid_boundaries = {"phase", "release", "deployment", "acceptance", "commercial_handoff"}
+            for item in clean_deliverables:
+                if (
+                    str(item.get("boundary_type") or "") == "single_package"
+                    and str(item.get("separation_basis") or "").strip()
+                ):
+                    # The model often uses single_package to mean one cohesive
+                    # work package inside a multi-deliverable SOW. In the plan
+                    # schema that is an independently reviewable acceptance boundary.
+                    item["boundary_type"] = "acceptance"
             if any(
                 str(item.get("boundary_type") or "") not in valid_boundaries
                 or not str(item.get("separation_basis") or "").strip()
                 for item in clean_deliverables
             ):
                 issues.append("multiple deliverables lack independent typed boundaries")
-        if len(clean_deliverables) >= 3:
-            thin = sum(len(item["modules"]) <= 2 for item in clean_deliverables)
-            weak = sum(not str(item.get("separation_basis") or "").strip() for item in clean_deliverables)
-            if thin >= math.ceil(len(clean_deliverables) * 0.6) or weak >= math.ceil(len(clean_deliverables) * 0.6):
-                issues.append("deliverable boundaries appear fragmented")
         for index, deliverable in enumerate(clean_deliverables, 1):
             name = re.sub(r"^\s*deliverable\s+\d+\s*[-:–—]\s*", "", str(deliverable["name"]).strip(), flags=re.I)
             deliverable["name"] = name

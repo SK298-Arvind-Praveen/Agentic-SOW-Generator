@@ -66,7 +66,10 @@ def create_graph():
     )
     # workflow.add_edge("ingest", "research") # Removed unconditional edge
     workflow.add_edge("research", "analyze")
-    workflow.add_edge("analyze", "validate")
+    workflow.add_conditional_edges(
+        "analyze", lambda state: END if state.get("errors") else "validate",
+        {END: END, "validate": "validate"},
+    )
     workflow.add_edge("validate", "scope_architecture")
     workflow.add_edge("scope_architecture", "pricing")
     workflow.add_edge("pricing", "generate")
@@ -123,7 +126,10 @@ def create_preview_graph():
         }
     )
     workflow.add_edge("research", "analyze")
-    workflow.add_edge("analyze", "validate")
+    workflow.add_conditional_edges(
+        "analyze", lambda state: END if state.get("errors") else "validate",
+        {END: END, "validate": "validate"},
+    )
     workflow.add_edge("validate", "scope_architecture")
     workflow.add_edge("scope_architecture", "pricing")
     workflow.add_edge("pricing", "generate")
@@ -180,7 +186,10 @@ def create_fast_preview_graph():
         }
     )
     workflow.add_edge("research", "analyze")
-    workflow.add_edge("analyze", "validate")
+    workflow.add_conditional_edges(
+        "analyze", lambda state: END if state.get("errors") else "validate",
+        {END: END, "validate": "validate"},
+    )
     workflow.add_edge("validate", "scope_architecture")
     workflow.add_edge("scope_architecture", "pricing")
     workflow.add_edge("pricing", "generate")

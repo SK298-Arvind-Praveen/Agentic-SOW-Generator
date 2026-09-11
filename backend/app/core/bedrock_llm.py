@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
+import re
+import threading
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 
@@ -16,12 +21,24 @@ TASK_MODEL_ATTRIBUTES = {
     "fallback": "FALLBACK_MODEL_ID",
 }
 
+_raw_output_lock = threading.Lock()
+_raw_output_counter = 0
+
 @dataclass(frozen=True)
 class BedrockTextResult:
     text: str
     model_id: str
     input_tokens: int = 0
     output_tokens: int = 0
+    stop_reason: str = ""
+
+
+class BedrockOutputTruncatedError(RuntimeError):
+    """Raised when Bedrock exhausts the configured response allowance."""
+
+
+def _stop_reason(payload: Dict[str, Any]) -> str:
+    return str(payload.get("stopReason") or payload.get("stop_reason") or payload.get("completionReason") or "").strip()
 
 
 def model_for_task(config: Any, task: str) -> str:
@@ -71,25 +88,68 @@ def _normalised_usage(payload: Dict[str, Any]) -> tuple[int, int]:
     )
 
 
+def _supports_temperature(model_id: str) -> bool:
+    """Application profiles may target models that reject legacy sampling fields."""
+    return "application-inference-profile/" not in str(model_id).casefold()
+
+
+def _additional_model_request_fields(model_id: str) -> Dict[str, Any]:
+    """Keep Sonnet 5 profile calls fast and reserve output tokens for final JSON/text."""
+    if "application-inference-profile/" in str(model_id).casefold():
+        return {"thinking": {"type": "disabled"}}
+    return {}
+
+
+def _save_raw_output(call_name: str, text: str) -> Path:
+    """Persist model text before any JSON/Markdown parsing for reproducible debugging."""
+    global _raw_output_counter
+    # Unit-test doubles return values such as "complete" and "native"; keeping
+    # those beside real SOW traces makes production diagnosis misleading.
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return Path()
+    configured = os.environ.get("LLM_RAW_OUTPUT_DIR", "").strip()
+    output_dir = (
+        Path(configured).expanduser()
+        if configured else Path(__file__).resolve().parents[2] / "output" / "llm-debug"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", call_name).strip("_") or "bedrock"
+    with _raw_output_lock:
+        _raw_output_counter += 1
+        sequence = _raw_output_counter
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
+        path = output_dir / f"{timestamp}_{sequence:04d}_{safe_name}.txt"
+        path.write_text(text or "", encoding="utf-8")
+    print(f"   Raw model output: {path}", flush=True)
+    return path
+
+
 def _native_request(model_id: str, prompt: str, max_tokens: int, temperature: float) -> Dict[str, Any]:
     lowered = model_id.casefold()
     if "anthropic.claude" in lowered:
-        return {
+        request = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": max_tokens,
-            "temperature": temperature,
             "messages": [{"role": "user", "content": prompt}],
         }
+        if _supports_temperature(model_id):
+            request["temperature"] = temperature
+        return request
     if "amazon.nova" in lowered:
+        inference_config = {"maxTokens": max_tokens}
+        if _supports_temperature(model_id):
+            inference_config["temperature"] = temperature
         return {
             "messages": [{"role": "user", "content": [{"text": prompt}]}],
-            "inferenceConfig": {"maxTokens": max_tokens, "temperature": temperature},
+            "inferenceConfig": inference_config,
         }
-    return {
+    request = {
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
-        "temperature": temperature,
     }
+    if _supports_temperature(model_id):
+        request["temperature"] = temperature
+    return request
 
 
 class BedrockLLM:
@@ -111,12 +171,18 @@ class BedrockLLM:
         fallback_model_id: Optional[str] = None,
     ) -> BedrockTextResult:
         primary = model_id or model_for_task(self.config, task)
+        # A low maxTokens value can cut otherwise valid JSON in the middle of a
+        # string. Keep one deliberately high ceiling for every Sonnet call while
+        # relying on the prompt—not the ceiling—to control response length.
+        max_tokens = max(32768, int(max_tokens))
         try:
             return self._generate_once(
                 primary, prompt, max_tokens=max_tokens,
                 temperature=temperature, call_name=call_name,
             )
         except Exception as primary_error:
+            if isinstance(primary_error, BedrockOutputTruncatedError):
+                raise
             fallback = fallback_model_id
             if fallback and fallback != primary:
                 print(f"   ⚠ {call_name} failed on {primary}; retrying with {fallback}: {primary_error}")
@@ -139,13 +205,19 @@ class BedrockLLM:
         # tests and older SDK-compatible deployments working.
         converse = getattr(self.client, "converse", None)
         if callable(converse):
+            inference_config = {"maxTokens": int(max_tokens)}
+            if _supports_temperature(model_id):
+                inference_config["temperature"] = float(temperature)
+            request = {
+                "modelId": model_id,
+                "messages": [{"role": "user", "content": [{"text": prompt}]}],
+                "inferenceConfig": inference_config,
+            }
+            additional_fields = _additional_model_request_fields(model_id)
+            if additional_fields:
+                request["additionalModelRequestFields"] = additional_fields
             payload = converse(
-                modelId=model_id,
-                messages=[{"role": "user", "content": [{"text": prompt}]}],
-                inferenceConfig={
-                    "maxTokens": int(max_tokens),
-                    "temperature": float(temperature),
-                },
+                **request,
             )
         else:
             response = self.client.invoke_model(
@@ -155,9 +227,11 @@ class BedrockLLM:
             payload = json.loads(response["body"].read())
 
         text = _extract_text(payload)
+        _save_raw_output(call_name, text)
         if not text:
             raise RuntimeError(f"Bedrock model {model_id} returned no text")
         input_tokens, output_tokens = _normalised_usage(payload)
+        stop_reason = _stop_reason(payload)
 
         try:
             from app.core.nodes import _track_tokens
@@ -171,9 +245,15 @@ class BedrockLLM:
             )
         except Exception:
             pass
+        if stop_reason.casefold() in {"max_tokens", "max_token", "length"}:
+            raise BedrockOutputTruncatedError(
+                f"{call_name} was truncated after {output_tokens:,} output tokens "
+                f"(stop reason: {stop_reason}). Generation halted."
+            )
         return BedrockTextResult(
             text=text,
             model_id=model_id,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            stop_reason=stop_reason,
         )

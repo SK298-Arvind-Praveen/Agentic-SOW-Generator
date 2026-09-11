@@ -181,9 +181,44 @@ class AwsPricingTests(unittest.TestCase):
         self.assertIn("| Metric | Estimated Volume |", content)
         self.assertLess(content.index("Estimated Volume Metrics"), content.index("AWS Cost Summary"))
 
+    def test_renderer_does_not_expose_unresolved_calculator_fields(self):
+        content = render_aws_pricing_section({
+            "status": "needs_input",
+            "missing_inputs": [{
+                "field": "S3 Standard storage",
+                "basis": "blank",
+                "reason": "Total storage is not specified in SERVICE PLAN.",
+            }],
+        })
+        self.assertNotIn("S3 Standard storage", content)
+        self.assertNotIn("Confirmation Needed", content)
+        self.assertNotIn("not specified", content.casefold())
+        self.assertNotIn("| blank |", content.casefold())
+
+    def test_renderer_filters_raw_service_fields_from_volume_metrics(self):
+        content = render_aws_pricing_section({
+            "status": "needs_input",
+            "volume_metrics": [
+                {"metric": "Monthly conversation volume", "value": "100,000 per month"},
+                {"metric": "PUT, COPY, POST, LIST requests to S3 Standard", "value": "195,000"},
+            ],
+        })
+        self.assertIn("Monthly interaction volume", content)
+        self.assertNotIn("PUT, COPY, POST, LIST", content)
+        self.assertNotIn("Confirmation Needed", content)
+
+    def test_renderer_always_emits_canonical_volume_and_blank_cost_rows(self):
+        content = render_aws_pricing_section({"status": "needs_input", "currency": "USD"})
+        self.assertIn("| Annual interaction volume (design point) |  |", content)
+        self.assertIn("| Monthly interaction volume |  |", content)
+        self.assertIn("| AWS MRR |  |", content)
+        self.assertIn("| AWS ARR |  |", content)
+        self.assertNotIn("not provided", content.casefold())
+        self.assertNotIn("pending completion", content.casefold())
+
     def test_renderer_blocks_stale_pricing_from_looking_current(self):
         content = render_aws_pricing_section({"status": "stale", "monthly_cost": "99.00"})
-        self.assertIn("must be recalculated", content)
+        self.assertIn("| AWS MRR |  |", content)
         self.assertNotIn("99.00", content)
 
     def test_volumetric_fallback_produces_a_visible_planning_range(self):
@@ -204,7 +239,7 @@ class AwsPricingTests(unittest.TestCase):
             result["fallback_estimate"]["monthly_low"],
         )
         content = render_aws_pricing_section(result)
-        self.assertIn("Volumetric planning range", content)
+        self.assertIn("AWS Pricing Calculator (workload planning estimate)", content)
         self.assertIn("not an AWS quote", content)
 
     def test_partial_calculator_total_is_supplemented_not_presented_as_full_arr(self):
@@ -226,8 +261,8 @@ class AwsPricingTests(unittest.TestCase):
         self.assertEqual(result["calculator_monthly_cost"], 0.67)
         self.assertGreater(result["monthly_cost"], result["calculator_monthly_cost"])
         content = render_aws_pricing_section(result)
-        self.assertIn("priced subtotal (2 of 11 services)", content)
-        self.assertIn("Whole-workload planning range", content)
+        self.assertIn("2 of 11 services priced", content)
+        self.assertIn("AWS workload planning range", content)
         self.assertNotIn("AWS ARR | USD 8.04", content)
 
     def test_partial_calculator_without_volumetrics_never_claims_full_arr(self):
@@ -244,8 +279,43 @@ class AwsPricingTests(unittest.TestCase):
         self.assertEqual(result["status"], "partial_priced")
         self.assertIsNone(result["monthly_cost"])
         content = render_aws_pricing_section(result)
-        self.assertIn("AWS Calculator priced subtotal", content)
-        self.assertNotIn("AWS ARR", content)
+        self.assertIn("AWS Pricing Calculator", content)
+        self.assertIn("| AWS ARR |  |", content)
+
+    def test_llm_fallback_is_used_for_time_based_business_volumetrics(self):
+        service = AwsPricingService(
+            self.config,
+            llm=_LLM({
+                "monthly_low": 100,
+                "monthly_base": 175,
+                "monthly_high": 300,
+                "basis": ["Monthly ticket volume drives the estimate"],
+            }),
+        )
+        result = service._pricing_fallback({
+            "status": "needs_input",
+            "currency": "USD",
+            "volume_metrics": [{
+                "metric": "Monthly ticket volume",
+                "value": "25,000 tickets per month",
+            }],
+        }, ["Amazon S3"], "calculator fields incomplete")
+        self.assertEqual(result["status"], "fallback_priced")
+        self.assertEqual(result["monthly_cost"], 175)
+        self.assertEqual(result["fallback_estimate"]["method"], "llm_volumetric_planning_range_v1")
+
+    def test_generic_crm_capabilities_infer_proposed_pricing_services(self):
+        services = AwsPricingService._candidate_services(
+            {},
+            {"pricing_include_proposed": True},
+            "Historical data and attachments migrate into a ticketing platform with an Email Desk, "
+            "escalation matrix, full-body keyword search, and manager reporting dashboards.",
+        )
+        self.assertIn("Amazon S3", services)
+        self.assertIn("Amazon DynamoDB", services)
+        self.assertIn("Amazon Simple Email Service", services)
+        self.assertIn("Amazon OpenSearch Service", services)
+        self.assertIn("Amazon QuickSight", services)
 
     def test_volumetric_fallback_understands_lakh_per_year(self):
         result = AwsPricingService._with_volumetric_fallback({

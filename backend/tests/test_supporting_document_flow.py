@@ -174,6 +174,11 @@ class SupportingDocumentFlowTests(unittest.TestCase):
                 captured["supporting_context"] = supporting_context
                 return {"ui_required": False, "key_deliverables": ["BRD-17 exception queue"]}
 
+            evaluate_input_quality = staticmethod(lambda *_args: {
+                "accepted": True, "confidence": 0.9, "reason": "",
+                "evidence_categories": {"key_deliverables": 1},
+            })
+
         state = {
             "mode": "POC",
             "objective": "",
@@ -200,6 +205,50 @@ class SupportingDocumentFlowTests(unittest.TestCase):
         ))
         self.assertIn("Supporting document corpus", requirements["source_basis"])
         self.assertNotIn("generic AWS", requirements["project_overview"])
+
+    def test_objective_quality_gate_rejects_unrelated_input_without_evidence(self):
+        result = ObjectiveAgent.evaluate_input_quality({
+            "input_assessment": {
+                "is_sow_candidate": False, "confidence": 0.96,
+                "reason": "The content is an unrelated personal conversation.",
+            },
+            "key_features": [], "functional_requirements": [], "key_deliverables": [],
+            "workflow_steps": [], "use_cases": [], "architecture_components": [],
+            "integration_details": [], "current_state": [],
+        }, "What should I cook for dinner tonight?")
+        self.assertFalse(result["accepted"])
+
+    def test_objective_quality_gate_allows_a_short_clear_project_request(self):
+        result = ObjectiveAgent.evaluate_input_quality({
+            "input_assessment": {
+                "is_sow_candidate": True, "confidence": 0.91,
+                "reason": "A clear customer-support automation project is requested.",
+            },
+            "key_features": ["Customer-support chatbot"],
+            "desired_outcomes": ["Reduce manual ticket handling"],
+        }, "Build a customer-support chatbot with agent handover.")
+        self.assertTrue(result["accepted"])
+
+    def test_analysis_node_stops_after_objective_rejection(self):
+        class RejectingObjectiveAgent:
+            def __init__(self, _config):
+                pass
+
+            def analyze_objective(self, _objective, _supporting_context):
+                return {"input_assessment": {"is_sow_candidate": False, "confidence": 0.99}}
+
+            evaluate_input_quality = staticmethod(lambda *_args: {
+                "accepted": False, "confidence": 0.99,
+                "reason": "No project scope was supplied.", "evidence_categories": {},
+            })
+
+        with patch("app.core.nodes.ObjectiveAgent", RejectingObjectiveAgent):
+            result = analyze_objective_node({
+                "mode": "POC", "objective": "random unrelated content",
+                "supporting_context": "", "metadata": {},
+            })
+        self.assertEqual(result["current_step"], "objective_rejected")
+        self.assertTrue(result["errors"])
 
     def test_objective_json_parser_recovers_wrapped_json(self):
         parsed = ObjectiveAgent._parse_json(

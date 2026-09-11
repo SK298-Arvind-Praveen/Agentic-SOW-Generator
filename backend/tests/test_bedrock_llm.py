@@ -2,7 +2,7 @@ import io
 import json
 import unittest
 
-from app.core.bedrock_llm import BedrockLLM, model_for_task
+from app.core.bedrock_llm import BedrockLLM, BedrockOutputTruncatedError, model_for_task
 
 
 class _Config:
@@ -43,6 +43,15 @@ class _NativeClient:
         }
 
 
+class _TruncatedClient:
+    def converse(self, **kwargs):
+        return {
+            "output": {"message": {"content": [{"text": '{"partial":'}]}},
+            "usage": {"inputTokens": 8, "outputTokens": 32768},
+            "stopReason": "max_tokens",
+        }
+
+
 class BedrockLLMTests(unittest.TestCase):
     def test_task_routes_are_explicit(self):
         self.assertEqual(model_for_task(_Config(), "fast"), "fast")
@@ -68,6 +77,39 @@ class BedrockLLMTests(unittest.TestCase):
         self.assertEqual(result.input_tokens, 3)
         request = json.loads(client.calls[0]["body"])
         self.assertEqual(request["messages"][0]["content"], "prompt")
+
+    def test_application_inference_profile_omits_deprecated_temperature(self):
+        profile = (
+            "arn:aws:bedrock:us-east-1:106611079163:"
+            "application-inference-profile/20kstbja9ona"
+        )
+        config = _Config()
+        config.WRITER_MODEL_ID = profile
+        client = _ConverseClient()
+
+        result = BedrockLLM(config, client).generate(
+            "prompt", task="writer", temperature=0.2,
+        )
+
+        self.assertEqual(result.model_id, profile)
+        self.assertEqual(client.calls[0]["inferenceConfig"], {"maxTokens": 32768})
+        self.assertEqual(
+            client.calls[0]["additionalModelRequestFields"],
+            {"thinking": {"type": "disabled"}},
+        )
+
+    def test_legacy_model_keeps_supported_temperature(self):
+        client = _ConverseClient()
+        BedrockLLM(_Config(), client).generate("prompt", task="writer", temperature=0.2)
+        self.assertEqual(client.calls[0]["inferenceConfig"]["temperature"], 0.2)
+        self.assertNotIn("additionalModelRequestFields", client.calls[0])
+
+    def test_max_token_stop_is_a_hard_failure(self):
+        with self.assertRaises(BedrockOutputTruncatedError):
+            BedrockLLM(_Config(), _TruncatedClient()).generate(
+                "prompt", task="writer", max_tokens=32768,
+                fallback_model_id="fallback", call_name="Structured Output",
+            )
 
 
 if __name__ == "__main__":

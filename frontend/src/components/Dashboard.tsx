@@ -37,7 +37,9 @@ type ViewType = 'generate' | 'records' | 'documents';
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
+  const selectableBusinessUnits = isAdmin ? BUSINESS_UNITS : (user?.business_units || []);
+  const canSelectBusinessUnit = isAdmin || selectableBusinessUnits.length > 1;
   const [businessUnitFilter, setBusinessUnitFilter] = useState('');
   const [selectedSOW, setSelectedSOW] = useState<SOWType>('poc');
   const [selectedView, setSelectedView] = useState<ViewType>('generate');
@@ -199,7 +201,7 @@ const Dashboard: React.FC = () => {
     isFetchingRecords.current = true;
     try {
       const response = await apiService.fetchCompaniesGrouped(
-        isAdmin && businessUnitFilter ? businessUnitFilter : undefined
+        canSelectBusinessUnit && businessUnitFilter ? businessUnitFilter : undefined
       );
       if (!response?.success || !response.companies) return;
 
@@ -1029,7 +1031,7 @@ const Dashboard: React.FC = () => {
                   <p>View and manage your generated SOW documents</p>
                 </div>
                 <div className="records-header-right">
-                  {isAdmin && (
+                  {canSelectBusinessUnit && (
                     <select
                       className="records-bu-filter"
                       value={businessUnitFilter}
@@ -1040,7 +1042,7 @@ const Dashboard: React.FC = () => {
                       aria-label="Filter records by business unit"
                     >
                       <option value="">All Business Units</option>
-                      {BUSINESS_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                      {selectableBusinessUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}
                     </select>
                   )}
                   <div className="records-search-container">

@@ -250,6 +250,144 @@ def test_fallback_plan_consolidates_large_inventory_and_excludes_future_scope():
     assert plan["open_boundaries"][0]["capability_id"] == "CAP-007"
 
 
+def test_explicit_source_deliverables_are_validated_and_preserved():
+    source = """
+    Deliverable 1 - Historical Data Migration
+    Deliverable 2 - Ticket Management
+    Deliverable 3 - Email Management
+    Deliverable 4 - Reporting and SLA Management
+    """
+    requirements = {
+        "source_deliverables": [
+            {"name": "Historical Data Migration", "evidence_quote": "Deliverable 1 - Historical Data Migration"},
+            {"name": "Ticket Management", "evidence_quote": "Deliverable 2 - Ticket Management"},
+            {"name": "Email Management", "evidence_quote": "Deliverable 3 - Email Management"},
+            {"name": "Reporting and SLA Management", "evidence_quote": "Deliverable 4 - Reporting and SLA Management"},
+            {"name": "Invented", "evidence_quote": "not in the source"},
+        ]
+    }
+    boundaries = ScopeArchitectAgent._explicit_source_deliverables(requirements, source)
+    assert [item["name"] for item in boundaries] == [
+        "Historical Data Migration", "Ticket Management", "Email Management",
+        "Reporting and SLA Management",
+    ]
+
+
+def test_source_deliverable_constraint_splits_one_package_into_named_outcomes():
+    agent = _agent()
+    plan = {
+        "deliverables": [{
+            "name": "Unified CRM",
+            "modules": [
+                {"name": "Migration", "capability_ids": ["CAP-001"]},
+                {"name": "Ticket Management", "capability_ids": ["CAP-002"]},
+                {"name": "Email Management", "capability_ids": ["CAP-003"]},
+                {"name": "Reporting", "capability_ids": ["CAP-004"]},
+            ],
+        }],
+    }
+    constrained = agent._enforce_refinement_constraints(
+        plan,
+        [],
+        {
+            "requested_deliverable_count": 4,
+            "requested_deliverable_names": [
+                "Historical Data Migration", "Ticket Management",
+                "Email Management", "Reporting and SLA Management",
+            ],
+            "constraint_source": "explicit_source_deliverables",
+        },
+    )
+    assert [item["name"] for item in constrained["deliverables"]] == [
+        "Historical Data Migration", "Ticket Management", "Email Management",
+        "Reporting and SLA Management",
+    ]
+    assert all(
+        item["separation_basis"] == "Explicit customer-authored deliverable boundary"
+        for item in constrained["deliverables"]
+    )
+
+
+def test_multi_deliverable_single_package_label_is_normalised_to_acceptance():
+    inventory = [
+        {"id": "CAP-001", "disposition": "in_scope", "evidence_status": "Confirmed"},
+        {"id": "CAP-002", "disposition": "in_scope", "evidence_status": "Confirmed"},
+    ]
+    plan = {
+        "deliverables": [
+            {
+                "name": "Data Migration",
+                "boundary_type": "single_package",
+                "separation_basis": "Distinct migration validation outcome",
+                "modules": [{"name": "Migration", "capability_ids": ["CAP-001"]}],
+            },
+            {
+                "name": "Reporting",
+                "boundary_type": "single_package",
+                "separation_basis": "Distinct management reporting outcome",
+                "modules": [{"name": "Dashboards", "capability_ids": ["CAP-002"]}],
+            },
+        ]
+    }
+    normalised, issues = ScopeArchitectAgent._normalise_plan(plan, inventory)
+    assert issues == []
+    assert [item["boundary_type"] for item in normalised["deliverables"]] == [
+        "acceptance", "acceptance"
+    ]
+
+
+def test_incomplete_explicit_headings_expand_to_distinct_source_outcomes():
+    names = ScopeArchitectAgent._source_outcome_boundary_names({
+        "key_deliverables": [
+            "Migration of historical data and attachments",
+            "Ticketing functionality with escalation and follow-up",
+            "Email desk, compose, and communication management",
+            "Manager reporting dashboards and agent scorecards",
+        ]
+    })
+    assert names == [
+        "Data Migration",
+        "Ticketing and Case Management",
+        "Email Desk and Communication",
+        "Management Reporting and Dashboards",
+    ]
+
+
+def test_brd_outcome_families_are_enforced_when_labels_are_inconsistent():
+    requirements = {
+        "key_deliverables": [
+            "Migration of historical data and attachments",
+            "Ticketing functionality in Connect",
+            "Escalation matrix implementation",
+            "Follow-up module",
+            "Email Desk solution with routing and compose capabilities",
+            "Manager and agent reporting dashboards",
+            "Service Level Management configuration and breach handling",
+        ]
+    }
+    one_package = {
+        "discovered_capabilities": [],
+        "deliverables": [{
+            "name": "Unified CRM",
+            "boundary_type": "single_package",
+            "separation_basis": "Shared implementation",
+            "modules": [
+                {"name": "Data Migration", "capability_ids": ["CAP-001"]},
+                {"name": "Ticketing and Escalation", "capability_ids": ["CAP-002", "CAP-003", "CAP-004"]},
+                {"name": "Email Desk", "capability_ids": ["CAP-005"]},
+                {"name": "Reporting and SLA Management", "capability_ids": ["CAP-006", "CAP-007"]},
+            ],
+        }],
+    }
+    plan = _agent(one_package).architect(requirements, {"project_title": "CRM"}, "BRD source")
+    assert [item["display_name"] for item in plan["deliverables"]] == [
+        "Deliverable 1 - Data Migration",
+        "Deliverable 2 - Ticketing and Case Management",
+        "Deliverable 3 - Email Desk and Communication",
+        "Deliverable 4 - Management Reporting and Dashboards",
+    ]
+
+
 def test_scope_node_skips_when_scope_is_not_selected():
     result = scope_architecture_node({"selected_sow_sections": ["aws_pricing"]})
     assert result["scope_architecture_plan"] == {}

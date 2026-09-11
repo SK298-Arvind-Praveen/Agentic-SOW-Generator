@@ -20,6 +20,7 @@ from app.core.sow_quality import (
     clean_markdown_preserving_structure,
     classify_complexity,
     normalize_requirements,
+    remove_missing_information_disclaimers,
     section_quality_issues,
     validate_generated_sections,
 )
@@ -333,8 +334,8 @@ class POCWriterAgent:
             # cleaner correctly removes that duplicate heading, but the result
             # must still contain a body if the user selected the section.
             if not cleaned.strip():
-                cleaned = self._clean_content(
-                    self._deterministic_fallback(section, req), resolved_section_name
+                raise RuntimeError(
+                    f"{resolved_section_name} returned no usable content; generation halted"
                 )
             return index, key, cleaned
 
@@ -362,11 +363,11 @@ class POCWriterAgent:
                     try:
                         result_index, result_key, content = future.result()
                     except Exception as exc:
-                        print(f"    ❌ Unhandled section worker error for {section.name}: {exc}")
-                        result_index, result_key = index, key
-                        content = self._clean_content(
-                            self._deterministic_fallback(section, req), section.name
-                        )
+                        for pending in future_jobs:
+                            pending.cancel()
+                        raise RuntimeError(
+                            f"SOW section generation failed for {section.name}; generation halted: {exc}"
+                        ) from exc
                     rendered[result_index] = (result_key, content, True)
                     completed += 1
                     if progress_callback:
@@ -395,6 +396,9 @@ class POCWriterAgent:
             print(f"⚠ Generation gate missing expected sections: {', '.join(missing)}")
         if issues:
             print(f"⚠ Generation gate reported {len(issues)} quality issue(s)")
+        if missing or issues:
+            details = "; ".join([*(f"missing {item}" for item in missing), *issues])
+            raise RuntimeError(f"SOW generation quality gate failed; generation halted: {details}")
         output["generation_quality_summary"] = self._quality_summary(missing, issues, req)
         print(f"✅ Assembly complete - {len(output)} sections")
         return output
@@ -502,42 +506,18 @@ class POCWriterAgent:
                 prompt,
                 max_tokens=self._section_token_budget(section),
                 model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+                call_name=f"SOW Section - {section.name}",
             )
+        resolved_name = self._replace_placeholders(section.name, metadata, requirements)
+        content = self._clean_content(content, resolved_name)
         issues = self._authoring_issues(content, section)
         if issues and not architected_scope:
-            retry = f"""The previous draft of the {section.name!r} section failed these checks:
-{chr(10).join('- ' + issue for issue in issues)}
-
-Rewrite the section completely. Preserve every source-grounded fact, label proposals and
-planning assumptions, answer the template instructions, and return only the Markdown body.
-
-ORIGINAL AUTHORING BRIEF:
-{prompt}
-
-PREVIOUS DRAFT:
-{content[:8000]}"""
-            revised = self._call_bedrock(
-                retry,
-                max_tokens=self._section_token_budget(section),
-                model_id=getattr(self.config, "FALLBACK_MODEL_ID", None),
+            raise RuntimeError(
+                f"{section.name} failed deterministic authoring validation; generation halted: "
+                + "; ".join(issues)
             )
-            revised_issues = self._authoring_issues(revised, section)
-            if not revised_issues:
-                content = revised
-            elif not content.strip():
-                content = revised
-            elif (
-                revised.strip()
-                and any("word section limit" in issue for issue in issues)
-                and len(re.findall(r"\b\w+\b", revised))
-                < len(re.findall(r"\b\w+\b", content))
-            ):
-                # Keep a materially shorter revision even when it still carries
-                # a separate review flag; this prevents a verbose first draft
-                # from winning merely because neither draft is perfect.
-                content = revised
         if not content.strip():
-            content = self._deterministic_fallback(section, requirements)
+            raise RuntimeError(f"{section.name} returned empty content; generation halted")
         return content
 
     def _generate_scope_deliverables(
@@ -628,11 +608,12 @@ Preserve all source-specific workflows, business rules, systems, data, threshold
             # large multi-deliverable scope from being truncated by one call.
             # Scope must remain concise and preview-safe. This is an output
             # ceiling, not a required word/module count.
-            token_budget = min(5200, max(2200, 1100 + len(modules) * 450))
+            token_budget = 32768
             block = self._call_bedrock(
                 prompt,
                 max_tokens=token_budget,
                 model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+                call_name=f"Scope Deliverable {deliverable_index}",
             ).strip()
             expected_modules = [str(item.get("name") or "").strip() for item in modules]
             block_key = _normalise_heading_text(block)
@@ -667,6 +648,16 @@ Preserve all source-specific workflows, business rules, systems, data, threshold
                 ).strip()
                 if revised:
                     block = revised
+                block_key = _normalise_heading_text(block)
+                remaining_modules = [
+                    name for name in expected_modules
+                    if name and _normalise_heading_text(name) not in block_key
+                ]
+                if remaining_modules:
+                    raise RuntimeError(
+                        f"Scope Deliverable {deliverable_index} omitted required modules after validation: "
+                        + ", ".join(remaining_modules)
+                    )
             structure_issues = self._scope_block_structure_issues(block)
             if block and structure_issues:
                 compact_prompt = (
@@ -684,6 +675,12 @@ Preserve all source-specific workflows, business rules, systems, data, threshold
                 ).strip()
                 if revised and not self._scope_block_structure_issues(revised):
                     block = revised
+                remaining_structure_issues = self._scope_block_structure_issues(block)
+                if remaining_structure_issues:
+                    raise RuntimeError(
+                        f"Scope Deliverable {deliverable_index} failed structure validation: "
+                        + "; ".join(remaining_structure_issues)
+                    )
             if block:
                 # Heading names and numbering are contractual document structure,
                 # so do not leave them to probabilistic model compliance.
@@ -715,6 +712,14 @@ Preserve all source-specific workflows, business rules, systems, data, threshold
         )
         cleaned: List[str] = []
         for line in str(content or "").splitlines():
+            if re.match(
+                r"^\s*(?:[-*+]\s*)?(?:\*\*)?(?:evidence\s+status|assumption\s+flagged)\s*:",
+                line,
+                flags=re.I,
+            ):
+                # Provenance annotations are not implementation work. Their
+                # underlying questions belong in Open Clarifications.
+                continue
             match = re.match(
                 rf"^\s*(?:[-*+]\s*)?(?:\*\*)?{category}\s*:\s*(?:\*\*)?\s*(.*)$",
                 line,
@@ -813,7 +818,10 @@ Architecture rules:
 - Determine the natural number of deliverables and modules from the problem; there is no target, minimum, or maximum count.
 - A deliverable is a separately deployable or acceptably complete business outcome, release, or phase. It is not a synonym for a source table row, feature, integration, technical layer, workstream, or module.
 - First cluster capabilities that share the same users, release boundary, operating workflow, deployment and acceptance event. Promote a cluster to a separate deliverable only when it has a credible independent phase, deployment or acceptance boundary, and record that reason in separation_basis.
-- Treat source headings or tables called "Deliverables" as evidence of contractual outputs, not proof that every row must become a top-level architectural deliverable. Preserve every row, but normally assign closely related rows as modules or outputs within a broader delivery package.
+- Preserve explicitly numbered or named customer-authored deliverables as top-level deliverables when
+  each describes a distinct reviewable business outcome. A shared programme, deployment, or acceptance
+  event does not override those explicit boundaries. Ordinary feature rows, artefacts, technical layers,
+  and checklists remain modules or outputs.
 - Perform a final cohesion audit before returning JSON: if two proposed deliverables would be designed, built, demonstrated and accepted together, merge them while retaining every module and source requirement.
 - Every deliverable must contain the modules needed to deliver its outcome. A module is a cohesive mini-problem, not a generic document category.
 - Decompose source workflows, business rules, integrations, data, AI behaviour, user interaction, platform work, security, testing, and readiness where they materially affect delivery.
@@ -958,12 +966,6 @@ Review rules:
     def _authoring_issues(content: str, section: TemplateSection) -> List[str]:
         issues = section_quality_issues(content, section.name)
         name = re.sub(r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", section.name).casefold()
-        word_count = len(re.findall(r"\b\w+\b", content or ""))
-        word_limit = POCWriterAgent._section_word_limit(section)
-        if word_limit is not None and word_count > word_limit:
-            issues.append(
-                f"exceeds the {word_limit}-word section limit; remove repetition and non-essential detail"
-            )
         for line in (content or "").splitlines():
             if re.match(r"^\s*\|.+\|\s*$", line):
                 columns = len(line.strip().strip("|").split("|"))
@@ -990,6 +992,13 @@ Review rules:
                 issues.append("About Client must contain exactly two brief paragraphs")
             if re.search(r"(?m)^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|\|)", content or ""):
                 issues.append("About Client must not contain subsections, lists, or tables")
+            if re.search(
+                r"(?i)\b(?:this engagement|project scope|project objectives?|"
+                r"statement of work|requirements relevant to|specific operational context|"
+                r"supplied project|proposed solution|shellkode(?:'s)? involvement)\b",
+                content or "",
+            ):
+                issues.append("About Client must describe only the company, not the engagement or its problem")
         elif name.startswith(("document control", "document version control")):
             if not any(all(label in line for label in ("version", "date", "prepared by", "status", "classification")) for line in table_lines):
                 issues.append("Document Control is missing the required five-column control table")
@@ -1075,9 +1084,15 @@ Review rules:
         if self._section_category(section) == "about_client":
             company_research_context = (
                 metadata.get("company_description")
-                or "No separate company research was available; use only the confirmed project context."
+                or ""
             )
         category = self._section_category(section)
+        about_client = category == "about_client"
+        requirements_context = (
+            {"company_name": metadata.get("company_name", "")}
+            if about_client else requirements
+        )
+        section_source_context = supporting_context or "(none)"
         refinement_contract = "(not a regeneration request)"
         if getattr(self, "refinement_plan", None):
             affected = {
@@ -1106,11 +1121,9 @@ Review rules:
             architecture_blueprint = json.dumps(
                 getattr(self, "scope_architecture_plan", {}) or {}, indent=2, default=str
             ) or "(not available; derive directly from the authoritative baseline)"
-        word_limit = self._section_word_limit(section)
         length_instruction = (
-            "- No fixed word, deliverable, or module limit applies to Scope of Work. Use the detail and structure required to cover the source completely without repetition."
-            if word_limit is None else
-            f"- Hard maximum: {word_limit} words, including tables and lists.\n- Use fewer words when the source is sparse."
+            "- Use the natural amount of detail needed to cover the source clearly and concisely. "
+            "Do not target a fixed word count, pad sparse evidence, or repeat information."
         )
         return f"""You are a principal solutions architect and senior commercial technical writer.
 Write the body of one section in a benchmark-quality {type_label} Statement of Work.
@@ -1122,7 +1135,7 @@ DOCUMENT CONTEXT
 - Mode: {self.template_type}
 
 AUTHORITATIVE REQUIREMENTS BASELINE
-{json.dumps(requirements, indent=2, default=str)}
+{json.dumps(requirements_context, indent=2, default=str)}
 
 USER GENERATION GUIDANCE
 {requirements.get('_generation_guidance') or '(none)'}
@@ -1135,7 +1148,7 @@ REFINEMENT PRESERVATION CONTRACT
 {refinement_contract}
 
 SOURCE EXCERPT (supporting evidence; may be empty)
-{supporting_context or '(none)'}
+{section_source_context}
 
 CLIENT RESEARCH CONTEXT (use only when writing About Client)
 {company_research_context}
@@ -1179,6 +1192,10 @@ NON-NEGOTIABLE AUTHORING STANDARD
   architect-derived choices as "Proposed" and put unknown material facts under Open Clarifications.
 - Never invent customer facts, dates, prices, volumes, user counts, compliance claims, SLAs,
   model versions, named contacts, or achieved results.
+- Never describe information as absent in any section or emit phrases such as "not provided",
+  "not specified", "unknown", "TBD", "to be confirmed", "inputs were not provided", or equivalent
+  disclaimers. Omit unsupported ordinary-section content. In Open Clarifications, express the item
+  directly as an answerable question and leave an unavailable status/value cell blank.
 - Do not diagnose a current-state deficiency merely because the target solution includes that
   capability. Describe a gap as confirmed only when a source states or directly demonstrates it.
 - A source-required capability must not appear in Out of Scope. A conflicting, optional or
@@ -1225,6 +1242,8 @@ NON-NEGOTIABLE AUTHORING STANDARD
   boundaries needed to interpret the generated visual. Do not duplicate the visual as a long component
   catalogue, and never claim that a source-supplied diagram exists when it does not.
 - The section should be complete enough for commercial and technical review, without filler or repetition.
+- For About Client only, write exactly two consecutive factual prose paragraphs as instructed by
+  the section template; this is the explicit exception to the general paragraph-and-bullets guidance.
 """
 
     def _build_prompt(
@@ -1245,20 +1264,21 @@ NON-NEGOTIABLE AUTHORING STANDARD
         prompt: str,
         max_tokens: int = 6000,
         model_id: Optional[str] = None,
+        call_name: str = "SOW Section Generation",
     ) -> str:
         try:
             result = self.llm.generate(
                 prompt,
                 task="writer",
-                max_tokens=min(max_tokens, 8192),
+                max_tokens=max(32768, int(max_tokens)),
                 temperature=0.15,
-                call_name="SOW Section Generation",
+                call_name=call_name,
                 model_id=model_id,
             )
             return result.text.strip()
         except Exception as exc:
             print(f"    ❌ Section generation error: {exc}")
-            return ""
+            raise
 
     def _call_bedrock_batch(self, prompt: str, sections: List[TemplateSection]) -> Dict[str, str]:
         """Compatibility shim; generation no longer depends on oversized batch JSON."""
@@ -1280,8 +1300,8 @@ NON-NEGOTIABLE AUTHORING STANDARD
         # multi-thousand-word section that later has to be cut down.
         word_limit = POCWriterAgent._section_word_limit(section)
         if word_limit is None:
-            return 8192
-        return max(900, min(3200, word_limit * 2))
+            return 32768
+        return 32768
 
     @staticmethod
     def _context_excerpt(
@@ -1386,7 +1406,27 @@ NON-NEGOTIABLE AUTHORING STANDARD
                     filtered.pop()
                 continue
             filtered.append(line)
-        return clean_markdown_preserving_structure("\n".join(filtered))
+        content = clean_markdown_preserving_structure("\n".join(filtered))
+        name_key = heading_key(section_label)
+        if name_key != "open clarification":
+            content = remove_missing_information_disclaimers(content)
+        if name_key == "about {company_name}" or name_key.startswith("about "):
+            paragraphs = [
+                paragraph.strip()
+                for paragraph in re.split(r"\n\s*\n", content)
+                if paragraph.strip()
+            ]
+            paragraphs = [
+                paragraph for paragraph in paragraphs
+                if not re.search(
+                    r"(?i)\b(?:this engagement|project scope|project objectives?|"
+                    r"statement of work|requirements relevant to|specific operational context|"
+                    r"supplied project|proposed solution|shellkode(?:'s)? involvement)\b",
+                    paragraph,
+                )
+            ]
+            content = "\n\n".join(paragraphs)
+        return clean_markdown_preserving_structure(content)
 
     def _clean_markdown_artifacts(self, text: str) -> str:
         return clean_markdown_preserving_structure(text)

@@ -386,16 +386,60 @@
 
 .login-footer .link:hover { color: var(--purple-300); text-decoration: underline; }
 
-.login-footer .demo-info {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 12px;
-  padding: 8px 10px;
-  background: var(--bg-overlay);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-subtle);
-  font-weight: var(--font-medium);
+.auth-text-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--purple-400);
+  cursor: pointer;
+  font: inherit;
+  font-weight: var(--font-semibold);
+  padding: 0;
 }
+.auth-text-link:hover { color: var(--purple-300); text-decoration: underline; }
+.signup-right {
+  flex-basis: 560px;
+  height: 100vh;
+  align-items: flex-start;
+  overflow-y: auto;
+  padding-top: 24px;
+  padding-bottom: 24px;
+  scrollbar-gutter: stable;
+}
+.signup-card { max-width: 540px; flex: 0 0 auto; }
+.auth-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.auth-span { grid-column: 1 / -1; }
+.required-asterisk { color: #dc2626; font-weight: 700; }
+.employee-id-prefix {
+  position: absolute;
+  left: 46px;
+  z-index: 1;
+  color: var(--text-primary);
+  font-weight: var(--font-semibold);
+  pointer-events: none;
+}
+.employee-id-group .login-input { padding-left: 74px; }
+.auth-success-message {
+  padding: 12px 14px;
+  color: #047857;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.auth-centered { align-items: center; justify-content: center; }
+.verification-card { text-align: center; width: min(440px, calc(100vw - 32px)); }
+.verification-card .shellkode-logo { margin: 0 auto 26px; }
+.verification-icon { width: 58px; height: 58px; margin: 0 auto 18px; border-radius: 50%; display: grid; place-items: center; }
+.verification-icon svg { width: 30px; height: 30px; }
+.verification-icon.working { color: #2563eb; background: #eff6ff; }
+.verification-icon.success { color: #059669; background: #ecfdf5; }
+.verification-icon.error { color: #dc2626; background: #fef2f2; }
+.verification-card h2 { margin: 0 0 8px; }
+.verification-card p { color: var(--text-muted); line-height: 1.5; }
+.auth-action-card { text-align: left; }
+.auth-action-card .login-header { text-align: center; }
 
 /* ============================================================
    RESPONSIVE
@@ -412,6 +456,7 @@
   .login-content { max-width: 100%; }
   .content-section h1 { font-size: 1.7rem; }
   .features-list { gap: 10px; }
+  .signup-right { flex-basis: auto; width: 100%; }
 }
 
 @media (max-width: 480px) {
@@ -419,4 +464,6 @@
   .features-list { display: none; }
   .content-section h1 { font-size: 1.5rem; }
   .login-card { padding: 24px 18px; }
+  .auth-form-grid { grid-template-columns: 1fr; }
+  .auth-span { grid-column: auto; }
 }

@@ -118,6 +118,30 @@ def _add_field(paragraph, instruction: str, cached_text: str = "", size: float =
     return run
 
 
+def _start_complex_field(paragraph, instruction: str):
+    """Start a multi-paragraph Word field before its cached display content."""
+    run = paragraph.add_run()
+    begin = OxmlElement("w:fldChar")
+    begin.set(qn("w:fldCharType"), "begin")
+    begin.set(qn("w:dirty"), "true")
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = instruction
+    separate = OxmlElement("w:fldChar")
+    separate.set(qn("w:fldCharType"), "separate")
+    run._r.extend([begin, instr, separate])
+    return run
+
+
+def _end_complex_field(paragraph):
+    """Close a complex field after the final cached-result paragraph."""
+    run = paragraph.add_run()
+    end = OxmlElement("w:fldChar")
+    end.set(qn("w:fldCharType"), "end")
+    run._r.append(end)
+    return run
+
+
 def _bookmark_name(title: str, index: int = 0) -> str:
     prefix = f"SOW_{index}_"
     # Word bookmark names are limited to 40 characters. Keeping the stable,
@@ -565,10 +589,12 @@ try {
 
 
 def _refresh_pageref_cached_results(document_path: Path, config) -> None:
-    """Calculate and cache TOC page numbers with an available Office engine.
+    """Refresh the native TOC with an available Office layout engine.
 
     Existing Microsoft Word is preferred on Windows. LibreOffice remains a
     free, optional fallback; neither application is a hard project dependency.
+    The native TOC and its nested PAGEREF fields must remain intact so Word and
+    Google Docs can rebuild entry text after a heading is renamed.
     """
     if not getattr(config, "PRECOMPUTE_DOCUMENT_FIELDS", True):
         raise RuntimeError("optional field-cache generation is disabled")
@@ -577,29 +603,6 @@ def _refresh_pageref_cached_results(document_path: Path, config) -> None:
     if os.name == "nt":
         try:
             _refresh_fields_with_word(document_path)
-            with zipfile.ZipFile(document_path, "r") as source_package:
-                files = {
-                    name: source_package.read(name)
-                    for name in source_package.namelist()
-                }
-            files["word/document.xml"] = _flatten_pageref_fields(
-                files["word/document.xml"]
-            )
-            descriptor, temporary_name = tempfile.mkstemp(
-                prefix=f".{document_path.stem}-google-toc-",
-                suffix=".docx",
-                dir=document_path.parent,
-            )
-            os.close(descriptor)
-            temporary_path = Path(temporary_name)
-            try:
-                with zipfile.ZipFile(temporary_path, "w", zipfile.ZIP_DEFLATED) as destination:
-                    for name, payload in files.items():
-                        destination.writestr(name, payload)
-                os.replace(temporary_path, document_path)
-            finally:
-                if temporary_path.exists():
-                    temporary_path.unlink()
             return
         except Exception as exc:
             word_error = exc
@@ -661,9 +664,6 @@ def _refresh_pageref_cached_results(document_path: Path, config) -> None:
             )
         files["word/document.xml"] = _patch_pageref_results(
             files["word/document.xml"], refreshed_results
-        )
-        files["word/document.xml"] = _flatten_pageref_fields(
-            files["word/document.xml"]
         )
         settings_root = parse_xml(files["word/settings.xml"])
         update_fields = settings_root.find(qn("w:updateFields"))
@@ -1625,12 +1625,11 @@ class DocumentBuilder:
         retain their established page geometry, headers, footers and numbering.
         """
         assert self.doc is not None
-        # A next-page section break attached to the last cover paragraph makes
-        # LibreOffice/Word Online reflow the template's bottom-positioned text
-        # onto an intermediate page. Use a continuous section boundary here;
-        # the caller adds a normal page break before the TOC after configuring
-        # the new section's independent header and footer.
-        content_section = self.doc.add_section(WD_SECTION.CONTINUOUS)
+        # The cover is A4 while the body is Letter. Word necessarily promotes a
+        # continuous size-changing section to a new page; adding a manual break
+        # as well therefore creates a blank page. Use one explicit next-page
+        # section boundary and no additional break before the TOC.
+        content_section = self.doc.add_section(WD_SECTION.NEW_PAGE)
 
         # python-docx represents a section break as a separate empty paragraph.
         # Word Online/SharePoint can lay that carrier out as its own page when
@@ -1685,10 +1684,8 @@ class DocumentBuilder:
         )
         self._inserted_diagram_ids: set[int] = set()
 
-        # The TOC always begins on the first page after the cover. Document
-        # Version Control and all substantive sections follow it in the user's
-        # selected order.
-        self.doc.add_page_break()
+        # The next-page content section puts the TOC immediately after the
+        # cover. Document Version Control and substantive sections follow it.
         self._add_toc()
         self.doc.add_page_break()
         for position, section_name in enumerate(self.toc_entries):
@@ -1882,21 +1879,38 @@ class DocumentBuilder:
 
     def _add_toc(self) -> None:
         assert self.doc is not None
-        title = self.doc.add_paragraph(style="Heading 1")
-        title.add_run("Table of Contents")
+        # The title must not itself be a Heading paragraph, otherwise a native
+        # TOC refresh inserts "Table of Contents" into its own result.
+        title = self.doc.add_paragraph()
+        title.paragraph_format.keep_with_next = True
+        title.paragraph_format.space_after = Pt(8)
+        _set_font(title.add_run("Table of Contents"), size=20.0, bold=True, color=PURPLE)
         self._set_paragraph_bottom_border(title, PURPLE)
         entries = self.expanded_toc_entries or [
             (entry, _bookmark_name(entry, index), 1)
             for index, entry in enumerate(self.toc_entries, 1)
         ]
+        if not entries:
+            paragraph = self.doc.add_paragraph()
+            _start_complex_field(paragraph, 'TOC \\o "1-4" \\h \\z \\u')
+            paragraph.add_run("Update table of contents")
+            _end_complex_field(paragraph)
+            return
         entries_are_numbered = any(re.match(r"^\d+[.)]\s+", entry[0]) for entry in entries if entry[2] == 1)
+        toc_paragraphs = []
         for index, (entry, anchor, level) in enumerate(entries, 1):
             paragraph = self.doc.add_paragraph()
+            toc_paragraphs.append(paragraph)
             paragraph.paragraph_format.left_indent = Inches(
                 0.02 if level == 1 else 0.22 + (level - 2) * 0.18
             )
             paragraph.paragraph_format.space_after = Pt(3 if level == 1 else 2)
             paragraph.paragraph_format.line_spacing = 1.15
+            if index == 1:
+                # The existing rows are the field's cached result, so generated
+                # files display immediately. Word and Google Docs can replace
+                # the complete result from Heading 1-4 with one update action.
+                _start_complex_field(paragraph, 'TOC \\o "1-4" \\h \\z \\u')
             display = entry if entries_are_numbered or level > 1 else f"{index}. {entry}"
             _add_hyperlink(paragraph, display, anchor)
             toc_size = 11.0
@@ -1910,6 +1924,7 @@ class DocumentBuilder:
             tab = paragraph.add_run("\t")
             _set_font(tab, size=toc_size)
             _add_field(paragraph, f"PAGEREF {anchor} \\h", "", size=toc_size)
+        _end_complex_field(toc_paragraphs[-1])
 
     def _resolve_content(self, section_name: str, sections: Dict[str, Any]) -> str:
         key = self._name_to_key(section_name)

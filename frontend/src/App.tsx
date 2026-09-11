@@ -4,6 +4,10 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './components/Login';
+import Signup from './components/Signup';
+import VerifyAccount from './components/VerifyAccount';
+import ForgotPassword from './components/ForgotPassword';
+import ResetPassword from './components/ResetPassword';
 import Dashboard from './components/Dashboard';
 import Production from './components/Production';
 import Documents from './components/Documents';
@@ -26,6 +30,17 @@ const AdminOnly: React.FC<{ children: React.ReactElement }> = ({ children }) => 
   return isAdmin ? children : <Navigate to="/dashboard" replace />;
 };
 
+const AccountsAllowed: React.FC<{ children: React.ReactElement }> = ({ children }) => {
+  const { canAccessAccounts } = useAuth();
+  return canAccessAccounts ? children : <Navigate to="/dashboard" replace />;
+};
+
+const HomeRedirect: React.FC = () => {
+  const { isAuthenticated, canAccessAccounts } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <Navigate to={canAccessAccounts ? '/accounts' : '/dashboard'} replace />;
+};
+
 const App: React.FC = () => {
   return (
     <AuthProvider>
@@ -45,6 +60,10 @@ const App: React.FC = () => {
           />
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route path="/verify-account" element={<VerifyAccount />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
 
             {/* All protected routes share the persistent sidebar + top bar */}
             <Route element={<ProtectedLayout />}>
@@ -57,9 +76,9 @@ const App: React.FC = () => {
               />
 
               {/* Account Management Routes */}
-              <Route path="/accounts" element={<Accounts />} />
-              <Route path="/accounts/:accountId" element={<AccountDetail />} />
-              <Route path="/projects/:projectId" element={<ProjectDetail />} />
+              <Route path="/accounts" element={<AccountsAllowed><Accounts /></AccountsAllowed>} />
+              <Route path="/accounts/:accountId" element={<AccountsAllowed><AccountDetail /></AccountsAllowed>} />
+              <Route path="/projects/:projectId" element={<AccountsAllowed><ProjectDetail /></AccountsAllowed>} />
 
               {/* Legacy Routes */}
               <Route path="/dashboard" element={<Dashboard />} />
@@ -68,7 +87,7 @@ const App: React.FC = () => {
             </Route>
 
             {/* Default Route - Redirect to Accounts */}
-            <Route path="/" element={<Navigate to="/accounts" />} />
+            <Route path="/" element={<HomeRedirect />} />
           </Routes>
         </div>
       </Router>

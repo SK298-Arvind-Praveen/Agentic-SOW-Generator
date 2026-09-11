@@ -85,11 +85,12 @@ The company works across industries including BFSI, Retail & E-commerce, Logisti
 [META_GENERATED]
 ## About {COMPANY_NAME}
 
-Write exactly two brief, source-grounded prose paragraphs about {COMPANY_NAME}. Cover only the
-company background and business context relevant to this engagement. Do not use subsections,
+Write exactly two brief, source-grounded prose paragraphs about {COMPANY_NAME}. Cover only its
+company profile, industry, products/services and established business operations. Do not describe
+this project, its problem, requirements, proposed solution, engagement, or ShellKode's involvement. Do not use subsections,
 bullets, numbered lists, or tables. Do not invent industry position, scale, revenue, locations,
 products, regulations, or achievements. When source information is limited, keep both paragraphs
-to the confirmed project context and avoid unsupported corporate claims.
+to confirmed company facts; omit unsupported details without commenting that information is missing.
 
 [META_GENERATED]
 ## Objective
@@ -164,7 +165,9 @@ test windows, deployment approvals, support readiness, and timeline inputs witho
 ## Open Clarifications
 
 Create a decision log: ID, Clarification, Why It Matters, Decision Owner Role, Required By,
-Affected Sections, and Status. Carry forward every material unknown and do not answer it for the customer.
+Affected Sections, and Status. Carry forward every material open item as a direct answerable question
+and do not answer it for the customer. Never state that information was not provided, specified,
+stated, supplied, available or confirmed; leave an unavailable status/value cell blank.
 
 [META_GENERATED]
 ## Out of Scope
@@ -203,10 +206,15 @@ validation, hypercare, and transition to operations. Use a responsibility/runboo
 [META_TABLE]
 ## AWS Pricing
 
-Use a source-backed estimate when available. Otherwise provide planning ranges by major cost driver
-and state the usage variables required for an AWS Pricing Calculator baseline. Columns: Cost Driver,
-Usage Assumption, Estimate Status, Monthly Range/Basis, Optimization Lever, Customer Action.
-Separate one-time migration/test usage from steady state. Never claim approved funding.
+Put the editable AWS Pricing Calculator link above all tables. Show only a two-column
+`Estimated Volume Metrics` table of source-backed business workload measures such as interactions,
+turns, inference share, handovers, backend calls, users, concurrency and retention. Follow it with a
+two-column `AWS Cost Summary` containing the calculator estimate, AWS MRR and AWS ARR in the
+calculator currency. Do not expose raw service configuration fields, unresolved calculator
+parameters, or a confirmation-needed column. Route unresolved material inputs to Open Clarifications.
+Always retain the standard workload and cost rows, leaving unavailable values blank without commentary.
+Use a broad non-binding fallback only when time-based business volumetrics support it. Never claim
+approved funding or perform an unsupported currency conversion.
 
 [META_STATIC]
 ## Customer Responsibilities

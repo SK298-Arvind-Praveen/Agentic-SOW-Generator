@@ -121,6 +121,26 @@ def _clean_label(value: Any, fallback: str = "Component", limit: int = 60) -> st
     return (text or fallback)[:limit]
 
 
+_COMPACT_AWS_LABELS = {
+    "amazon simple storage service": "Amazon S3",
+    "amazon simple queue service": "Amazon SQS",
+    "amazon simple notification service": "Amazon SNS",
+    "amazon simple email service": "Amazon SES",
+    "amazon quick": "Amazon QuickSight",
+}
+
+
+def _compact_aws_label(label: str, icon_key: str) -> str:
+    """Use familiar service names so icon captions remain fully visible."""
+    if not icon_key:
+        return label
+    key = re.sub(r"\s+", " ", str(label or "").strip()).casefold()
+    return next(
+        (compact for long_name, compact in _COMPACT_AWS_LABELS.items() if long_name in key),
+        label,
+    )
+
+
 def validate_spec(raw: Dict[str, Any], default_title: str, icon_candidates: Optional[Dict[str, IconCandidate]] = None) -> DiagramSpec:
     if not isinstance(raw, dict):
         raise ValueError("Diagram response must be a JSON object")
@@ -171,9 +191,10 @@ def validate_spec(raw: Dict[str, Any], default_title: str, icon_candidates: Opti
                     f"unapproved icon '{requested_icon_key}'; removed",
                     flush=True,
                 )
+        label = _clean_label(item.get("label"), f"Component {index}")
         nodes.append(Node(
             id=node_id,
-            label=_clean_label(item.get("label"), f"Component {index}"),
+            label=_compact_aws_label(label, icon_key),
             kind=kind,
             layer=layer,
             subtitle=_clean_label(item.get("subtitle"), "", 80),
@@ -547,13 +568,18 @@ def _aws_architecture_layout(
 
     # Fixed-width rails and content-derived vertical sizing produce consistent
     # diagrams from small serverless designs through 20+ component solutions.
-    canvas_w = 1500
-    cloud_x, cloud_y, cloud_w = 170, 220, 1280
-    vpc_x, vpc_y, vpc_w = 245, cloud_y + 110, 820
-    managed_x, managed_w = 1095, 300
-    entry_pos, entry_h = _grid_positions(entry, vpc_x + 28, vpc_y + 52, vpc_w - 56, 4)
-    az_y = vpc_y + 82 + max(116, entry_h)
-    az_gap = 22
+    # Keep explicit external-system gutters on both sides of the AWS account.
+    # The former 1500px canvas placed the right gutter *inside* the account,
+    # which made actors, managed services, and connectors overlap.
+    canvas_w = 1800
+    cloud_x, cloud_y, cloud_w = 220, 220, 1360
+    vpc_x, vpc_y, vpc_w = 300, cloud_y + 110, 900
+    managed_x, managed_w = 1230, 300
+    entry_pos, entry_h = _grid_positions(
+        entry, vpc_x + 30, vpc_y + 64, vpc_w - 60, 4, 150, 120, 28, 32,
+    )
+    az_y = vpc_y + 106 + max(120, entry_h)
+    az_gap = 28
     az_w = (vpc_w - 76 - az_gap) // 2
     workload_by_az: Dict[str, List[Node]] = {"az_a": [], "az_b": []}
     for node in workload:
@@ -565,14 +591,18 @@ def _aws_architecture_layout(
     for index, zone in enumerate(("az_a", "az_b")):
         zone_x = vpc_x + 24 + index * (az_w + az_gap)
         zone_positions, zone_height = _grid_positions(
-            workload_by_az[zone], zone_x + 16, az_y + 74, az_w - 32, 2, 138, 116, 18, 28,
+            workload_by_az[zone], zone_x + 18, az_y + 104, az_w - 36, 2, 150, 124, 24, 34,
         )
         workload_pos.update(zone_positions)
         workload_heights.append(zone_height)
     workload_h = max(workload_heights or [0])
-    data_y = az_y + 104 + max(116, workload_h)
-    data_pos, data_h = _grid_positions(data_vpc, vpc_x + 42, data_y, vpc_w - 84, 4)
-    managed_pos, managed_h = _grid_positions(managed, managed_x + 12, vpc_y + 58, managed_w - 24, 2, 126, 116, 18, 30)
+    data_y = az_y + 132 + max(124, workload_h)
+    data_pos, data_h = _grid_positions(
+        data_vpc, vpc_x + 42, data_y, vpc_w - 84, 4, 150, 120, 24, 34,
+    )
+    managed_pos, managed_h = _grid_positions(
+        managed, managed_x + 8, vpc_y + 76, managed_w - 16, 2, 134, 120, 14, 34,
+    )
 
     vpc_h = max(560, (data_y - vpc_y) + max(116, data_h) + 42)
     region_h = max(vpc_h + 90, managed_h + 130)
@@ -589,12 +619,12 @@ def _aws_architecture_layout(
     top_actor = next((node for node in external if node.kind == "actor"), external[0] if external else None)
     side_external = [node for node in external if node is not top_actor]
     if top_actor:
-        positions[top_actor.id] = (cloud_x + 360, 96, 150, 108)
+        positions[top_actor.id] = (cloud_x + (cloud_w - 200) // 2, 90, 200, 120)
     for index, node in enumerate(side_external):
         side = index % 2
         row = index // 2
-        x = 12 if side == 0 else canvas_w - 150
-        positions[node.id] = (x, cloud_y + 135 + row * 150, 138, 112)
+        x = 10 if side == 0 else canvas_w - 200
+        positions[node.id] = (x, cloud_y + 150 + row * 170, 190, 132)
 
     boxes = {
         "__aws_account": (cloud_x, cloud_y, cloud_w, cloud_h),
@@ -602,40 +632,14 @@ def _aws_architecture_layout(
         "__vpc": (vpc_x, vpc_y, vpc_w, vpc_h),
         "__az_a": (vpc_x + 24, az_y, az_w, vpc_h - (az_y - vpc_y) - 28),
         "__az_b": (vpc_x + 24 + az_w + az_gap, az_y, az_w, vpc_h - (az_y - vpc_y) - 28),
-        "__workload": (vpc_x + 30, az_y + 54, vpc_w - 60, max(150, workload_h + 38)),
+        "__workload": (vpc_x + 30, az_y + 62, vpc_w - 60, max(170, workload_h + 62)),
         "__managed": (managed_x, vpc_y, managed_w, region_h - 62),
     }
-    # Retain source/LLM functional groupings as editable dashed sub-boundaries
-    # when all members occupy the same infrastructure area. Infrastructure
-    # containment remains primary; cross-boundary groups are intentionally not
-    # drawn because they would obscure the account/VPC trust boundaries.
-    area_for = {
-        node.id: (
-            "external" if node in external else "managed" if node in managed
-            else "vpc_data" if node in data_vpc else "vpc"
-        )
-        for node in spec.nodes
-    }
-    for group in spec.groups:
-        members = [node for node in spec.nodes if node.group == group.id and node.id in positions]
-        # External actors already sit outside the AWS trust boundary. Drawing a
-        # bounding box around actors on both sides creates a second page-sized
-        # frame and visually competes with the architecture itself. Single-node
-        # groups and managed-service rails are likewise redundant.
-        member_areas = {area_for[node.id] for node in members}
-        if (
-            len(members) < 2
-            or group.kind == "external"
-            or member_areas in ({"external"}, {"managed"})
-            or len(member_areas) != 1
-        ):
-            continue
-        member_boxes = [positions[node.id] for node in members]
-        left = min(box[0] for box in member_boxes) - 12
-        top = min(box[1] for box in member_boxes) - 28
-        right = max(box[0] + box[2] for box in member_boxes) + 12
-        bottom = max(box[1] + box[3] for box in member_boxes) + 12
-        boxes[group.id] = (left, top, right - left, bottom - top)
+    # Functional LLM groups are still retained in the editable node metadata,
+    # but are not drawn as another set of boundaries. The standardized AWS
+    # Account/Region/VPC/AZ/workload/managed hierarchy already communicates
+    # containment; extra frames were the largest source of label and node
+    # collisions in complex diagrams.
     print(
         "[DIAGRAM][LAYOUT] AWS hierarchy: "
         f"external={len(external)}, entry={len(entry)}, workload={len(workload)}, "
@@ -755,7 +759,8 @@ def drawio_xml(spec: DiagramSpec, registry: Optional[AwsIconRegistry] = None) ->
         else:
             anchors = "exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;"
         style = (
-            "edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;"
+            "edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=24;"
+            "jumpStyle=arc;jumpSize=7;html=1;"
             "endArrow=block;endFill=1;strokeColor=#64748B;strokeWidth=2;fontSize=11;fontColor=#475569;"
             + anchors
         )
@@ -914,6 +919,18 @@ def render_png(spec: DiagramSpec, config: Any, registry: Optional[AwsIconRegistr
                 draw.text((placed[0] + 7, placed[1] + 3), label, fill="#475569", font=edge_font)
                 label_boxes.append(placed)
 
+    # Redraw boundary captions after connectors so routed lines never obscure
+    # AWS Account/Region/VPC/AZ labels.
+    for group_id, (x, y, _w, _h) in group_boxes.items():
+        group = group_map.get(group_id, Group(group_id, "Users and External Systems", "external"))
+        label = boundary_labels.get(group_id, group.label)
+        colour = boundary_colours.get(group_id, "#F97316")
+        label_bbox = draw.textbbox((0, 0), label, font=group_font)
+        label_w = label_bbox[2] - label_bbox[0]
+        label_h = label_bbox[3] - label_bbox[1]
+        draw.rectangle((x + 8, y + 6, x + 22 + label_w, y + 20 + label_h), fill="white")
+        draw.text((x + 14, y + 12), label, fill=colour, font=group_font)
+
     for node_id, (x, y, w, h) in positions.items():
         node = node_map[node_id]
         fill, stroke = KIND_STYLES[node.kind]
@@ -924,7 +941,17 @@ def render_png(spec: DiagramSpec, config: Any, registry: Optional[AwsIconRegistr
             cursor = y + 73
             for line in lines:
                 bbox = draw.textbbox((0, 0), line, font=label_font)
-                draw.text((x + (w - (bbox[2] - bbox[0])) // 2, cursor), line, fill="#1F2937", font=label_font)
+                text_w = bbox[2] - bbox[0]
+                text_h = bbox[3] - bbox[1]
+                text_x = x + (w - text_w) // 2
+                # Mask only the caption glyph area. This keeps the connector
+                # visibly attached to the icon while preventing a crossing
+                # route from reducing the service name's legibility.
+                draw.rectangle(
+                    (text_x - 3, cursor - 2, text_x + text_w + 3, cursor + text_h + 3),
+                    fill="white",
+                )
+                draw.text((text_x, cursor), line, fill="#1F2937", font=label_font)
                 cursor += 20
             continue
         text_width = w - 28
@@ -982,7 +1009,13 @@ def edit_url(xml: str, editor_url: Optional[str] = None) -> str:
         "data": base64.b64encode(compressed).decode("ascii"),
     }
     base_url = (editor_url or os.environ.get("DRAWIO_EDITOR_URL") or "https://app.diagrams.net").rstrip("/")
-    return base_url + "/?grid=0&pv=0#" + "create=" + urllib.parse.quote(json.dumps(payload, separators=(",", ":")))
+    # Word rewrites a URL fragment as the HYPERLINK field's ``\\l`` bookmark
+    # switch. The long draw.io ``#create`` payload is not a valid Word
+    # bookmark, so updating fields replaces the visible link with
+    # "Error! Hyperlink reference not valid." diagrams.net supports the same
+    # create payload as a query parameter, which remains an external URL in
+    # Word and Google Docs.
+    return base_url + "/?grid=0&pv=0&" + "create=" + urllib.parse.quote(json.dumps(payload, separators=(",", ":")))
 
 
 def validate_drawio_xml(xml: str) -> str:
@@ -1223,7 +1256,7 @@ DRAFT:
         result = self.llm.generate(
             prompt,
             task="diagram",
-            max_tokens=4800,
+            max_tokens=32768,
             temperature=0.05,
             call_name="Architecture Detail Pass",
             fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
@@ -1618,7 +1651,7 @@ DRAFT:
             result = self.llm.generate(
                 self._prompt(requirements, metadata, narrative, eligible_types, candidates),
                 task="diagram",
-                max_tokens=5200,
+                max_tokens=32768,
                 temperature=0.05,
                 call_name="Architecture Diagram",
                 fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
@@ -1696,12 +1729,7 @@ DRAFT:
                     )
             return [accepted[item] for item in eligible_types], False
         except Exception as exc:
-            print(f"   ⚠ Architecture diagram agent fallback: {exc}")
-            return [(
-                "architecture_overview",
-                self._placement("architecture_overview", {}),
-                fallback_spec(requirements, metadata, self.icon_registry, candidates),
-            )], True
+            raise RuntimeError("Architecture diagram generation or validation failed; generation halted") from exc
 
     def _asset(
         self,

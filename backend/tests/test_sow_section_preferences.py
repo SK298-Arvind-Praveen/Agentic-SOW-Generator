@@ -12,16 +12,16 @@ from app.core.sow_section_preferences import (
 
 
 class SowSectionPreferenceTests(unittest.TestCase):
-    def test_section_word_limits_prioritise_concise_output(self):
+    def test_sections_use_high_output_allowance_without_hard_word_failure(self):
         section = SimpleNamespace(name="Project Overview")
         detailed = SimpleNamespace(name="Detailed Scope of Work")
         self.assertEqual(POCWriterAgent._section_word_limit(section), 320)
         self.assertIsNone(POCWriterAgent._section_word_limit(detailed))
-        self.assertEqual(POCWriterAgent._section_token_budget(section), 900)
-        self.assertEqual(POCWriterAgent._section_token_budget(detailed), 8192)
+        self.assertEqual(POCWriterAgent._section_token_budget(section), 32768)
+        self.assertEqual(POCWriterAgent._section_token_budget(detailed), 32768)
         verbose = " ".join(["detail"] * 321)
         issues = POCWriterAgent._authoring_issues(verbose, section)
-        self.assertTrue(any("320-word section limit" in issue for issue in issues))
+        self.assertFalse(any("word section limit" in issue for issue in issues))
 
     def test_writer_flags_excessive_subsections(self):
         section = SimpleNamespace(name="Project Overview")
@@ -214,7 +214,7 @@ class SowSectionPreferenceTests(unittest.TestCase):
 
     def test_about_client_contract_requires_two_plain_paragraphs(self):
         section = SimpleNamespace(name="About {COMPANY_NAME}")
-        valid = "Axis Securities operates in financial services.\n\nIts confirmed project context concerns customer service modernisation."
+        valid = "Axis Securities operates in financial services.\n\nThe company provides securities and broking services."
         self.assertEqual(POCWriterAgent._authoring_issues(valid, section), [])
 
         invalid = "### Company Profile\n- Financial services organisation"

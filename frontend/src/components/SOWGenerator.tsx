@@ -79,6 +79,8 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
 }) => {
   const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
+  const selectableBusinessUnits = isAdmin ? BUSINESS_UNITS : (user?.business_units || []);
+  const canSelectBusinessUnit = isAdmin || selectableBusinessUnits.length > 1;
 
   // If projectId is provided, use it for project-based SOW creation
   const isProjectBased = !!projectId;
@@ -469,7 +471,7 @@ Date                                         Date`
     const missing: string[] = [];
     if (selectedSowSections.length === 0) missing.push('at least one SOW section');
     if (!formData.businessUnit) {
-      missing.push(isAdmin ? 'SOW owner/business unit' : 'business unit assignment for your profile');
+      missing.push(canSelectBusinessUnit ? 'SOW owner/business unit' : 'business unit assignment for your profile');
     }
     if (formData.generationMode === 'poc-to-production') {
       if (!formData.uploadedFiles?.length) missing.push('a POC document');
@@ -485,7 +487,7 @@ Date                                         Date`
       missing.push('a supporting document or additional details');
     }
     return missing;
-  }, [formData, isAdmin, selectedSowSections]);
+  }, [formData, canSelectBusinessUnit, selectedSowSections]);
 
   const showMissingFields = useCallback(() => {
     const missing = getMissingFormFields();
@@ -1285,7 +1287,7 @@ Date                                         Date`
             <label htmlFor="businessUnit" className="field-label">
               SOW Owner <span className="required">*</span>
             </label>
-            {isAdmin ? (
+            {canSelectBusinessUnit ? (
               <select
                 id="businessUnit"
                 name="businessUnit"
@@ -1294,7 +1296,7 @@ Date                                         Date`
                 className="field-input"
               >
                 <option value="">Select business unit...</option>
-                {BUSINESS_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                {selectableBusinessUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}
               </select>
             ) : (
               <input className="field-input auto-populated" value={user?.business_unit || ''} readOnly />

@@ -104,8 +104,12 @@ export interface ManagedUser {
   email: string;
   name: string;
   role: 'ADMIN' | 'GENAI' | 'DATABASE_MANAGEMENT' | 'DATA_ENGINEERING' | 'CLOUD' | 'MLOPS' | 'USER';
+  roles: Array<'ADMIN' | 'GENAI' | 'DATABASE_MANAGEMENT' | 'DATA_ENGINEERING' | 'CLOUD' | 'MLOPS' | 'USER'>;
   business_unit: string | null;
-  status: 'active' | 'inactive';
+  business_units: string[];
+  employee_id?: number;
+  email_verified?: boolean;
+  status: 'active' | 'inactive' | 'pending_verification';
   created_at?: string;
   updated_at?: string;
 }
@@ -135,6 +139,74 @@ class APIService {
     return data;
   }
 
+  async signup(data: {
+    first_name: string; last_name: string; email: string; employee_id: number;
+    business_unit: string; password: string; confirm_password: string;
+  }): Promise<any> {
+    const response = await globalThis.fetch(`${API_CONFIG.BASE_URL}/api/auth/signup`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      const error = new Error(payload.error || 'Unable to create account') as Error & {
+        verificationAttempted?: boolean;
+      };
+      error.verificationAttempted = Boolean(payload.verification_attempted);
+      throw error;
+    }
+    return payload;
+  }
+
+  async verifyAccount(token: string): Promise<any> {
+    const response = await globalThis.fetch(`${API_CONFIG.BASE_URL}/api/auth/verify`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Unable to verify account');
+    return payload;
+  }
+
+  async resendVerification(email: string): Promise<any> {
+    const response = await globalThis.fetch(`${API_CONFIG.BASE_URL}/api/auth/resend-verification`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Unable to resend verification');
+    return payload;
+  }
+
+  async forgotPassword(email: string): Promise<any> {
+    const response = await globalThis.fetch(`${API_CONFIG.BASE_URL}/api/auth/forgot-password`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Unable to request a password reset');
+    return payload;
+  }
+
+  async requestPasswordChange(): Promise<{ success: boolean; message: string }> {
+    return this.makeRequest('/api/auth/change-password-request', 'POST') as Promise<{
+      success: boolean; message: string;
+    }>;
+  }
+
+  async getCurrentUser(): Promise<{ success: boolean; user: any; business_units: string[] }> {
+    return this.makeRequest('/api/auth/me', 'GET') as Promise<{
+      success: boolean; user: any; business_units: string[];
+    }>;
+  }
+
+  async resetPassword(data: {
+    token: string; password: string; confirm_password: string;
+  }): Promise<any> {
+    const response = await globalThis.fetch(`${API_CONFIG.BASE_URL}/api/auth/reset-password`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Unable to reset password');
+    return payload;
+  }
+
   async fetchManagedUsers(): Promise<{ success: boolean; users: ManagedUser[]; business_units: string[] }> {
     return this.makeRequest('/api/admin/users', 'GET') as Promise<{ success: boolean; users: ManagedUser[]; business_units: string[] }>;
   }
@@ -143,15 +215,17 @@ class APIService {
     email: string;
     name: string;
     role: ManagedUser['role'];
+    roles?: ManagedUser['roles'];
     business_unit?: string | null;
     password: string;
+    employee_id?: number;
   }): Promise<{ success: boolean; user: ManagedUser }> {
     return this.makeRequest('/api/admin/users', 'POST', data) as Promise<{ success: boolean; user: ManagedUser }>;
   }
 
   async updateManagedUser(
     email: string,
-    data: Partial<Pick<ManagedUser, 'name' | 'role' | 'business_unit' | 'status'>> & { password?: string },
+    data: Partial<Pick<ManagedUser, 'name' | 'role' | 'roles' | 'business_unit' | 'status'>> & { password?: string },
   ): Promise<{ success: boolean; user: ManagedUser }> {
     return this.makeRequest(`/api/admin/users/${encodeURIComponent(email)}`, 'PUT', data) as Promise<{ success: boolean; user: ManagedUser }>;
   }

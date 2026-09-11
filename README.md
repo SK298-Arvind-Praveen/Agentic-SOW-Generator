@@ -226,14 +226,13 @@ Create this file (never commit it):
 ```env
 AWS_REGION=us-east-1
 BEDROCK_REGION=us-east-1
-BEDROCK_FAST_MODEL_ID=us.amazon.nova-micro-v1:0
-BEDROCK_ANALYSIS_MODEL_ID=us.amazon.nova-2-lite-v1:0
-BEDROCK_WRITER_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
-BEDROCK_DIAGRAM_MODEL_ID=us.amazon.nova-2-lite-v1:0
-BEDROCK_EDITOR_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
-BEDROCK_FALLBACK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
-# Optional compatibility override: force every task to Sonnet 4.
-# BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514-v1:0
+BEDROCK_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
+BEDROCK_FAST_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
+BEDROCK_ANALYSIS_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
+BEDROCK_WRITER_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
+BEDROCK_DIAGRAM_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
+BEDROCK_EDITOR_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
+BEDROCK_FALLBACK_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
 AWS_ACCESS_KEY_ID=your_access_key
 AWS_SECRET_ACCESS_KEY=your_secret_key
 # AWS_SESSION_TOKEN=your_session_token  # only if using temporary credentials
@@ -247,6 +246,13 @@ S3_BUCKET_NAME=your-globally-unique-sow-bucket
 
 # Use a long random value outside local development.
 AUTH_TOKEN_SECRET=replace-with-a-long-random-secret
+# Email verification links are valid for 24 hours by default. AUTH_FROM_EMAIL
+# must be a verified Amazon SES identity in the configured AWS region.
+AUTH_VERIFICATION_TTL_SECONDS=86400
+# Password reset links are single-use and valid for one hour by default.
+AUTH_PASSWORD_RESET_TTL_SECONDS=3600
+AUTH_FROM_EMAIL=no-reply@shellkode.com
+FRONTEND_URL=https://your-sow-portal.example.com
 # Disable the built-in test-login fallback after testing.
 ENABLE_SAMPLE_USERS=true
 
@@ -258,9 +264,9 @@ RESOURCE_TAG_CREATED_BY=arnaav.a@shellkode.com
 DRAWIO_EDITOR_URL=https://app.diagrams.net
 ```
 
-The default Bedrock route keeps cheap, short tasks on Nova Micro, complete-document
-analysis and diagram planning on Nova 2 Lite, and customer-facing prose, editing and
-quality-gate retries on Claude Sonnet 4. Source documents are analysed in
+Every Bedrock task is routed through the approved Claude Sonnet application inference
+profile. That profile must retain the tags `createdby=arnaav.a@shellkode.com` and
+`customer=agentic-sow-inference`. Source documents are analysed in
 overlapping chunks and merged; each writer call receives the structured baseline plus
 section-relevant source evidence instead of a lossy fixed prefix.
 
@@ -268,13 +274,19 @@ Changing accounts only requires changing these values and running the AWS
 storage setup command in the target account. If the default table names are
 acceptable, only the credentials, region, and S3 bucket name need to change.
 
-The setup command creates the RBAC table, seeds one admin and five BU test
-users, and stores the administrator-managed SOW section catalogue. All seeded
+The setup command creates the RBAC table, seeds the existing admin, BU, and
+individual-user test accounts, and stores the administrator-managed SOW section catalogue. All seeded
 users initially use `Shellkode@123`; disable sample-user fallback and replace
 these credentials before deployment. Existing DynamoDB tables do not need a
-key-schema change: new records receive a `business_unit` attribute. Assign old
+key-schema change: DynamoDB profile records now also store `employee_id`, `roles`,
+`business_units`, and verification state, while legacy profiles are read compatibly. Assign old
 records with the dry-run-first `backend/scripts/backfill_business_units.py`
 utility if BU users need to access them.
+
+Self-signup requires conditional `dynamodb:PutItem`/`DeleteItem` access on the
+RBAC table and `ses:SendEmail` in the configured AWS region. Verify `AUTH_FROM_EMAIL` (or its
+domain) in Amazon SES and move SES out of sandbox, or verify every recipient,
+before production signup and password-reset emails can be delivered.
 
 ### Frontend — `frontend/.env`
 

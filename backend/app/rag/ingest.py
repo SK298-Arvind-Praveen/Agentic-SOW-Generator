@@ -806,22 +806,19 @@ JSON:"""
                     result = self.llm.generate(
                         prompt,
                         task="analysis",
-                        max_tokens=min(getattr(self.config, "MAX_TOKENS", 8192), 8192),
+                        max_tokens=max(32768, int(getattr(self.config, "MAX_TOKENS", 32768))),
                         temperature=0.1,
                         call_name=f"RAG Schema Extraction {index}/{len(chunks)}",
                         model_id=getattr(self.config, "ANALYSIS_MODEL_ID", self.model_id),
                         fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
                     )
                 except Exception as chunk_error:
-                    print(
-                        f"⚠️ Schema chunk {index}/{len(chunks)} failed after fallback; "
-                        f"continuing with the remaining evidence: {chunk_error}"
-                    )
-                    continue
+                    raise RuntimeError(
+                        f"RAG schema extraction failed for chunk {index}/{len(chunks)}; ingestion halted"
+                    ) from chunk_error
                 json_str = self._extract_json_from_response(result.text)
                 if not json_str:
-                    print(f"⚠️ No JSON in schema chunk {index}/{len(chunks)}")
-                    continue
+                    raise RuntimeError(f"RAG schema chunk {index}/{len(chunks)} returned no JSON")
                 try:
                     extractions.append(json.loads(json_str))
                 except json.JSONDecodeError:
@@ -830,10 +827,10 @@ JSON:"""
                         try:
                             extractions.append(json.loads(fixed))
                         except json.JSONDecodeError:
-                            print(f"⚠️ Invalid JSON in schema chunk {index}/{len(chunks)}")
+                            raise RuntimeError(f"RAG schema chunk {index}/{len(chunks)} returned invalid JSON")
 
             if not extractions:
-                return self._get_minimal_schema(normalized_mode)
+                raise RuntimeError("RAG schema extraction returned no valid results")
             extracted_data = merge_requirement_extractions(extractions)
             extracted_data = self._ensure_metadata_populated(extracted_data, normalized_mode)
             print(f"✓ Merged schema evidence from {len(extractions)}/{len(chunks)} chunks")
@@ -843,7 +840,7 @@ JSON:"""
             print(f"❌ Error extracting structure: {e}")
             import traceback
             traceback.print_exc()
-            return self._get_minimal_schema(normalized_mode)
+            raise
     
     def _get_minimal_schema(self, mode: str) -> Dict:
         """Return a minimal valid schema when extraction fails"""

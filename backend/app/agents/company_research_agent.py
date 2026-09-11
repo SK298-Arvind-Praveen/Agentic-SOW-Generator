@@ -75,13 +75,15 @@ class CompanyResearchAgent:
         Returns:
             Company description
         """
-        prompt = f"""Write a conservative 2-3 sentence client-context paragraph for a Statement of Work whose named customer is {company_name}.
+        prompt = f"""Write exactly two brief factual company-profile paragraphs about {company_name}.
 
 Use only widely established facts you are confident apply to this exact organization. Do not
 invent size, products, locations, rankings, market position, customers, regulations, or strategic
-priorities. If identity or facts are uncertain, say only that {company_name} is the customer for
-this engagement and connect its business context to the supplied project later in the SOW.
-Professional tone, 35-70 words. Return only the paragraph."""
+priorities. Paragraph one should cover its identity, industry, and established products or services.
+Paragraph two should cover its established operating model, customer channels, markets, or technology
+landscape only where confidently known. Never mention an engagement, Statement of Work, project,
+scope, objectives, requirements, problem, proposed solution, or ShellKode. Do not comment on missing
+information. Professional tone, concise prose, no heading or bullets. Return only the two paragraphs."""
         
         try:
             result = self.llm.generate(
@@ -95,10 +97,7 @@ Professional tone, 35-70 words. Return only the paragraph."""
             return result.text.strip()
         except Exception as e:
             print(f"Error researching {company_name}: {e}")
-            return (
-                f"{company_name} is the customer organization for this engagement. "
-                "Project-specific business context and priorities are documented in the scope and requirements sections of this SOW."
-            )
+            return ""
 
 
 # Usage example

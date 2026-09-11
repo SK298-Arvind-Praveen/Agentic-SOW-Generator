@@ -290,14 +290,18 @@ def seed_sample_data():
 
 
 def seed_rbac_data():
-    """Seed the test users and the shared administrator-managed section catalogue."""
+    """Seed administrator access and the shared section catalogue, but no test users."""
     from app.core.access_control import DEFAULT_SECTION_CATALOGUE, SAMPLE_PASSWORD, SAMPLE_USERS
 
     region = os.getenv("AWS_REGION", "us-east-1")
     table_name = os.getenv("DYNAMODB_TABLE_RBAC", "agentic-sow-rbac")
     table = boto3.resource("dynamodb", region_name=region, **aws_client_kwargs()).Table(table_name)
     created_users = 0
-    for email, profile in SAMPLE_USERS.items():
+    admin_users = {
+        email: profile for email, profile in SAMPLE_USERS.items()
+        if str(profile.get("role", "")).upper() == "ADMIN"
+    }
+    for email, profile in admin_users.items():
         try:
             table.put_item(
                 Item={
@@ -306,9 +310,12 @@ def seed_rbac_data():
                     "email": email,
                     "name": profile["name"],
                     "role": profile["role"],
+                    "roles": [profile["role"]],
                     "business_unit": profile.get("business_unit") or "",
+                    "business_units": [profile["business_unit"]] if profile.get("business_unit") else [],
                     "password_hash": generate_password_hash(SAMPLE_PASSWORD),
                     "status": "active",
+                    "email_verified": True,
                 },
                 ConditionExpression="attribute_not_exists(PK)",
             )
@@ -332,8 +339,9 @@ def seed_rbac_data():
             raise
         created_catalogue = False
     print(
-        f"✅ Seeded {created_users} new test user(s); "
-        f"preserved {len(SAMPLE_USERS) - created_users} existing user(s)"
+        f"✅ Seeded {created_users} new administrator(s); "
+        f"preserved {len(admin_users) - created_users} existing administrator(s); "
+        "no test users seeded"
     )
     print(
         "✅ Seeded the SOW section catalogue"

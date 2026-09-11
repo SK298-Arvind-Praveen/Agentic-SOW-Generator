@@ -118,8 +118,8 @@ const Login: React.FC = () => {
           </form>
 
           <div className="login-footer">
-            <p className="demo-info">Test password: Shellkode@123</p>
-            <p className="demo-info">Admin: admin@shellkode.com · BU example: genai@shellkode.com</p>
+            <p><button type="button" className="auth-text-link" onClick={() => navigate('/forgot-password')}>Forgot password?</button></p>
+            <p>New to the portal? <button type="button" className="auth-text-link" onClick={() => navigate('/signup')}>Create an account</button></p>
           </div>
         </div>
       </div>

@@ -172,6 +172,48 @@ def test_aws_overview_uses_nested_boundaries_and_semantic_placement():
     xml = drawio_xml(spec, registry)
     assert "AWS Account" in xml and "Availability Zone A" in xml and "Regional managed services" in xml
     assert "edgeStyle=orthogonalEdgeStyle" in xml
+    assert "jumpStyle=arc" in xml
+
+
+def test_aws_overview_reserves_external_gutters_and_omits_competing_group_frames():
+    registry = AwsIconRegistry(_Config.ASSETS_DIR)
+    candidates = registry.candidates(
+        {"aws_services": ["AWS Lambda", "Amazon S3", "Amazon CloudWatch"]}, ""
+    )
+    cmap = {candidate.key: candidate for candidate in candidates}
+    keys = {candidate.label: candidate.key for candidate in candidates}
+
+    def key(fragment):
+        return next(value for label, value in keys.items() if fragment.casefold() in label.casefold())
+
+    spec = validate_spec({
+        "title": "Customer platform architecture",
+        "groups": [{"id": "functional", "label": "AI/Agentic Engine"}],
+        "nodes": [
+            {"id": "customer", "label": "Customer", "kind": "actor", "placement_role": "external"},
+            {"id": "crm", "label": "CRM", "kind": "external", "placement_role": "external"},
+            {"id": "agent", "label": "Agent", "kind": "actor", "placement_role": "external"},
+            {"id": "lambda", "label": "AWS Lambda", "kind": "service", "group": "functional",
+             "icon_key": key("Lambda"), "placement_role": "compute", "scope": "vpc"},
+            {"id": "s3", "label": "Amazon S3", "kind": "service", "group": "functional",
+             "icon_key": key("Storage Service"), "placement_role": "data", "scope": "managed"},
+            {"id": "watch", "label": "Amazon CloudWatch", "kind": "service", "group": "functional",
+             "icon_key": key("CloudWatch"), "placement_role": "operations", "scope": "regional"},
+        ],
+        "edges": [
+            {"source": "customer", "target": "lambda"},
+            {"source": "crm", "target": "lambda"},
+            {"source": "lambda", "target": "s3"},
+        ],
+    }, "Architecture", cmap)
+    positions, boxes, _, _ = _layout(spec)
+    account_x, _, account_w, _ = boxes["__aws_account"]
+    account_right = account_x + account_w
+    for node_id in ("crm", "agent"):
+        x, _, width, _ = positions[node_id]
+        assert x + width <= account_x or x >= account_right
+    assert "functional" not in boxes
+    assert "AI/Agentic Engine" not in drawio_xml(spec, registry)
 
 
 def test_architecture_enrichment_assigns_server_owned_role_and_scope():

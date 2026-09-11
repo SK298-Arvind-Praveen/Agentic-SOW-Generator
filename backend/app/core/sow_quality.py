@@ -275,6 +275,7 @@ def clean_markdown_preserving_structure(text: str) -> str:
     display_unknowns = {
         "unknown", "not specified", "not provided", "n/a", "na", "none",
         "null", "tbd", "to be determined", "to be confirmed",
+        "pending confirmation", "pending customer confirmation", "pending completion",
     }
     cleaned_lines: List[str] = []
     for line in text.splitlines():
@@ -303,6 +304,61 @@ def clean_markdown_preserving_structure(text: str) -> str:
     text = re.sub(r"[ \t]+$", "", text, flags=re.M)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+_MISSING_INFORMATION_LANGUAGE = re.compile(
+    r"(?i)\b(?:"
+    r"inputs? (?:have |has )?not been provided|"
+    r"information (?:is |was )?not provided|"
+    r"not (?:been )?(?:specified|provided|stated|supplied|available|defined|detailed|confirmed|evidenced|documented)|"
+    r"(?:in|given|due to) the absence of|"
+    r"unknown|tbd|to be determined|to be confirmed|"
+    r"pending (?:customer )?(?:confirmation|completion)|"
+    r"pending customer[- ]confirmed|"
+    r"(?:requires?|must) (?:customer )?confirmation|"
+    r"no [^.;\n]{0,140}? (?:is |are |was |were )confirmed|"
+    r"no [^.;\n]{0,140}? (?:is |are |was |were )committed|"
+    r"open (?:clarification|dependency)|"
+    r"remain(?:s)? (?:an? )?open clarifications?|"
+    r"flagged as an? open clarification"
+    r")\b"
+)
+
+
+def remove_missing_information_disclaimers(content: str) -> str:
+    """Remove absent-input commentary from ordinary generated sections.
+
+    Open questions belong in the dedicated Open Clarifications register. A
+    model sometimes appends the same disclaimer to an otherwise useful scope
+    bullet. Remove only the affected sentence/clause and retain the sourced
+    implementation statement; drop the line only when it contains no useful
+    clause at all. Markdown tables are left intact because purpose-built
+    confirmation tables use blank/current-basis cells instead of prose.
+    """
+    cleaned: List[str] = []
+    for line in str(content or "").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            cleaned.append(line)
+            continue
+        if stripped.startswith("|") and stripped.endswith("|"):
+            if _MISSING_INFORMATION_LANGUAGE.search(stripped):
+                continue
+            cleaned.append(line)
+            continue
+        prefix_match = re.match(r"^(\s*(?:[-*+]\s+|\d+[.)]\s+)?)", line)
+        prefix = prefix_match.group(1) if prefix_match else ""
+        body = line[len(prefix):]
+        clauses = [
+            item.strip()
+            for item in re.split(r";\s*|(?<=[.!?])\s+", body)
+            if item.strip()
+        ]
+        retained = [item for item in clauses if not _MISSING_INFORMATION_LANGUAGE.search(item)]
+        if not retained:
+            continue
+        cleaned.append(prefix + " ".join(retained))
+    return clean_markdown_preserving_structure("\n".join(cleaned))
 
 
 def section_quality_issues(content: str, section_name: str = "") -> List[str]:
@@ -337,6 +393,17 @@ def validate_generated_sections(
     for key, value in sections.items():
         if key in {"cover_page", "toc_structure"}:
             continue
-        for issue in section_quality_issues(str(value or ""), key.replace("_", " ")):
+        rendered = str(value or "")
+        for issue in section_quality_issues(rendered, key.replace("_", " ")):
             issues.append(f"{key}: {issue}")
+        missing_language = _MISSING_INFORMATION_LANGUAGE.search(rendered)
+        if missing_language:
+            excerpt = re.sub(
+                r"\s+", " ",
+                rendered[max(0, missing_language.start() - 45):missing_language.end() + 45],
+            ).strip()
+            issues.append(
+                f"{key}: explicitly describes absent information "
+                f"near {excerpt!r}"
+            )
     return missing, issues

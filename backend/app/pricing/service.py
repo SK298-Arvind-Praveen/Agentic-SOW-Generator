@@ -215,7 +215,7 @@ class AwsPricingService:
                         "reason": "Confirm which AWS services are required before estimating infrastructure cost",
                     })
             if not region or not planned_services:
-                return self._with_volumetric_fallback(
+                return self._pricing_fallback(
                     base, candidates, "calculator-ready region or service sizing was incomplete"
                 )
 
@@ -250,7 +250,7 @@ class AwsPricingService:
                         )
                 if not entries:
                     print("[PRICING] No calculator-ready service configurations", flush=True)
-                    return self._with_volumetric_fallback(
+                    return self._pricing_fallback(
                         base, candidates, "no service had a complete calculator field configuration"
                     )
                 print(f"[PRICING] Building estimate with {len(entries)} service configuration(s)", flush=True)
@@ -268,7 +268,7 @@ class AwsPricingService:
                         "status": "failed",
                         "error": self._calculator_message(result),
                     }
-                    return self._with_volumetric_fallback(
+                    return self._pricing_fallback(
                         failed, candidates, "the AWS calculator did not return a saved estimate"
                     )
                 base.update({
@@ -290,7 +290,7 @@ class AwsPricingService:
                     base["cost_read_warning"] = cost["error"]
                     print(f"[PRICING] Estimate created; monthly total unavailable: {cost['error']}", flush=True)
             if base["status"] == "url_only" and base.get("monthly_cost") is None:
-                return self._with_volumetric_fallback(
+                return self._pricing_fallback(
                     base, candidates, "the saved calculator estimate total could not be read"
                 )
             if (
@@ -298,7 +298,7 @@ class AwsPricingService:
                 and len(entries) < len(planned_services)
                 and base.get("missing_inputs")
             ):
-                return self._with_volumetric_fallback(
+                return self._pricing_fallback(
                     base,
                     candidates,
                     f"the calculator priced {len(entries)} of {len(planned_services)} source-backed services",
@@ -306,18 +306,14 @@ class AwsPricingService:
             return base
         except (PricingCalculatorError, OSError, subprocess.SubprocessError) as exc:
             print(f"[PRICING] Calculator unavailable: {exc}", flush=True)
-            return self._with_volumetric_fallback(
+            return self._pricing_fallback(
                 {**base, "status": "failed", "error": str(exc)},
                 locals().get("candidates", []),
                 "the AWS calculator runtime was unavailable",
             )
         except Exception as exc:
-            print(f"[PRICING] Pricing workflow failed safely: {exc}", flush=True)
-            return self._with_volumetric_fallback(
-                {**base, "status": "failed", "error": "AWS calculator estimate could not be completed"},
-                locals().get("candidates", []),
-                "the AWS calculator workflow failed",
-            )
+            print(f"[PRICING] Pricing workflow failed; generation halted: {exc}", flush=True)
+            raise
 
     @staticmethod
     def _with_volumetric_fallback(
@@ -336,7 +332,9 @@ class AwsPricingService:
         for item in metrics:
             label = str(item.get("metric") or "").casefold()
             value = str(item.get("value") or "")
-            if not any(word in label for word in ("conversation", "interaction", "transaction")):
+            if not any(word in label for word in (
+                "conversation", "interaction", "transaction", "ticket", "case", "email",
+            )):
                 continue
             numbers = _scaled_numbers(value)
             if not numbers:
@@ -429,6 +427,103 @@ class AwsPricingService:
         )
         return updated
 
+    def _pricing_fallback(
+        self,
+        result: Dict[str, Any],
+        candidate_services: List[str],
+        reason: str,
+    ) -> Dict[str, Any]:
+        """Use deterministic arithmetic first, then a bounded LLM estimate.
+
+        The LLM path is allowed only when at least one time-based business workload
+        volume exists. It cannot create traffic volumes from page sizes, time limits,
+        workflow counts, or other unrelated numeric facts.
+        """
+        deterministic = self._with_volumetric_fallback(result, candidate_services, reason)
+        metrics = [item for item in result.get("volume_metrics") or [] if isinstance(item, dict)]
+        workload_rows = []
+        for item in metrics:
+            label = str(item.get("metric") or "").casefold()
+            value = str(item.get("value") or "")
+            if not any(term in label for term in ("conversation", "interaction", "ticket", "case", "email", "transaction")):
+                continue
+            if not ("month" in label or "annual" in label or "year" in label or "per month" in value.casefold() or "per year" in value.casefold()):
+                continue
+            if _scaled_numbers(value):
+                workload_rows.append(item)
+        if not workload_rows or not candidate_services:
+            print(
+                "[PRICING] No time-based workload volume available; "
+                "rendering blank volumetric and cost fields",
+                flush=True,
+            )
+            return deterministic
+
+        prompt = f"""Create a loose non-binding AWS monthly planning estimate from business volumetrics. Return JSON only.
+
+SOURCE-BACKED WORKLOAD METRICS:
+{json.dumps(workload_rows, default=str)}
+
+PROPOSED AWS SERVICES:
+{json.dumps(candidate_services)}
+
+Return {{"monthly_low":number,"monthly_base":number,"monthly_high":number,"basis":["brief calculation assumption"]}}.
+
+Rules:
+- Currency is USD.
+- Use the supplied workload values as the scale driver; do not invent another traffic volume.
+- Include application runtime, integration, storage, observability and AI consumption only where the proposed services warrant them.
+- Keep uncertainty broad and the base inside the low/high range.
+- Do not include implementation fees, taxes, support plans, discounts, telephony carrier charges or commitments.
+"""
+        try:
+            response = self.llm.generate(
+                prompt,
+                task="analysis",
+                max_tokens=8192,
+                temperature=0.0,
+                call_name="AWS Pricing Volumetric Fallback",
+                fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+            )
+        except Exception as exc:
+            print(f"[PRICING] LLM volumetric fallback unavailable: {exc}", flush=True)
+            return deterministic
+        estimate = _json_object(response.text)
+        try:
+            low = round(float(estimate.get("monthly_low")), 2)
+            base_cost = round(float(estimate.get("monthly_base")), 2)
+            high = round(float(estimate.get("monthly_high")), 2)
+        except (TypeError, ValueError):
+            print("[PRICING] LLM volumetric fallback returned no valid amount", flush=True)
+            return deterministic
+        if low <= 0 or not low <= base_cost <= high or high / low > 100:
+            print("[PRICING] LLM volumetric fallback failed range validation", flush=True)
+            return deterministic
+
+        fallback = {
+            "method": "llm_volumetric_planning_range_v1",
+            "reason": reason,
+            "monthly_low": low,
+            "monthly_base": base_cost,
+            "monthly_high": high,
+            "workload_metric": str(workload_rows[0].get("metric") or "Business workload volume"),
+            "planning_basis": [str(item) for item in estimate.get("basis") or [] if str(item).strip()][:6],
+            "excluded_costs": [],
+        }
+        updated = {
+            **deterministic,
+            "status": "hybrid_priced" if result.get("estimate_url") else "fallback_priced",
+            "currency": "USD",
+            "monthly_cost": base_cost,
+            "fallback_estimate": fallback,
+        }
+        print(
+            f"[PRICING] LLM volumetric fallback=USD {low:,.2f}-{high:,.2f}/month "
+            f"(base {base_cost:,.2f})",
+            flush=True,
+        )
+        return updated
+
     def _plan(self, requirements: Dict[str, Any], metadata: Dict[str, Any], source_text: str) -> Dict[str, Any]:
         services = self._candidate_services(requirements, metadata, source_text)
         pricing_evidence = select_section_evidence(
@@ -464,12 +559,15 @@ Rules:
         result = self.llm.generate(
             prompt,
             task="analysis",
-            max_tokens=4200,
+            max_tokens=32768,
             temperature=0.0,
             call_name="AWS Pricing Input Plan",
             fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
         )
-        return _json_object(result.text)
+        parsed = _json_object(result.text)
+        if not parsed:
+            raise RuntimeError("AWS pricing input plan returned invalid or empty JSON")
+        return parsed
 
     @staticmethod
     def _candidate_services(
@@ -513,14 +611,17 @@ Rules:
         if metadata.get("pricing_include_proposed", True):
             capability_candidates = {
                 "Amazon Bedrock": ("generative ai", "agentic ai", "foundation model"),
-                "AWS Lambda": ("serverless", "event-driven processing"),
-                "Amazon API Gateway": ("api gateway",),
-                "Amazon S3": ("object storage", "data lake", "attachment storage"),
-                "Amazon DynamoDB": ("nosql", "conversation state", "session state"),
-                "Amazon CloudWatch": ("monitoring and alert", "observability"),
+                "AWS Lambda": ("serverless", "event-driven processing", "workflow", "auto-assignment", "auto acknowledgement"),
+                "Amazon API Gateway": ("api gateway", "api integration", "integration layer"),
+                "Amazon S3": ("object storage", "data lake", "attachment storage", "historical data", "attachments"),
+                "Amazon DynamoDB": ("nosql", "conversation state", "session state", "ticketing", "case management"),
+                "Amazon CloudWatch": ("monitoring and alert", "observability", "sla breach", "tat status"),
                 "Amazon Cognito": ("customer authentication", "user authentication"),
                 "Amazon Connect": ("live agent", "agent handover", "contact centre"),
-                "Amazon QuickSight": ("business intelligence", "analytics dashboard"),
+                "Amazon QuickSight": ("business intelligence", "analytics dashboard", "reporting dashboard", "manager dashboard"),
+                "Amazon Simple Email Service": ("email desk", "auto-acknowledgement", "outbound email", "inbound email"),
+                "Amazon OpenSearch Service": ("full-body keyword search", "full body keyword search", "search capability"),
+                "AWS Step Functions": ("escalation matrix", "tat workflow", "workflow orchestration"),
             }
             for canonical, signals in capability_candidates.items():
                 if any(signal in source for signal in signals):
@@ -901,12 +1002,15 @@ rate-driving required field cannot be populated, return it in missing_inputs and
         result = self.llm.generate(
             prompt,
             task="analysis",
-            max_tokens=3000,
+            max_tokens=32768,
             temperature=0.0,
             call_name=f"AWS Pricing Fields - {service['service_name']}",
             fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
         )
-        return _json_object(result.text)
+        parsed = _json_object(result.text)
+        if not parsed:
+            raise RuntimeError(f"AWS pricing field mapping returned invalid JSON for {service['service_name']}")
+        return parsed
 
     @staticmethod
     def _select_service_hit(search: Any, name: str) -> Optional[Dict[str, Any]]:

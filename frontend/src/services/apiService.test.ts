@@ -68,3 +68,69 @@ describe('supporting-document preview transport', () => {
     expect(result.error).not.toContain('received');
   });
 });
+
+describe('account registration transport', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('submits signup details to the public signup endpoint', async () => {
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      success: true, message: 'Check your email',
+    }), { status: 201, headers: { 'Content-Type': 'application/json' } }));
+    await apiService.signup({
+      first_name: 'Asha', last_name: 'Rao', email: 'asha.rao@shellkode.com',
+      employee_id: 101, business_unit: 'Cloud', password: 'secret1', confirm_password: 'secret1',
+    });
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/auth/signup');
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+      first_name: 'Asha', last_name: 'Rao', employee_id: 101, business_unit: 'Cloud',
+    });
+  });
+
+  it('posts the signed token to account verification', async () => {
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    await apiService.verifyAccount('signed-token');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/auth/verify');
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ token: 'signed-token' });
+  });
+
+  it('requests and completes password reset through public endpoints', async () => {
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      success: true, message: 'Accepted',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    await apiService.forgotPassword('asha@shellkode.com');
+    await apiService.resetPassword({
+      token: 'reset-token', password: 'secret1', confirm_password: 'secret1',
+    });
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/auth/forgot-password');
+    expect(String(fetchMock.mock.calls[1][0])).toContain('/api/auth/reset-password');
+  });
+
+  it('requests a password-change link through the authenticated endpoint', async () => {
+    localStorage.setItem('authToken', 'signed-session');
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      success: true, message: 'Password reset link sent to your email.',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+    await apiService.requestPasswordChange();
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/auth/change-password-request');
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Authorization')).toBe('Bearer signed-session');
+  });
+
+  it('refreshes the signed-in identity through the authenticated endpoint', async () => {
+    localStorage.setItem('authToken', 'signed-session');
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      user: { email: 'arvind.p@shellkode.com', role: 'USER', roles: ['USER'] },
+      business_units: ['GenAI'],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+    const response = await apiService.getCurrentUser();
+
+    expect(response.user.role).toBe('USER');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/auth/me');
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Authorization')).toBe('Bearer signed-session');
+  });
+});

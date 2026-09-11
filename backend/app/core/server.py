@@ -91,12 +91,18 @@ from app.core.access_control import (
     RBACStore,
     current_identity,
     filter_visible_items,
+    issue_password_reset_token,
     issue_token,
+    issue_verification_token,
     item_is_visible,
     normalise_business_unit,
     scoped_business_unit,
     slugify_section_id,
+    send_verification_email,
+    send_password_reset_email,
+    verify_password_reset_token,
     verify_token,
+    verify_verification_token,
 )
 from itsdangerous import BadSignature, SignatureExpired
 
@@ -163,7 +169,12 @@ def _pricing_audit_record(result):
 @app.before_request
 def enforce_api_authentication():
     """Authenticate every API request; authorization is enforced by each resource route."""
-    if request.method == "OPTIONS" or request.path in {"/api/auth/login", "/health"}:
+    public_paths = {
+        "/api/auth/login", "/api/auth/signup", "/api/auth/verify",
+        "/api/auth/resend-verification", "/api/auth/forgot-password",
+        "/api/auth/reset-password", "/health",
+    }
+    if request.method == "OPTIONS" or request.path in public_paths:
         return None
     if not request.path.startswith("/api/"):
         return None
@@ -182,6 +193,10 @@ def enforce_api_authentication():
         return jsonify({"success": False, "error": "Session expired"}), 401
     except (BadSignature, KeyError, ValueError):
         return jsonify({"success": False, "error": "Invalid session"}), 401
+    if g.current_identity.is_user and (
+        request.path.startswith("/api/accounts") or request.path.startswith("/api/projects")
+    ):
+        return jsonify({"success": False, "error": "Accounts dashboard access is not available for the User role"}), 403
     return None
 
 
@@ -192,6 +207,14 @@ def _requested_business_unit() -> str | None:
     if not value:
         value = request.form.get("business_unit")
     return scoped_business_unit(current_identity(), value)
+
+
+def _requested_business_unit_filter():
+    """Return one requested BU or every BU granted by a multi-role identity."""
+    selected = _requested_business_unit()
+    if selected or current_identity().is_admin or current_identity().is_user:
+        return selected
+    return current_identity().business_units
 
 
 def _require_admin_response():
@@ -208,10 +231,10 @@ def invalid_request_value(error):
 def _business_unit_for_new_record():
     """Resolve ownership for a new object; admins must choose a BU explicitly."""
     business_unit = _requested_business_unit()
-    if current_identity().is_admin and not business_unit:
+    if (current_identity().is_admin or len(current_identity().business_units) > 1) and not business_unit:
         return None, (jsonify({
             "success": False,
-            "error": "business_unit is required when an administrator creates a record",
+            "error": "business_unit is required when creating a record with access to multiple business units",
         }), 400)
     return business_unit, None
 
@@ -280,6 +303,13 @@ def login_user():
     data = request.get_json(silent=True) or {}
     identity = rbac_store.authenticate(str(data.get("email", "")), str(data.get("password", "")))
     if not identity:
+        stored = rbac_store.get_user(str(data.get("email", "")))
+        if stored and stored.get("status") == "pending_verification":
+            return jsonify({
+                "success": False,
+                "error": "Verify your email address before signing in",
+                "verification_required": True,
+            }), 403
         return jsonify({"success": False, "error": "Invalid email or password"}), 401
     return jsonify({
         "success": True,
@@ -287,6 +317,124 @@ def login_user():
         "user": identity.public_dict(),
         "business_units": list(BUSINESS_UNITS),
     })
+
+
+@app.route('/api/auth/signup', methods=['POST'])
+def signup_user():
+    data = request.get_json(silent=True) or {}
+    if str(data.get("password", "")) != str(data.get("confirm_password", "")):
+        return jsonify({"success": False, "error": "Passwords do not match"}), 400
+    try:
+        user, nonce = rbac_store.register_user(
+            first_name=data.get("first_name", ""),
+            last_name=data.get("last_name", ""),
+            email=data.get("email", ""),
+            employee_id=data.get("employee_id", ""),
+            business_unit=data.get("business_unit", ""),
+            password=data.get("password", ""),
+        )
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception:
+        logging.getLogger(__name__).exception("Signup account storage failed")
+        return jsonify({"success": False, "error": "Account registration could not be completed"}), 500
+    try:
+        token = issue_verification_token(user["email"], nonce)
+        send_verification_email(user["email"], token)
+        logging.getLogger(__name__).info("Verification email sent to %s", user["email"])
+        return jsonify({
+            "success": True,
+            "message": "Account created. Check your email to verify your account.",
+            "verification_attempted": True,
+        }), 201
+    except Exception:
+        logging.getLogger(__name__).exception("Signup verification email failed")
+        return jsonify({
+            "success": False,
+            "error": "The account was created, but the verification email could not be sent. Use resend verification.",
+            "verification_required": True,
+            "verification_attempted": True,
+        }), 503
+
+
+@app.route('/api/auth/verify', methods=['POST'])
+def verify_signup():
+    data = request.get_json(silent=True) or {}
+    try:
+        email, nonce = verify_verification_token(str(data.get("token", "")))
+        user = rbac_store.verify_registration(email, nonce)
+        return jsonify({"success": True, "message": "Account verified. You can now sign in.", "user": user})
+    except SignatureExpired:
+        return jsonify({"success": False, "error": "Verification link has expired"}), 400
+    except (BadSignature, KeyError, ValueError) as exc:
+        message = str(exc) if isinstance(exc, ValueError) else "Verification link is invalid"
+        return jsonify({"success": False, "error": message}), 400
+
+
+@app.route('/api/auth/resend-verification', methods=['POST'])
+def resend_signup_verification():
+    data = request.get_json(silent=True) or {}
+    try:
+        email = RBACStore._normalise_shellkode_email(data.get("email", ""))
+        nonce = rbac_store.renew_verification(email)
+        send_verification_email(email, issue_verification_token(email, nonce))
+        return jsonify({"success": True, "message": "Verification email sent."})
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception:
+        logging.getLogger(__name__).exception("Resending verification email failed")
+        return jsonify({"success": False, "error": "Verification email could not be sent"}), 503
+
+
+@app.route('/api/auth/forgot-password', methods=['POST'])
+def forgot_password():
+    """Send a reset link without revealing whether the supplied account exists."""
+    data = request.get_json(silent=True) or {}
+    generic = "If an active account exists for that address, a password reset link has been sent."
+    try:
+        challenge = rbac_store.begin_password_reset(str(data.get("email", "")))
+        if challenge:
+            email, nonce = challenge
+            send_password_reset_email(email, issue_password_reset_token(email, nonce))
+            logging.getLogger(__name__).info("Password reset email sent to %s", email)
+    except Exception:
+        # The public response remains identical to prevent account discovery.
+        logging.getLogger(__name__).exception("Password reset request could not be delivered")
+    return jsonify({"success": True, "message": generic}), 200
+
+
+@app.route('/api/auth/reset-password', methods=['POST'])
+def reset_password():
+    data = request.get_json(silent=True) or {}
+    password = str(data.get("password", ""))
+    if password != str(data.get("confirm_password", "")):
+        return jsonify({"success": False, "error": "Passwords do not match"}), 400
+    try:
+        email, nonce = verify_password_reset_token(str(data.get("token", "")))
+        rbac_store.reset_password(email, nonce, password)
+        return jsonify({"success": True, "message": "Password updated. You can now sign in."})
+    except SignatureExpired:
+        return jsonify({"success": False, "error": "Password reset link has expired"}), 400
+    except (BadSignature, KeyError, ValueError) as exc:
+        message = str(exc) if isinstance(exc, ValueError) else "Password reset link is invalid"
+        return jsonify({"success": False, "error": message}), 400
+
+
+@app.route('/api/auth/change-password-request', methods=['POST'])
+def request_authenticated_password_change():
+    """Email a reset link to the authenticated account only."""
+    identity = current_identity()
+    try:
+        challenge = rbac_store.begin_password_reset(identity.email)
+        if not challenge:
+            return jsonify({"success": False, "error": "Account is not eligible for a password change"}), 400
+        email, nonce = challenge
+        send_password_reset_email(email, issue_password_reset_token(email, nonce))
+        logging.getLogger(__name__).info("Password change email sent to %s", email)
+        return jsonify({"success": True, "message": "Password reset link sent to your email."})
+    except Exception:
+        logging.getLogger(__name__).exception("Authenticated password change email failed")
+        return jsonify({"success": False, "error": "Password reset email could not be sent"}), 503
 
 
 @app.route('/api/auth/me', methods=['GET'])
@@ -315,9 +463,11 @@ def manage_users():
             email=data.get("email", ""),
             name=data.get("name", ""),
             role=data.get("role", "USER"),
+            roles=data.get("roles"),
             business_unit=data.get("business_unit"),
             password=data.get("password", ""),
             created_by=current_identity().email,
+            employee_id=data.get("employee_id", ""),
         )
         return jsonify({"success": True, "user": user}), 201
     except ValueError as exc:
@@ -341,9 +491,11 @@ def manage_user(email):
             return jsonify({"success": True})
         updates = request.get_json(silent=True) or {}
         if email == current_identity().email.casefold():
-            requested_role = str(updates.get("role", "ADMIN")).upper()
+            requested_roles = [
+                str(role).upper() for role in updates.get("roles", [updates.get("role", "ADMIN")])
+            ]
             requested_status = str(updates.get("status", "active")).casefold()
-            if requested_role != "ADMIN" or requested_status != "active":
+            if "ADMIN" not in requested_roles or requested_status != "active":
                 return jsonify({
                     "success": False,
                     "error": "You cannot remove your own administrator access or deactivate your account",
@@ -2305,7 +2457,7 @@ def get_companies_grouped():
         # Get grouped data
         companies = handler.get_companies_grouped(
             limit=1000,
-            business_unit=_requested_business_unit(),
+            business_unit=_requested_business_unit_filter(),
             owner_email=current_identity().email if current_identity().is_user else None,
         )
         
@@ -2394,7 +2546,7 @@ def get_company_documents(company_name):
             mode=mode,
             version=version,
             limit=limit,
-            business_unit=_requested_business_unit(),
+            business_unit=_requested_business_unit_filter(),
             owner_email=current_identity().email if current_identity().is_user else None,
         )
         
@@ -5649,6 +5801,10 @@ def _acquire_server_instance_lock():
     _server_instance_mutex = handle
 
 if __name__ == '__main__':
+    print("[LLM] Pipeline revision: sonnet5-compact-json-v2")
+    print("[LLM] Structured-generation output ceiling: 32768 tokens per call")
+    print("[LLM] Truncation/invalid structured output: hard failure (no document fallback)")
+    print("[LLM] Raw responses: backend/output/llm-debug")
     _acquire_server_instance_lock()
     print("\n" + "="*70)
     print("🚀 AWS SOW Generator API (WITH PREVIEW/EDIT/FINALIZE WORKFLOW)")
