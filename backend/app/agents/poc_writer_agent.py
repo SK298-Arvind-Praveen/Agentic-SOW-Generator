@@ -431,11 +431,11 @@ class POCWriterAgent:
         ]
 
     def _section_worker_count(self, job_count: int) -> int:
-        configured = getattr(self.config, "SOW_SECTION_WORKERS", 4)
+        configured = getattr(self.config, "SOW_SECTION_WORKERS", 2)
         try:
             configured = int(configured)
         except (TypeError, ValueError):
-            configured = 4
+            configured = 2
         return max(1, min(configured, 8, max(1, job_count)))
 
     @staticmethod

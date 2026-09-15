@@ -116,16 +116,19 @@ class Config:
         # SOW sections share one immutable baseline and can safely be authored in
         # parallel. Keep this configurable for Bedrock account quota tuning.
         try:
-            configured_workers = int(os.environ.get("SOW_SECTION_WORKERS", "4"))
+            configured_workers = int(os.environ.get("SOW_SECTION_WORKERS", "2"))
         except ValueError:
-            configured_workers = 4
+            configured_workers = 2
         self.SOW_SECTION_WORKERS = max(1, min(configured_workers, 8))
         
         # Boto3 timeout configuration
         self.BOTO_CONFIG = BotocoreConfig(
             read_timeout=9000,
             connect_timeout=30,
-            retries={'max_attempts': 3}
+            # Bedrock can return transient 503 capacity errors after several
+            # otherwise successful calls. Standard mode applies exponential
+            # backoff with jitter; total_max_attempts includes the first call.
+            retries={'mode': 'standard', 'total_max_attempts': 6}
         )
         
         # =====================================================================
