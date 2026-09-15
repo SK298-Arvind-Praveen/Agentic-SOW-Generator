@@ -27,6 +27,7 @@ import apiService, { Document } from '../services/apiService';
 import { downloadWithNativeSaveAs } from '../utils/downloadFile';
 import { latestDocumentForVersion, sortVersionKeysNewestFirst } from '../utils/versionOrdering';
 import { formatTokenCount } from '../utils/tokenUsage';
+import { documentTimestamp, formatDocumentDateTime, sowDownloadFilename } from '../utils/documentPresentation';
 import './Dashboard.css';
 import './SOWGenerator.css';
 import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
@@ -95,18 +96,7 @@ const Dashboard: React.FC = () => {
       case 'name':
         return doc.name || doc.project_name || doc.title || '';
       case 'date':
-        // Handle different date formats and field names
-        const dateValue = doc.date || doc.created_at || doc.timestamp;
-        if (dateValue) {
-          try {
-            // Try to format the date consistently
-            const date = new Date(dateValue);
-            return date.toLocaleDateString();
-          } catch {
-            return dateValue;
-          }
-        }
-        return '';
+        return formatDocumentDateTime(documentTimestamp(doc));
       case 'mode':
         return doc.mode || doc.sow_type || doc.type || '';
       case 'document_id':
@@ -172,7 +162,7 @@ const Dashboard: React.FC = () => {
           name: doc.project_name || doc.name || doc.title,
           company: doc.customer_name || doc.company || doc.company_name,
           author: doc.author_name || doc.author,
-          date: doc.document_date || doc.date || doc.created_at || doc.timestamp?.split('T')[0],
+          date: documentTimestamp(doc),
           mode: doc.mode,
           project_name: doc.project_name || doc.name,
           company_name: doc.customer_name || doc.company,
@@ -237,7 +227,7 @@ const Dashboard: React.FC = () => {
               name: doc.project_name || projectName,
               company: doc.customer_name || companyName,
               author: doc.author_name || 'N/A',
-              date: doc.document_date || doc.timestamp?.split('T')[0] || 'N/A',
+              date: documentTimestamp(doc) || 'N/A',
               mode,
               project_name: doc.project_name || projectName,
               company_name: doc.customer_name || companyName,
@@ -257,7 +247,7 @@ const Dashboard: React.FC = () => {
                 const vDoc = latestDocumentForVersion(vDocs);
                 return {
                   version: vk,
-                  date: vDoc?.document_date || vDoc?.timestamp?.split('T')[0] || 'N/A',
+                  date: documentTimestamp(vDoc || {}) || 'N/A',
                   author: vDoc?.author_name || 'N/A',
                   status: vDoc?.status || 'Completed',
                   s3_url: vDoc?.s3_url || vDoc?.drive_link || '',
@@ -478,10 +468,7 @@ const Dashboard: React.FC = () => {
     try {
       console.log('Downloading document:', { s3Url, documentId, projectName });
 
-      // Extract filename from S3 URL or use project name
-      const urlParts = s3Url.split('/');
-      const s3Filename = urlParts[urlParts.length - 1].split('?')[0];
-      const filename = s3Filename || `${projectName}.pdf`;
+      const filename = sowDownloadFilename({ ...record, project_name: projectName });
       const saved = await downloadWithNativeSaveAs(
         () => apiService.downloadDocument(s3Url, documentId),
         filename,
@@ -880,7 +867,7 @@ const Dashboard: React.FC = () => {
                   name: doc.project_name || projectName,
                   company: doc.customer_name || companyName,
                   author: doc.author_name || 'N/A',
-                  date: doc.document_date || doc.timestamp?.split('T')[0] || 'N/A',
+                  date: documentTimestamp(doc) || 'N/A',
                   mode: doc.mode || modeKey,
                   project_name: doc.project_name || projectName,
                   company_name: doc.customer_name || companyName,
@@ -898,7 +885,7 @@ const Dashboard: React.FC = () => {
                     const vDoc = latestDocumentForVersion(versionDocs);
                     return {
                       version: v,
-                      date: vDoc?.document_date || vDoc?.timestamp?.split('T')[0] || 'N/A',
+                      date: documentTimestamp(vDoc || {}) || 'N/A',
                       author: vDoc?.author_name || 'N/A',
                       status: 'Completed',
                       s3_url: vDoc?.s3_url || vDoc?.drive_link || '',
@@ -1302,14 +1289,19 @@ const Dashboard: React.FC = () => {
                                   <td aria-hidden="true"></td>
                                   <td>{getDocumentProperty(record, 'name')} - {version.version}</td>
                                   <td>{version.author}</td>
-                                  <td>{version.date}</td>
+                                  <td>{formatDocumentDateTime(version.date)}</td>
                                   <td>{formatTokenCount(version.total_tokens)}</td>
                                   <td><span className="status-badge completed">Completed</span></td>
                                   <td style={{ textAlign: 'center' }}>
                                     <div className="action-buttons" style={{ justifyContent: 'center' }}>
                                       {version.s3_url ? (
                                         <button
-                                          onClick={() => handleDownload({ s3_url: version.s3_url, project_name: version.version } as Document)}
+                                          onClick={() => handleDownload({
+                                            s3_url: version.s3_url,
+                                            project_name: getDocumentProperty(record, 'name'),
+                                            mode: record.mode,
+                                            version: version.version,
+                                          } as Document)}
                                           className="download-icon-btn"
                                           title={`Download ${version.version}`}
                                         >

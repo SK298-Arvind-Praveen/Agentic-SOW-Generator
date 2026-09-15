@@ -84,6 +84,25 @@ class SupportingDocumentFlowTests(unittest.TestCase):
         self.assertIn("BRD-42", content)
         self.assertIn("Cisco call tagging", content)
 
+    def test_legacy_doc_uses_antiword_when_libreoffice_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            legacy = Path(temp_dir) / "requirements.doc"
+            legacy.write_bytes(b"legacy-binary-placeholder")
+            result = SimpleNamespace(
+                returncode=0,
+                stdout=b"Axis CRM migration, ticket classification and email workflow requirements.",
+                stderr=b"",
+            )
+            with (
+                patch("app.document.doc_reader._find_soffice_for_legacy_doc", return_value=None),
+                patch("app.document.doc_reader.shutil.which", return_value="antiword"),
+                patch("app.document.doc_reader.subprocess.run", return_value=result),
+            ):
+                content = read_document(str(legacy))
+
+        self.assertIn("Axis CRM migration", content)
+        self.assertIn("email workflow", content)
+
     def test_supporting_document_consolidation_retains_source_name_and_details(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = self._build_brd(temp_dir)

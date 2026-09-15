@@ -16,8 +16,12 @@ export const latestDocumentForVersion = (value: any): any => {
 
 export const sortVersionKeysNewestFirst = (versionMap: Record<string, any>): string[] => (
   Object.keys(versionMap).sort((a, b) => {
+    // Version is the authoritative sequence. Timestamps are only a tie-breaker
+    // because older records contain mixed date-only and full timestamp values.
+    const versionDifference = versionNumber(b) - versionNumber(a);
+    if (versionDifference) return versionDifference;
     const dateDifference = generatedAt(latestDocumentForVersion(versionMap[b]))
       - generatedAt(latestDocumentForVersion(versionMap[a]));
-    return dateDifference || versionNumber(b) - versionNumber(a);
+    return dateDifference;
   })
 );

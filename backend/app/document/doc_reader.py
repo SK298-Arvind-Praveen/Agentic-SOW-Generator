@@ -136,13 +136,39 @@ def _find_soffice_for_legacy_doc() -> str | None:
     return None
 
 
+def _read_legacy_doc_with_antiword(file_path: str) -> str:
+    """Extract text from binary Word files when LibreOffice is unavailable."""
+    antiword = shutil.which("antiword")
+    if not antiword:
+        return ""
+    result = subprocess.run(
+        [antiword, "-w", "0", str(Path(file_path).resolve())],
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    if result.returncode != 0:
+        diagnostic = (result.stderr or result.stdout or b"unknown extraction error")
+        print(f"   antiword could not read legacy .doc: {diagnostic.decode('utf-8', errors='replace').strip()}")
+        return ""
+    # antiword output follows the document codepage and is commonly UTF-8 on
+    # Linux. Preserve readable content even when a legacy character is invalid.
+    text = result.stdout.decode("utf-8", errors="replace").strip()
+    if text:
+        print(f"   Extracted {len(text)} characters from legacy Word document with antiword")
+    return text
+
+
 def _read_legacy_doc(file_path: str) -> str:
     """Convert a binary `.doc` to OOXML, then use the loss-minimising DOCX reader."""
     soffice = _find_soffice_for_legacy_doc()
     if not soffice:
+        extracted = _read_legacy_doc_with_antiword(file_path)
+        if extracted:
+            return extracted
         raise RuntimeError(
-            "Legacy .doc files require LibreOffice for conversion. Save the file as .docx "
-            "or install the free desktop edition of LibreOffice."
+            "Legacy .doc files require LibreOffice or antiword. Save the file as .docx "
+            "or install one of those document readers."
         )
 
     with tempfile.TemporaryDirectory(prefix="sow-legacy-doc-") as temp_dir:

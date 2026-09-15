@@ -5,6 +5,7 @@ import { Download, FilePlus, Files, RefreshCw, Search, Upload, X } from 'lucide-
 import apiService, { Document, SourceDocument } from '../services/apiService';
 import { downloadWithNativeSaveAs } from '../utils/downloadFile';
 import { formatTokenCount } from '../utils/tokenUsage';
+import { documentTimestamp, formatDocumentDateTime, sowDownloadFilename } from '../utils/documentPresentation';
 import './Dashboard.css';
 import './SOWRecords.css';
 
@@ -17,15 +18,11 @@ const documentData = (record: HistoryRecord): Document => record.document || rec
 const taskMetadata = (record: HistoryRecord): Document => record.task?.metadata || {};
 
 const recordDate = (record: Document): string => (
-  record.timestamp || record.created_at || record.document_date || record.date || ''
+  documentTimestamp(record)
 );
 
 const displayDate = (record: Document): string => {
-  const value = recordDate(record);
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return formatDocumentDateTime(recordDate(record));
 };
 
 const generatedAt = (record: HistoryRecord): number => {
@@ -100,7 +97,13 @@ const SOWRecords: React.FC = () => {
       toast.error('This SOW does not have a downloadable document');
       return;
     }
-    const filename = `${sowName(record).replace(/[<>:"/\\|?*]/g, '_')}.docx`;
+    const metadata = taskMetadata(record);
+    const filename = sowDownloadFilename({
+      ...document,
+      project_name: document.project_name || document.name || document.title || metadata.project_name,
+      mode: document.mode || metadata.mode,
+      version: document.version || metadata.version,
+    });
     try {
       await downloadWithNativeSaveAs(
         () => apiService.downloadDocument(url, document.document_id),

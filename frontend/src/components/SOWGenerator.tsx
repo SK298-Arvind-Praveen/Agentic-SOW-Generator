@@ -1925,18 +1925,6 @@ Date                                         Date`
                   </span>
                 </div>
                 <div className="preview-info-row">
-                  <span className="preview-label">Start Date:</span>
-                  <span className="preview-value">
-                    {previewData.metadata?.start_date || previewData.start_date || 'N/A'}
-                  </span>
-                </div>
-                <div className="preview-info-row">
-                  <span className="preview-label">End Date:</span>
-                  <span className="preview-value">
-                    {previewData.metadata?.end_date || previewData.end_date || 'N/A'}
-                  </span>
-                </div>
-                <div className="preview-info-row">
                   <span className="preview-label">Version:</span>
                   <span className="preview-value">
                     {previewData.metadata?.version || previewData.version || 'N/A'}

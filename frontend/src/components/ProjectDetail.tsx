@@ -20,6 +20,7 @@ import {
 import apiService from '../services/apiService';
 import { downloadWithNativeSaveAs } from '../utils/downloadFile';
 import { formatTokenCount } from '../utils/tokenUsage';
+import { formatDocumentDateTime, sowDownloadFilename } from '../utils/documentPresentation';
 import SOWGenerator from './SOWGenerator';
 import './ProjectDetail.css';
 
@@ -33,6 +34,7 @@ interface SOW {
   s3_url: string;
   linked_at: string;
   total_tokens?: number | string;
+  version?: string;
 }
 
 interface Project {
@@ -296,10 +298,7 @@ const ProjectDetail: React.FC = () => {
     try {
       console.log('Downloading SOW:', { s3Url, sow_id: sow.sow_id, project: sow.project_name });
 
-      // Extract filename from S3 URL or use project name
-      const urlParts = s3Url.split('/');
-      const s3Filename = urlParts[urlParts.length - 1].split('?')[0];
-      const filename = s3Filename || `${sow.project_name}_${sow.mode}.pdf`;
+      const filename = sowDownloadFilename(sow);
       const saved = await downloadWithNativeSaveAs(
         () => apiService.downloadDocument(s3Url, sow.sow_id),
         filename,
@@ -323,14 +322,7 @@ const ProjectDetail: React.FC = () => {
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return formatDocumentDateTime(dateString);
   };
 
   const handleRegenerateSOW = (sow: SOW, e: React.MouseEvent) => {

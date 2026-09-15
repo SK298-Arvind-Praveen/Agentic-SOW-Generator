@@ -16,6 +16,7 @@ import { toast } from 'react-toastify';
 import apiService from '../services/apiService';
 import { downloadWithNativeSaveAs } from '../utils/downloadFile';
 import { formatTokenCount } from '../utils/tokenUsage';
+import { formatDocumentDateTime, sowDownloadFilename } from '../utils/documentPresentation';
 import './SOWTracker.css';
 import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
 
@@ -32,6 +33,7 @@ interface SOWRecord {
   created_at?: string;
   business_unit?: string;
   total_tokens?: number | string;
+  version?: string;
 }
 
 interface Statistics {
@@ -90,12 +92,13 @@ const SOWTracker: React.FC = () => {
             customer_name: doc.customer_name || doc.company || doc.company_name || 'N/A',
             author_name: doc.author_name || doc.author || 'N/A',
             mode: doc.mode || 'POC',
-            document_date: doc.document_date || doc.date || doc.created_at || new Date().toISOString().split('T')[0],
+            document_date: doc.timestamp || doc.created_at || doc.date || doc.document_date || '',
             s3_url: doc.s3_url || doc.download_url || '',
             drive_link: doc.drive_link || '',
             created_at: doc.timestamp || doc.created_at,
             business_unit: doc.business_unit || taskMetadata.business_unit,
             total_tokens: doc.total_tokens ?? taskMetadata.total_tokens,
+            version: doc.version,
           };
         });
 
@@ -229,9 +232,7 @@ const SOWTracker: React.FC = () => {
     });
 
     try {
-      const urlParts = s3Url.split('/');
-      const s3Filename = urlParts[urlParts.length - 1].split('?')[0];
-      const filename = s3Filename || `${record.project_name}_${record.mode}.pdf`;
+      const filename = sowDownloadFilename(record);
       const saved = await downloadWithNativeSaveAs(
         () => apiService.downloadDocument(s3Url, record.document_id),
         filename,
@@ -449,7 +450,7 @@ const SOWTracker: React.FC = () => {
                       </span>
                     </td>
                     {isAdmin && <td>{record.business_unit || 'Unassigned'}</td>}
-                    <td>{new Date(record.document_date).toLocaleDateString()}</td>
+                    <td>{formatDocumentDateTime(record.document_date)}</td>
                     <td>{formatTokenCount(record.total_tokens)}</td>
                     <td className="actions-column">
                       {(record.s3_url || record.drive_link) && (
