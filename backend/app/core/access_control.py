@@ -708,7 +708,7 @@ def verify_password_reset_token(token: str) -> tuple[str, str]:
 
 def send_verification_email(email: str, token: str) -> None:
     app_url = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
-    source = os.getenv("AUTH_FROM_EMAIL", "no-reply@shellkode.ai").strip()
+    source = os.getenv("AUTH_FROM_EMAIL", "sow-generator@shellkode.ai").strip()
     link = f"{app_url}/verify-account?token={token}"
     client = boto3.client(
         "ses",
@@ -737,7 +737,7 @@ def send_verification_email(email: str, token: str) -> None:
 
 def send_password_reset_email(email: str, token: str) -> None:
     app_url = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
-    source = os.getenv("AUTH_FROM_EMAIL", "no-reply@shellkode.ai").strip()
+    source = os.getenv("AUTH_FROM_EMAIL", "sow-generator@shellkode.ai").strip()
     link = f"{app_url}/reset-password?token={token}"
     client = boto3.client(
         "ses",

@@ -251,7 +251,7 @@ AUTH_TOKEN_SECRET=replace-with-a-long-random-secret
 AUTH_VERIFICATION_TTL_SECONDS=86400
 # Password reset links are single-use and valid for one hour by default.
 AUTH_PASSWORD_RESET_TTL_SECONDS=3600
-AUTH_FROM_EMAIL=no-reply@shellkode.ai
+AUTH_FROM_EMAIL=sow-generator@shellkode.ai
 FRONTEND_URL=https://your-sow-portal.example.com
 # Disable the built-in test-login fallback after testing.
 ENABLE_SAMPLE_USERS=true

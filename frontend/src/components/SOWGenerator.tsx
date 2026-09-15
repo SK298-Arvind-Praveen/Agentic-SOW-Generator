@@ -859,16 +859,18 @@ Date                                         Date`
 
         // Update toast to show it's processing in background
         toast.update(toastId, {
-          render: '⚙️ Processing in background... You can continue working!',
+          render: 'Processing preview in the background...',
           type: 'info',
-          isLoading: false,
-          autoClose: 5000,
-          closeButton: true,
+          isLoading: true,
+          autoClose: false,
+          closeButton: false,
         });
 
         // Report only backend milestones and completed-section counts. The
         // backend owns the percentage; the UI must not fabricate progress.
-        let currentProgressToast: any = null;
+        // Keep one persistent toast for the whole job. A short-lived toast can
+        // disappear during a long LLM step while polling continues with a stale ID.
+        let currentProgressToast: any = toastId;
         let pollInterval: ReturnType<typeof setInterval> | null = null;
         let safetyTimeout: ReturnType<typeof setTimeout> | null = null;
         let pollingFinished = false;
@@ -889,18 +891,22 @@ Date                                         Date`
 
             // Update or create progress toast
             if (statusResponse.current_step) {
-              const progressMessage = `📊 Progress: ${displayProgress}% - ${statusResponse.current_step}`;
+              const progressMessage = `Progress: ${displayProgress}% - ${statusResponse.current_step}`;
 
               if (currentProgressToast) {
                 toast.update(currentProgressToast, {
                   render: progressMessage,
                   type: 'info',
-                  autoClose: 5000,
+                  isLoading: true,
+                  autoClose: false,
+                  closeButton: false,
                 });
               } else {
                 currentProgressToast = toast.info(progressMessage, {
                   position: 'bottom-right',
-                  autoClose: 5000,
+                  autoClose: false,
+                  isLoading: true,
+                  closeButton: false,
                 });
               }
             }
@@ -920,8 +926,10 @@ Date                                         Date`
                 full_response: statusResponse
               });
 
-              toast.error(`Preview failed: ${errorMsg}`, {
-                position: 'bottom-right',
+              toast.update(currentProgressToast, {
+                render: `Preview failed: ${errorMsg}`,
+                type: 'error',
+                isLoading: false,
                 autoClose: 8000,
                 closeButton: true,
               });
@@ -948,8 +956,10 @@ Date                                         Date`
               // Verify we have valid content before showing modal
               if (hasContent) {
                 // Show success toast
-                toast.success('Preview ready! Opening editor...', {
-                  position: 'bottom-right',
+                toast.update(currentProgressToast, {
+                  render: 'Preview ready. Opening editor...',
+                  type: 'success',
+                  isLoading: false,
                   autoClose: 2000,
                   closeButton: true,
                 });
@@ -959,8 +969,10 @@ Date                                         Date`
                 setShowPreviewModal(true);
                 setHasPreviewGenerated(true);
               } else {
-                toast.warning('Preview completed but no content available', {
-                  position: 'bottom-right',
+                toast.update(currentProgressToast, {
+                  render: 'Preview completed but no content is available',
+                  type: 'warning',
+                  isLoading: false,
                   autoClose: 5000,
                   closeButton: true,
                 });
@@ -970,8 +982,10 @@ Date                                         Date`
           } catch (error) {
             console.error('Status polling error:', error);
             stopPolling();
-            toast.error('Failed to check preview status', {
-              position: 'bottom-right',
+            toast.update(currentProgressToast, {
+              render: 'Failed to check preview status',
+              type: 'error',
+              isLoading: false,
               autoClose: 5000,
               closeButton: true,
             });
@@ -990,8 +1004,10 @@ Date                                         Date`
         if (!pollingFinished) {
           safetyTimeout = setTimeout(() => {
             stopPolling();
-            toast.warning('Preview is still processing. Reopen this page later to retrieve it.', {
-              position: 'bottom-right',
+            toast.update(currentProgressToast, {
+              render: 'Preview is still processing. Reopen this page later to retrieve it.',
+              type: 'warning',
+              isLoading: false,
               autoClose: 5000,
               closeButton: true,
             });

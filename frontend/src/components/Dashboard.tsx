@@ -539,15 +539,15 @@ const Dashboard: React.FC = () => {
 
         // Update toast to show background processing
         toast.update(toastId, {
-          render: '⚙️ Converting in background... You can continue working!',
+          render: 'Converting in the background...',
           type: 'info',
-          isLoading: false,
-          autoClose: 5000,
-          closeButton: true,
+          isLoading: true,
+          autoClose: false,
+          closeButton: false,
         });
 
         // Track progress with smart increments based on steps
-        let currentProgressToast: any = null;
+        let currentProgressToast: any = toastId;
         const progressMap: { [key: string]: number } = {
           'Validating inputs': 10,
           'Extracting metadata': 15,
@@ -599,26 +599,32 @@ const Dashboard: React.FC = () => {
 
             // Update or create progress toast
             if (statusResponse.current_step) {
-              const progressMessage = `📊 Progress: ${displayProgress}% - ${statusResponse.current_step}`;
+              const progressMessage = `Progress: ${displayProgress}% - ${statusResponse.current_step}`;
 
               if (currentProgressToast) {
                 toast.update(currentProgressToast, {
                   render: progressMessage,
                   type: 'info',
-                  autoClose: 5000,
+                  isLoading: true,
+                  autoClose: false,
+                  closeButton: false,
                 });
               } else {
                 currentProgressToast = toast.info(progressMessage, {
                   position: 'bottom-right',
-                  autoClose: 5000,
+                  autoClose: false,
+                  isLoading: true,
+                  closeButton: false,
                 });
               }
             }
 
             if (statusResponse.has_error || statusResponse.status === 'failed' || statusResponse.status === 'error') {
               clearInterval(pollInterval);
-              toast.error(`Conversion failed: ${statusResponse.error || statusResponse.message || 'Unknown error'}`, {
-                position: 'bottom-right',
+              toast.update(currentProgressToast, {
+                render: `Conversion failed: ${statusResponse.error || statusResponse.message || 'Unknown error'}`,
+                type: 'error',
+                isLoading: false,
                 autoClose: 8000,
                 closeButton: true,
               });
@@ -630,8 +636,10 @@ const Dashboard: React.FC = () => {
 
               if (statusResponse.content || statusResponse.updated_content) {
                 // Show success toast
-                toast.success('Production conversion ready! Opening editor...', {
-                  position: 'bottom-right',
+                toast.update(currentProgressToast, {
+                  render: 'Production conversion ready. Opening editor...',
+                  type: 'success',
+                  isLoading: false,
                   autoClose: 2000,
                   closeButton: true,
                 });
@@ -640,8 +648,10 @@ const Dashboard: React.FC = () => {
                 setProductionPreviewData(statusResponse);
                 setShowProductionPreviewModal(true);
               } else {
-                toast.warning('Conversion completed but no content available', {
-                  position: 'bottom-right',
+                toast.update(currentProgressToast, {
+                  render: 'Conversion completed but no content is available',
+                  type: 'warning',
+                  isLoading: false,
                   autoClose: 5000,
                   closeButton: true,
                 });
@@ -649,8 +659,10 @@ const Dashboard: React.FC = () => {
             }
           } catch (err) {
             clearInterval(pollInterval);
-            toast.error('Failed to check conversion status', {
-              position: 'bottom-right',
+            toast.update(currentProgressToast, {
+              render: 'Failed to check conversion status',
+              type: 'error',
+              isLoading: false,
               autoClose: 5000,
               closeButton: true,
             });
