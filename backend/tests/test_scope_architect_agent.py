@@ -273,6 +273,80 @@ def test_explicit_source_deliverables_are_validated_and_preserved():
     ]
 
 
+def test_unnumbered_deliverables_table_does_not_force_nine_packages():
+    rows = [
+        "Solution Design & Architecture", "AI/Agentic Chatbot Platform",
+        "Omnichannel Integration", "Enterprise Integrations", "Live Agent & Handover",
+        "Analytics & Reporting", "Testing & Go-Live", "Training & Documentation",
+        "Support & Continuous Improvement",
+    ]
+    source = "Deliverables\n" + "\n".join(rows)
+    requirements = {
+        "declared_deliverable_count": 9,
+        "source_deliverables": [
+            {"name": name, "evidence_quote": name} for name in rows
+        ],
+    }
+    assert ScopeArchitectAgent._explicit_source_deliverables(requirements, source) == []
+
+
+def test_capability_bucket_deliverables_trigger_consolidation():
+    names = [
+        "Solution Design & Architecture", "AI/Agentic Chatbot Platform",
+        "Omnichannel Integration", "Enterprise Integrations", "Live Agent & Handover",
+        "Analytics & Reporting", "Testing & Go-Live", "Training & Documentation",
+        "Support & Continuous Improvement",
+    ]
+    plan = {"deliverables": [{
+        "name": name,
+        "boundary_type": "phase",
+        "separation_basis": f"Distinct {name} workstream per validated source list",
+        "modules": [{"name": name, "capability_ids": [f"CAP-{index:03d}"]}],
+    } for index, name in enumerate(names, 1)]}
+    issues = ScopeArchitectAgent._deliverable_fragmentation_issues(plan)
+    assert any("checklist rows" in issue for issue in issues)
+
+
+def test_two_source_backed_phases_are_not_treated_as_fragmented():
+    plan = {"deliverables": [
+        {
+            "name": "Core Fashion and Luxury Platform",
+            "boundary_type": "phase",
+            "separation_basis": "Day 1 implementation and go-live",
+            "modules": [{"name": "Platform", "capability_ids": ["CAP-001"]}],
+        },
+        {
+            "name": "Tata Neu and Advanced Capabilities",
+            "boundary_type": "phase",
+            "separation_basis": "Phase 2 extension after Day 1 stabilisation",
+            "modules": [{"name": "Extensions", "capability_ids": ["CAP-002"]}],
+        },
+    ]}
+    assert ScopeArchitectAgent._deliverable_fragmentation_issues(plan) == []
+
+
+def test_lifecycle_rows_cannot_be_extra_deliverables_beside_two_phases():
+    plan = {"deliverables": [
+        {"name": "Solution Design & Architecture", "separation_basis": "Before build", "modules": [{}]},
+        {"name": "Core Platform", "separation_basis": "Day 1 go-live", "modules": [{}]},
+        {"name": "Tata Neu Extensions", "separation_basis": "Phase 2 after stabilisation", "modules": [{}]},
+        {"name": "Training & Documentation", "separation_basis": "Following UAT", "modules": [{}]},
+        {"name": "Support & Continuous Improvement", "separation_basis": "Contract duration", "modules": [{}]},
+    ]}
+    assert ScopeArchitectAgent._deliverable_fragmentation_issues(plan)
+
+
+def test_chatbot_capabilities_do_not_trigger_legacy_crm_outcome_split():
+    names = ScopeArchitectAgent._source_outcome_boundary_names({
+        "key_deliverables": [
+            "AI chatbot and case creation",
+            "Email notifications and WhatsApp",
+            "Conversation analytics and reporting dashboards",
+        ]
+    })
+    assert "Data Migration" not in names
+
+
 def test_source_deliverable_constraint_splits_one_package_into_named_outcomes():
     agent = _agent()
     plan = {

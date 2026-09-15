@@ -442,10 +442,11 @@ Rules:
   feature proves desired scope, not that the existing platform lacks it.
 - Preserve each source-required contractual output in key_deliverables, but do not imply that every
   output must become a separate top-level architectural delivery package.
-- Populate source_deliverables only when the source explicitly labels or numbers an item as a
-  deliverable, work package, phase, release, or separately named scope outcome. Preserve its exact
-  name and a short verbatim quote. Do not put ordinary features, document artefacts, checklist rows,
-  technical layers, or generic activities in source_deliverables.
+- Populate source_deliverables only when the source explicitly numbers the delivery package itself
+  (for example Deliverable 1, Phase 2, Wave 3, or Release 2). A table merely headed "Deliverables"
+  may be an implementation checklist: keep its rows in key_deliverables, not source_deliverables.
+  Preserve the numbered package's exact name and a short verbatim quote. Do not put ordinary
+  features, document artefacts, checklist rows, technical layers, or generic activities there.
 - Set declared_deliverable_count only when the source explicitly states a total count or contains
   a complete numbered deliverable series. Do not derive it from how many headings happened to be found.
 - input_assessment is a safety and relevance decision, not a creativity task. Set is_sow_candidate

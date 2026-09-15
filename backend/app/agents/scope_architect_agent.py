@@ -114,6 +114,7 @@ class ScopeArchitectAgent:
             )
         elif (
             len(derived_outcome_names) >= 3
+            and "Data Migration" in derived_outcome_names
             and sum(
                 len(requirements.get(key) or [])
                 for key in ("key_deliverables", "functional_requirements")
@@ -121,10 +122,10 @@ class ScopeArchitectAgent:
             ) >= 4
             and not refinement_constraints.get("requested_deliverable_count")
         ):
-            # A BRD may enumerate outcome deliverables without consistently
-            # labelling each row "Deliverable". Preserve stable business outcome
-            # families instead of allowing the classifier to collapse them into
-            # one implementation package merely because deployment is shared.
+            # This legacy inference is intentionally limited to migration-led
+            # CRM replacement BRDs. Without that anchor, ordinary mentions of
+            # email, cases and reporting in a platform RFQ can falsely create
+            # three or four top-level deliverables.
             refinement_constraints.update({
                 "requested_deliverable_count": len(derived_outcome_names),
                 "requested_deliverable_names": derived_outcome_names,
@@ -169,32 +170,47 @@ class ScopeArchitectAgent:
                 f"Scope architecture did not preserve the required {requested_count} deliverable boundaries"
             )
         plan, issues = self._normalise_plan(plan, inventory)
+        deliverable_fragmentation = (
+            []
+            if refinement_constraints.get("requested_deliverable_count")
+            else self._deliverable_fragmentation_issues(plan)
+        )
         fragmentation = (
             []
             if refinement_constraints.get("requested_deliverable_count")
             else self._module_fragmentation_issues(plan, inventory)
         )
-        if fragmentation:
+        if deliverable_fragmentation or fragmentation:
             print(
-                f"[SCOPE-ARCHITECT] Module consolidation required: {'; '.join(fragmentation)}",
+                "[SCOPE-ARCHITECT] Scope consolidation required: "
+                + "; ".join(deliverable_fragmentation + fragmentation),
                 flush=True,
             )
-        if issues or fragmentation:
+        if issues or deliverable_fragmentation or fragmentation:
             revised = self._repair(
                 plan, inventory, requirements, metadata, source_context,
-                issues + fragmentation, refinement_constraints,
+                issues + deliverable_fragmentation + fragmentation, refinement_constraints,
             )
             revised = self._complete_assignments(revised, inventory)
             revised = self._enforce_refinement_constraints(
                 revised, inventory, refinement_constraints
             )
             revised, revised_issues = self._normalise_plan(revised, inventory)
+            revised_deliverable_fragmentation = (
+                []
+                if refinement_constraints.get("requested_deliverable_count")
+                else self._deliverable_fragmentation_issues(revised)
+            )
             revised_fragmentation = (
                 []
                 if refinement_constraints.get("requested_deliverable_count")
                 else self._module_fragmentation_issues(revised, inventory)
             )
-            if not revised_issues and not revised_fragmentation:
+            if (
+                not revised_issues
+                and not revised_deliverable_fragmentation
+                and not revised_fragmentation
+            ):
                 plan, issues = revised, []
                 print(
                     f"[SCOPE-ARCHITECT] Consolidated scope into "
@@ -202,7 +218,7 @@ class ScopeArchitectAgent:
                     flush=True,
                 )
             else:
-                issues = revised_issues + revised_fragmentation
+                issues = revised_issues + revised_deliverable_fragmentation + revised_fragmentation
         if issues:
             print(f"[SCOPE-ARCHITECT] Plan rejected: {', '.join(issues)}", flush=True)
             raise RuntimeError("Scope architecture validation failed; generation halted: " + "; ".join(issues))
@@ -229,10 +245,65 @@ class ScopeArchitectAgent:
             key = name.casefold()
             if not name or not quote or quote.casefold() not in source_key or key in seen:
                 continue
+            # A table headed "Deliverables" commonly lists implementation
+            # activities. Only a numbered/labelled package is a mandatory
+            # contractual boundary; unnumbered rows remain candidate modules.
+            if not re.search(
+                r"\b(?:deliverable|phase|wave|release)\s*(?:no\.?\s*)?#?\s*\d+\b",
+                quote,
+                flags=re.I,
+            ):
+                continue
             seen.add(key)
             clean.append({"name": name, "evidence_quote": quote})
         # A single labelled item does not establish a multi-deliverable structure.
         return clean if 2 <= len(clean) <= 10 else []
+
+    @staticmethod
+    def _deliverable_fragmentation_issues(plan: Dict[str, Any]) -> List[str]:
+        """Reject capability/checklist rows promoted to contractual deliverables."""
+        deliverables = [
+            item for item in plan.get("deliverables") or []
+            if isinstance(item, dict) and item.get("modules")
+        ]
+        if len(deliverables) < 3:
+            return []
+        thin_ratio = sum(
+            len(item.get("modules") or []) <= 2 for item in deliverables
+        ) / len(deliverables)
+        generic_basis = re.compile(
+            r"\b(?:per (?:the )?(?:validated )?source list|distinct (?:platform build|"
+            r"workstream|capability|integration deliverable)|knowledge.transfer completion)\b",
+            flags=re.I,
+        )
+        sequenced_basis = re.compile(
+            r"\b(?:day\s*1|phase\s*\d+|wave\s*\d+|release\s*\d+|later|subsequent|"
+            r"before|after|follow(?:ing|ed by)|post.go.live|hypercare|separate go.live|"
+            r"commercial hand.?off|contract duration)\b",
+            flags=re.I,
+        )
+        unsupported = sum(
+            bool(generic_basis.search(str(item.get("separation_basis") or "")))
+            or not sequenced_basis.search(str(item.get("separation_basis") or ""))
+            for item in deliverables
+        )
+        lifecycle_rows = sum(bool(re.search(
+            r"\b(?:solution design|architecture|testing|go.live|training|documentation|"
+            r"support|continuous improvement)\b",
+            str(item.get("name") or ""),
+            flags=re.I,
+        )) for item in deliverables)
+        if thin_ratio >= 0.6 and unsupported >= max(2, len(deliverables) - 2):
+            return [
+                "implementation checklist rows were promoted to deliverables; consolidate them "
+                "under the smallest source-backed phase/release packages"
+            ]
+        if lifecycle_rows >= 2:
+            return [
+                "architecture, testing, training or support lifecycle rows were promoted to "
+                "deliverables; keep them as modules unless explicitly numbered as separate packages"
+            ]
+        return []
 
     @staticmethod
     def _source_outcome_boundary_names(requirements: Dict[str, Any]) -> List[str]:
@@ -756,6 +827,11 @@ Classification rules:
   commercial_handoff as boundary_type. `single_package` is valid only when exactly one deliverable exists.
 - Do not mistake a generic artefact list, feature checklist, AWS layer, or table row for an explicit
   source deliverable; those remain modules or outputs.
+- A table titled "Deliverables" is not proof that every row is a separate contractual deliverable.
+  Architecture, chatbot build, channels, integrations, handover, analytics, testing, training and
+  support rows normally describe modules or lifecycle workstreams. Group them by the fewest credible
+  phase/release boundaries unless the rows themselves are explicitly numbered as Deliverable N,
+  Phase N, Wave N or Release N.
 - Strong split evidence includes explicit Deliverable/Phase/Wave labels; Day 1 versus later scope;
   a core platform followed by an extension; separate go-live or stabilisation sequencing; a distinct
   duration, commercial line, sign-off, dependency gate, target channel/surface, or deployment boundary.
@@ -943,6 +1019,12 @@ optional or open IDs only in open_boundaries. Merge capability buckets that
 share a design, deployment, demonstration and acceptance event. Keep separate deliverables only for
 a real independent phase, release, deployment, hand-off, commercial or acceptance boundary. Preserve
 all inventory facts and status labels; do not add capabilities or drop modules to pass the audit.
+An unnumbered table or checklist headed "Deliverables" does not establish separate contractual
+boundaries. Architecture, platform build, channels, integrations, handover, analytics, testing,
+training and support should remain modules of the same implementation phase unless the source gives
+concrete, explicitly numbered delivery-package sequencing. Prefer a core/Day-1 package plus a later
+extension package when that is the actual source-backed boundary; do not add a third package merely
+for design, testing, training, hypercare, support or continuous improvement.
 
 Module consolidation rules:
 - Do not mirror capability inventory rows as one module per row. A module is a cohesive implementation
