@@ -44,11 +44,34 @@ class _NativeClient:
 
 
 class _TruncatedClient:
+    def __init__(self):
+        self.calls = []
+
     def converse(self, **kwargs):
+        self.calls.append(kwargs)
         return {
             "output": {"message": {"content": [{"text": '{"partial":'}]}},
             "usage": {"inputTokens": 8, "outputTokens": 32768},
             "stopReason": "max_tokens",
+        }
+
+
+class _AdaptiveTruncatedClient:
+    def __init__(self):
+        self.calls = []
+
+    def converse(self, **kwargs):
+        self.calls.append(kwargs)
+        if kwargs["inferenceConfig"]["maxTokens"] < 4096:
+            return {
+                "output": {"message": {"content": [{"text": '{"partial":'}]}},
+                "usage": {"inputTokens": 8, "outputTokens": 2048},
+                "stopReason": "max_tokens",
+            }
+        return {
+            "output": {"message": {"content": [{"text": '{"complete":true}'}]}},
+            "usage": {"inputTokens": 12, "outputTokens": 8},
+            "stopReason": "end_turn",
         }
 
 
@@ -92,7 +115,7 @@ class BedrockLLMTests(unittest.TestCase):
         )
 
         self.assertEqual(result.model_id, profile)
-        self.assertEqual(client.calls[0]["inferenceConfig"], {"maxTokens": 32768})
+        self.assertEqual(client.calls[0]["inferenceConfig"], {"maxTokens": 2048})
         self.assertEqual(
             client.calls[0]["additionalModelRequestFields"],
             {"thinking": {"type": "disabled"}},
@@ -105,11 +128,26 @@ class BedrockLLMTests(unittest.TestCase):
         self.assertNotIn("additionalModelRequestFields", client.calls[0])
 
     def test_max_token_stop_is_a_hard_failure(self):
+        client = _TruncatedClient()
         with self.assertRaises(BedrockOutputTruncatedError):
-            BedrockLLM(_Config(), _TruncatedClient()).generate(
+            BedrockLLM(_Config(), client).generate(
                 "prompt", task="writer", max_tokens=32768,
                 fallback_model_id="fallback", call_name="Structured Output",
             )
+        self.assertEqual(len(client.calls), 1)
+
+    def test_truncated_output_retries_once_with_an_expanded_allowance(self):
+        client = _AdaptiveTruncatedClient()
+        result = BedrockLLM(_Config(), client).generate(
+            "prompt", task="writer", max_tokens=2048,
+            call_name="Structured Output",
+        )
+        self.assertEqual(result.text, '{"complete":true}')
+        self.assertEqual(
+            [call["inferenceConfig"]["maxTokens"] for call in client.calls],
+            [2048, 4096],
+        )
+        self.assertIn("Aggressively deduplicate", client.calls[1]["messages"][0]["content"][0]["text"])
 
 
 if __name__ == "__main__":

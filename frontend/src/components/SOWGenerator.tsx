@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Wand2, User, Calendar, Upload, FileText, X, AlertCircle, Eye, Edit, ArrowLeft, Loader } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { toast } from '../utils/toast';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import apiService from '../services/apiService';
@@ -204,6 +204,19 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
   const [isSavingMarkdown, setIsSavingMarkdown] = useState(false);
   const [isRecalculatingPricing, setIsRecalculatingPricing] = useState(false);
   const [hasPreviewGenerated, setHasPreviewGenerated] = useState(false);
+  // React state updates are asynchronous, so a rapid second click can arrive
+  // before isGenerating is rendered. This ref closes that race immediately.
+  const generationLockRef = useRef(false);
+  const acquireGenerationLock = () => {
+    if (generationLockRef.current) return false;
+    generationLockRef.current = true;
+    setIsGenerating(true);
+    return true;
+  };
+  const releaseGenerationLock = () => {
+    generationLockRef.current = false;
+    setIsGenerating(false);
+  };
 
   // Auto-load preview from draft if coming from drafts modal
   useEffect(() => {
@@ -585,14 +598,12 @@ Date                                         Date`
     const previewId = localStorage.getItem('lastPreviewId');
 
     if (previewId) {
-      // Prevent duplicate calls by checking if already generating
-      if (isGenerating) {
+      if (!acquireGenerationLock()) {
         console.log('Already generating, skipping duplicate call');
         return;
       }
 
       // If preview_id exists, call finalize API (for standalone SOWs only)
-      setIsGenerating(true);
       const toastId = toast.loading('Finalizing SOW document...', {
         position: 'top-right',
         autoClose: false,
@@ -648,7 +659,7 @@ Date                                         Date`
           onGenerateError(errorMessage);
         }
       } finally {
-        setIsGenerating(false);
+        releaseGenerationLock();
       }
       return;
     }
@@ -674,8 +685,8 @@ Date                                         Date`
       return;
     }
 
+    if (!acquireGenerationLock()) return;
     setShowModal(false);
-    setIsGenerating(true);
     const toastId = toast.loading('Generating SOW document...', {
       position: 'top-right',
       autoClose: false,
@@ -766,13 +777,18 @@ Date                                         Date`
       });
       onGenerateError?.(errorMessage);
     } finally {
-      setIsGenerating(false);
+      releaseGenerationLock();
     }
   };
 
   const handlePreview = async () => {
     if (!isFormValid()) {
       showMissingFields();
+      return;
+    }
+
+    if (!acquireGenerationLock()) {
+      console.log('Preview generation already in progress, skipping duplicate call');
       return;
     }
 
@@ -875,9 +891,11 @@ Date                                         Date`
         let safetyTimeout: ReturnType<typeof setTimeout> | null = null;
         let pollingFinished = false;
         const stopPolling = () => {
+          if (pollingFinished) return;
           pollingFinished = true;
           if (pollInterval) clearInterval(pollInterval);
           if (safetyTimeout) clearTimeout(safetyTimeout);
+          releaseGenerationLock();
         };
 
         const pollPreviewStatus = async () => {
@@ -1015,6 +1033,7 @@ Date                                         Date`
         }
 
       } else {
+        releaseGenerationLock();
         console.error('Preview API failed:', response);
         toast.update(toastId, {
           render: response.error || response.message || 'Failed to generate preview',
@@ -1025,6 +1044,7 @@ Date                                         Date`
         });
       }
     } catch (error) {
+      releaseGenerationLock();
       console.error('Preview error:', error);
       toast.update(toastId, {
         render: error instanceof Error ? error.message : 'Failed to generate preview',
@@ -1044,13 +1064,11 @@ Date                                         Date`
       return;
     }
 
-    // Prevent duplicate calls
-    if (isGenerating) {
+    if (!acquireGenerationLock()) {
       console.log('Already finalizing, skipping duplicate call');
       return;
     }
 
-    setIsGenerating(true);
     const toastId = toast.loading('Finalizing SOW document...', {
       position: 'top-right',
       autoClose: false,
@@ -1102,7 +1120,7 @@ Date                                         Date`
         autoClose: 5000,
       });
     } finally {
-      setIsGenerating(false);
+      releaseGenerationLock();
     }
   };
 

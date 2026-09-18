@@ -559,7 +559,7 @@ Rules:
         result = self.llm.generate(
             prompt,
             task="analysis",
-            max_tokens=32768,
+            max_tokens=8000,
             temperature=0.0,
             call_name="AWS Pricing Input Plan",
             fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
@@ -1002,7 +1002,7 @@ rate-driving required field cannot be populated, return it in missing_inputs and
         result = self.llm.generate(
             prompt,
             task="analysis",
-            max_tokens=32768,
+            max_tokens=2400,
             temperature=0.0,
             call_name=f"AWS Pricing Fields - {service['service_name']}",
             fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),

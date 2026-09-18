@@ -11,6 +11,7 @@ except ModuleNotFoundError:
     sys.modules["boto3"] = types.SimpleNamespace(client=lambda *args, **kwargs: None)
 
 from app.agents.poc_writer_agent import POCWriterAgent, TemplateSection
+from app.agents.company_research_agent import CompanyResearchAgent
 
 
 class PocBenchmarkContractTests(unittest.TestCase):
@@ -134,6 +135,14 @@ class PocBenchmarkContractTests(unittest.TestCase):
             block = self.template[start: next_section if next_section >= 0 else None]
             self.assertIn(required_text, block)
 
+    def test_company_profile_validator_requires_two_company_only_paragraphs(self):
+        valid = "Example Limited provides retail services.\n\nIt operates digital and physical customer channels."
+        self.assertEqual(CompanyResearchAgent._company_profile_issues(valid), [])
+        invalid = "# Example\n\nThis engagement defines the project scope."
+        issues = CompanyResearchAgent._company_profile_issues(invalid)
+        self.assertTrue(any("heading" in issue for issue in issues))
+        self.assertTrue(any("engagement" in issue for issue in issues))
+
     def test_contract_is_prompted_but_never_parsed_as_document_sections(self):
         agent = POCWriterAgent.__new__(POCWriterAgent)
         agent.template_raw = self.template
@@ -222,6 +231,16 @@ class PocBenchmarkContractTests(unittest.TestCase):
         self.assertFalse(any("more than six modules" in issue for issue in issues))
         self.assertFalse(any("exceeds eight steps" in issue for issue in issues))
         self.assertIsNone(POCWriterAgent._section_word_limit(detailed_scope))
+
+        wide_table = (
+            "| A | B | C | D | E | F |\n"
+            "|---|---|---|---|---|---|\n"
+            "| 1 | 2 | 3 | 4 | 5 | 6 |"
+        )
+        wide_table_issues = POCWriterAgent._authoring_issues(
+            wide_table, TemplateSection("Technical Specification", "", {"type": "GENERATED"}, 0)
+        )
+        self.assertFalse(any("wider than five columns" in issue for issue in wide_table_issues))
 
         bad_labels = (
             "### Deliverable: Platform\n#### Ticketing Module\n"

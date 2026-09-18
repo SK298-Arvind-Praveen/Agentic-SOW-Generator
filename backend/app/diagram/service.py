@@ -1256,7 +1256,7 @@ DRAFT:
         result = self.llm.generate(
             prompt,
             task="diagram",
-            max_tokens=32768,
+            max_tokens=8000,
             temperature=0.05,
             call_name="Architecture Detail Pass",
             fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
@@ -1651,7 +1651,7 @@ DRAFT:
             result = self.llm.generate(
                 self._prompt(requirements, metadata, narrative, eligible_types, candidates),
                 task="diagram",
-                max_tokens=32768,
+                max_tokens=10000,
                 temperature=0.05,
                 call_name="Architecture Diagram",
                 fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { User, ChevronDown, Database, FileText, KeyRound, LogOut } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { toast } from '../utils/toast';
 import apiService from '../services/apiService';
 import { useAuth } from '../contexts/AuthContext';
 import Sidebar from './Sidebar';

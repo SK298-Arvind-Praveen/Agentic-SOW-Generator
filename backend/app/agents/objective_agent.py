@@ -172,10 +172,9 @@ class ObjectiveAgent:
         result = self.llm.generate(
             prompt,
             task="analysis",
-            # Sonnet 5 can produce a detailed but valid extraction beyond the
-            # former 8K ceiling. The prompt asks for compact output, so this is
-            # a safety ceiling rather than a target response length.
-            max_tokens=max(32768, int(getattr(self.config, "MAX_TOKENS", 32768))),
+            # This is a factual inventory, not prose. The allowance remains
+            # ample for a verbose BRD without inviting essay-length JSON.
+            max_tokens=min(12000, int(getattr(self.config, "MAX_TOKENS", 12000))),
             temperature=getattr(self.config, "TEMPERATURE", 0.2),
             call_name=f"Objective Analysis {index}/{total}",
             fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
@@ -457,6 +456,9 @@ Rules:
 - Extract all useful detail from short input, but express unknowns as clarifications rather than fake precision.
 - Be concise and deduplicate semantically equivalent facts. Use short phrases in arrays rather than
   explanations, quotations, repeated evidence, or implementation prose. Preserve facts without expanding them.
+- Optimise for the smallest complete JSON object. Use one short sentence for scalar prose fields,
+  keep array entries atomic, and never restate a source paragraph, rationale, or background narrative.
+- Merge repeated BRD statements into one canonical fact. A long source is not a request for a long response.
 - Do not repeat requirements in multiple arrays merely to fill the schema. Leave a list empty when another
   field already captures the same fact, and keep requirements_provenance to material top-level fields only.
 - Respond with JSON only, beginning with {{ and ending with }}.

@@ -12,7 +12,7 @@ import {
   ArrowDown,
   Loader
 } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { toast } from '../utils/toast';
 import apiService from '../services/apiService';
 import { downloadWithNativeSaveAs } from '../utils/downloadFile';
 import { formatTokenCount } from '../utils/tokenUsage';

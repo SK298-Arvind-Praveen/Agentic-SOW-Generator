@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { toast } from 'react-toastify';
+import { toast } from '../utils/toast';
 import { Download, FilePlus, Files, RefreshCw, Search, Upload, X } from 'lucide-react';
 import apiService, { Document, SourceDocument } from '../services/apiService';
 import { downloadWithNativeSaveAs } from '../utils/downloadFile';

@@ -2,6 +2,7 @@
 Company Research Agent - Simplified without prompt caching
 """
 import boto3
+import re
 from typing import List
 
 from app.core.bedrock_llm import BedrockLLM
@@ -84,20 +85,59 @@ Paragraph two should cover its established operating model, customer channels, m
 landscape only where confidently known. Never mention an engagement, Statement of Work, project,
 scope, objectives, requirements, problem, proposed solution, or ShellKode. Do not comment on missing
 information. Professional tone, concise prose, no heading or bullets. Return only the two paragraphs."""
+        prompt += """
+
+Before responding, silently check that the draft contains exactly two non-empty paragraphs,
+contains no heading or list, discusses only the company, and contains none of the forbidden
+engagement language above. Correct the draft before returning it."""
         
-        try:
-            result = self.llm.generate(
-                prompt,
-                task="fast",
-                max_tokens=256,
-                temperature=0.3,
-                call_name=f"Company Context: {company_name}",
-                fallback_model_id=getattr(self.config, "ANALYSIS_MODEL_ID", None),
-            )
-            return result.text.strip()
-        except Exception as e:
-            print(f"Error researching {company_name}: {e}")
-            return ""
+        best = ""
+        for attempt in range(3):
+            attempt_prompt = prompt
+            if best:
+                detected = "; ".join(self._company_profile_issues(best))
+                attempt_prompt += (
+                    "\n\nSelf-review the previous draft against the contract. The deterministic "
+                    f"validator found: {detected}. Rewrite it, retaining only supported company "
+                    "facts. Silently verify every finding is resolved before returning only the "
+                    "two corrected paragraphs:\n\n" + best[:3000]
+                )
+            try:
+                result = self.llm.generate(
+                    attempt_prompt,
+                    task="fast",
+                    max_tokens=400,
+                    temperature=0.3,
+                    call_name=f"Company Context: {company_name} attempt {attempt + 1}",
+                    fallback_model_id=getattr(self.config, "ANALYSIS_MODEL_ID", None),
+                )
+                best = result.text.strip()
+                if not self._company_profile_issues(best):
+                    return best
+            except Exception as e:
+                print(f"Error researching {company_name}: {e}")
+                break
+        # Research is enrichment only. The SOW writer can use source-grounded
+        # company context even when this optional profile pass is imperfect.
+        return best
+
+    @staticmethod
+    def _company_profile_issues(content: str) -> List[str]:
+        issues: List[str] = []
+        paragraphs = [
+            item.strip() for item in re.split(r"\n\s*\n", content or "") if item.strip()
+        ]
+        if len(paragraphs) != 2:
+            issues.append(f"expected exactly two paragraphs, found {len(paragraphs)}")
+        if re.search(
+            r"(?i)\b(?:statement of work|this engagement|project scope|project objective|"
+            r"proposed solution|shellkode(?:'s)? involvement)\b",
+            content or "",
+        ):
+            issues.append("contains project or engagement language")
+        if re.search(r"(?m)^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|\|)", content or ""):
+            issues.append("contains a heading, list or table")
+        return issues
 
 
 # Usage example

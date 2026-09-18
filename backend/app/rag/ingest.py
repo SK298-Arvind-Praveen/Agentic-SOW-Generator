@@ -729,7 +729,7 @@ RULES:
 - Extract actual values from the document
 - If not found in this document excerpt, use an empty array, empty object, or null
 - Never invent a default merely to populate an array
-- Return ONLY the JSON, no markdown or explanations
+- Return ONLY the smallest complete JSON, no markdown, explanations, duplicated facts, or source restatement
 
 Document:
 {pdf_text}
@@ -773,7 +773,7 @@ RULES:
 - Extract actual values from the document
 - If not found in this document excerpt, use an empty array, empty object, or null
 - Never invent a default merely to populate an array
-- Return ONLY the JSON, no markdown or explanations
+- Return ONLY the smallest complete JSON, no markdown, explanations, duplicated facts, or source restatement
 
 Document:
 {pdf_text}
@@ -806,7 +806,7 @@ JSON:"""
                     result = self.llm.generate(
                         prompt,
                         task="analysis",
-                        max_tokens=max(32768, int(getattr(self.config, "MAX_TOKENS", 32768))),
+                        max_tokens=min(12000, int(getattr(self.config, "MAX_TOKENS", 12000))),
                         temperature=0.1,
                         call_name=f"RAG Schema Extraction {index}/{len(chunks)}",
                         model_id=getattr(self.config, "ANALYSIS_MODEL_ID", self.model_id),

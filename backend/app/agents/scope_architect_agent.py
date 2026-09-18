@@ -43,7 +43,7 @@ class ScopeArchitectAgent:
             llm = BedrockLLM(config, bedrock)
         self.llm = llm
 
-    def _call(self, prompt: str, call_name: str, max_tokens: int = 32768) -> str:
+    def _call(self, prompt: str, call_name: str, max_tokens: int = 12000) -> str:
         boundary_decision = call_name in {"Scope Boundary Classification", "Scope Boundary Audit"}
         task = "writer" if boundary_decision else "analysis"
         model_id = (
@@ -220,8 +220,35 @@ class ScopeArchitectAgent:
             else:
                 issues = revised_issues + revised_deliverable_fragmentation + revised_fragmentation
         if issues:
-            print(f"[SCOPE-ARCHITECT] Plan rejected: {', '.join(issues)}", flush=True)
-            raise RuntimeError("Scope architecture validation failed; generation halted: " + "; ".join(issues))
+            # If the only unresolved problem is unsupported top-level splitting,
+            # consolidate deterministically rather than failing or trusting a
+            # second verbose model response. Explicit source/user boundaries
+            # are protected above and never enter this fallback.
+            if not requested_count and deliverable_fragmentation:
+                modules = [
+                    module
+                    for deliverable in (plan.get("deliverables") or [])
+                    for module in (deliverable.get("modules") or [])
+                    if isinstance(module, dict)
+                ]
+                if modules:
+                    plan = {
+                        **plan,
+                        "deliverables": [{
+                            "name": str(metadata.get("project_title") or "Solution Delivery").strip(),
+                            "purpose": "One cohesive implementation and acceptance package",
+                            "boundary_type": "single_package",
+                            "separation_basis": "No independent source-backed delivery boundary",
+                            "modules": modules,
+                        }],
+                    }
+                    plan, remaining = self._normalise_plan(plan, inventory)
+                    remaining += self._module_fragmentation_issues(plan, inventory)
+                    if not remaining:
+                        issues = []
+            if issues:
+                print(f"[SCOPE-ARCHITECT] Plan rejected: {', '.join(issues)}", flush=True)
+                raise RuntimeError("Scope architecture validation failed; generation halted: " + "; ".join(issues))
         print(
             f"[SCOPE-ARCHITECT] Approved {len(plan['deliverables'])} deliverable(s), "
             f"{sum(len(item['modules']) for item in plan['deliverables'])} module(s)",
@@ -847,7 +874,7 @@ Classification rules:
 - Preserve future/optional/open status and do not invent facts or commitments.
 - Return the smallest valid JSON needed to express grouping and boundaries. Never restate capability text.
 """
-        return _json_object(self._call(prompt, "Scope Boundary Classification", max_tokens=32768))
+        return _json_object(self._call(prompt, "Scope Boundary Classification", max_tokens=12000))
 
     @staticmethod
     def _boundary_evidence(source: str) -> str:

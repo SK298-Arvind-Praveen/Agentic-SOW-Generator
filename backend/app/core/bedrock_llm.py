@@ -171,10 +171,10 @@ class BedrockLLM:
         fallback_model_id: Optional[str] = None,
     ) -> BedrockTextResult:
         primary = model_id or model_for_task(self.config, task)
-        # A low maxTokens value can cut otherwise valid JSON in the middle of a
-        # string. Keep one deliberately high ceiling for every Sonnet call while
-        # relying on the prompt—not the ceiling—to control response length.
-        max_tokens = max(32768, int(max_tokens))
+        # Honour the task-specific budget. The former unconditional 32K minimum
+        # encouraged compact extraction and authoring tasks to expand until
+        # they became slow or reached provider output limits.
+        max_tokens = max(256, min(32768, int(max_tokens)))
         try:
             return self._generate_once(
                 primary, prompt, max_tokens=max_tokens,
@@ -182,7 +182,31 @@ class BedrockLLM:
             )
         except Exception as primary_error:
             if isinstance(primary_error, BedrockOutputTruncatedError):
-                raise
+                expanded_tokens = min(
+                    32768,
+                    max(max_tokens * 2, max_tokens + 1024),
+                )
+                if expanded_tokens <= max_tokens:
+                    raise
+                print(
+                    f"   ↻ {call_name} reached {max_tokens:,} output tokens; "
+                    f"retrying once with {expanded_tokens:,}",
+                    flush=True,
+                )
+                compact_retry_prompt = (
+                    prompt
+                    + "\n\nThe previous response reached its output allowance. Return a complete "
+                    "response within this expanded allowance. Aggressively deduplicate repeated "
+                    "facts and omit commentary, rationale, preambles and any fields or prose not "
+                    "required by the requested output contract."
+                )
+                return self._generate_once(
+                    primary,
+                    compact_retry_prompt,
+                    max_tokens=expanded_tokens,
+                    temperature=temperature,
+                    call_name=f"{call_name} expanded retry",
+                )
             fallback = fallback_model_id
             if fallback and fallback != primary:
                 print(f"   ⚠ {call_name} failed on {primary}; retrying with {fallback}: {primary_error}")

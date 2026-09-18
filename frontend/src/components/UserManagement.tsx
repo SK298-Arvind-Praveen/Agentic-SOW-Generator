@@ -11,7 +11,7 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import { toast } from 'react-toastify';
+import { toast } from '../utils/toast';
 import apiService, { ManagedUser } from '../services/apiService';
 import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
 import './UserManagement.css';
