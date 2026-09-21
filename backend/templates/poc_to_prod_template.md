@@ -3,10 +3,13 @@
 
 Use British Indian English throughout, never US spelling. Prefer forms such as `organisation`, `organise`, `centralised`, `analyse`, `behaviour`, `colour`, `programme`, `licence` (noun), and `fulfilment`. Preserve official product names, API fields, quoted source text, and identifiers exactly as supplied.
 
-Write only content needed to define scope, ownership, dependency, boundary, decision, or
-validation. Avoid repeated summaries and generic background. Use no more than one short opening
-paragraph per section, then concise bullets for non-comparable items or compact tables for genuinely
-comparable records. Put each bullet on its own Markdown line and keep it to one main idea.
+Write as an execution agreement, not a diagnostic report. State what the delivery team will design,
+configure, build, integrate, migrate, test, document or hand over. Do not narrate client pain points,
+shortcomings, deficiencies, failures, weaknesses, root causes or negative business impact; translate
+source concerns directly into neutral delivery actions and outcomes. Avoid repeated summaries and
+generic background. Use at most one 40-word opening paragraph per section and never place prose
+paragraphs back to back, except for the two-paragraph About Company section. Use concise action bullets
+or compact tables. Every bullet must be one sentence, normally no more than 25 words and one or two lines.
 Default to no subsections. Use at most two direct subsections outside Scope of Work and no nested
 subsections. Treat coverage labels in local instructions as bold bullet labels rather than mandatory
 headings. Scope of Work may use one heading per deliverable and one nested heading per cohesive module.
@@ -38,7 +41,7 @@ Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
 3. About {COMPANY_NAME}
 4. Objective
 5. POC Evidence and Outcomes
-6. Production Gap Assessment
+6. Production Enablement Plan
 7. Scope of Work
 8. Technical Specifications and System Design
 9. Architecture and Integrations
@@ -76,11 +79,9 @@ Production Requirement, Planning Assumption, and Open Clarification. Do not inve
 [META_STATIC]
 ## About ShellKode
 
-**ShellKode** is a cloud-native technology company focused on helping organizations modernize their IT environments through Cloud, Data, AI/ML, and Generative AI. The company works with businesses to build scalable, enterprise-grade solutions that improve operational efficiency, generate insights, and solve complex technology challenges.
+**ShellKode** is an AWS-focused cloud and AI engineering company delivering cloud modernisation, data platforms, machine learning, generative AI and agentic solutions.
 
-ShellKode’s key capabilities include Cloud Strategy & Consulting, Cloud Migration & Modernization, Data Engineering & Analytics, Machine Learning, Generative AI, and Agentic AI. Its AI offerings include intelligent document processing, RAG-based knowledge systems, AI agents, conversational assistants, speech analytics, computer vision, and multilingual AI solutions.
-
-The company works across industries including BFSI, Retail & E-commerce, Logistics & Supply Chain, and Healthcare, delivering solutions that combine cloud infrastructure, enterprise data, and AI. ShellKode also has a strong AWS focus, with capabilities around AWS cloud migration, modernization, and Generative AI solutions.
+Its capabilities include cloud strategy and migration, data engineering, analytics, intelligent document processing, RAG systems, conversational AI, automation and computer vision.
 
 [META_GENERATED]
 ## About {COMPANY_NAME}
@@ -95,9 +96,8 @@ to confirmed company facts; omit unsupported details without commenting that inf
 [META_GENERATED]
 ## Objective
 
-Explain the POC-to-production decision, demonstrated capability, remaining hardening work, target
-production outcome, principal risks/dependencies, migration approach, and acceptance basis. Clearly
-separate what the POC demonstrated from what production must still prove.
+State the production outcome, reusable POC capabilities, delivery actions, dependencies, migration
+approach and acceptance basis. Do not frame the client or POC negatively.
 
 [META_GENERATED]
 ## POC Evidence and Outcomes
@@ -105,23 +105,23 @@ separate what the POC demonstrated from what production must still prove.
 Use only the ingested POC evidence. Include:
 ### POC Evidence Summary
 Use concise bullets for implemented scope, demonstrated workflow/architecture, measured outcomes,
-known limitations/deferred items and reusable assets. If the source lacks results, state that evidence is unavailable.
+reusable assets and explicitly deferred items. Omit unavailable evidence without commentary.
 ### Evidence Register
 Use Evidence ID, POC Claim/Artifact, Source Location/Description, Confidence, Production Relevance,
 and Verification Needed.
 
 [META_GENERATED]
-## Production Gap Assessment
+## Production Enablement Plan
 
-Compare POC evidence with production readiness. Use a matrix: Domain, POC State, Production Need,
-Gap, Required Work, Evidence/Decision, Priority. Cover architecture, scale/performance, security,
-compliance, data, integrations, reliability/recovery, deployment, testing, observability, support,
-documentation, governance, and commercials. Do not imply POC behavior meets production SLAs.
+Define the work required to establish production readiness. Use a compact matrix: Domain, Reusable
+POC Capability, Production Action, Evidence/Decision, Priority. Cover only applicable architecture,
+performance, security, compliance, data, integrations, reliability, deployment, testing, observability,
+support, documentation and governance actions. Do not describe deficiencies or negative impacts.
 
 [META_GENERATED]
 ## Scope of Work
 
-Use the shared architect-generated work breakdown. When it contains more than one deliverable, begin with one compact table using `#`, `Deliverable`, `Included Modules`, and `Core Outcome`; omit this table for a single deliverable. Group the detailed scope by `### Deliverable 1 - <Name>` and place its cohesive mini-problems under `#### <Module Name>`. A top-level deliverable requires an independent phase, deployment, hand-off, or acceptance boundary; contractual capability rows that transition and are accepted together remain modules or outputs. Determine the number and boundaries from the source without a fixed limit or generic lifecycle taxonomy. Reason internally about the problem, objective, actors, inputs, requirements, production approach, outputs, dependencies and validation, but express the result as concise direct implementation-scope bullets. Do not create standalone pseudo-sections such as Proposed Approach, Key Outputs, Dependencies or Validation Evidence. Integrate unique boundaries, status and validation into the relevant bullet, merge repeated obligations, and use an inline bold lead-in only for one cohesive sub-capability. State the POC disposition wherever applicable and preserve source-specific workflows, rules, data, integrations, exceptions, evidence status and phase boundaries. Use tables only for indispensable comparable source records.
+Use the shared architect-generated work breakdown. When it contains more than one deliverable, begin with one compact table using `#`, `Deliverable`, `Included Modules`, and `Core Outcome`; omit this table for a single deliverable. Group the detailed scope by `### Deliverable 1 - <Name>` and place its cohesive implementation modules under `#### <Module Name>`. A top-level deliverable requires an independent phase, deployment, hand-off, or acceptance boundary; contractual capability rows that transition and are accepted together remain modules or outputs. Determine the number and boundaries from the source without a fixed limit or generic lifecycle taxonomy. Reason internally about the delivery boundary, actors, inputs, requirements, production actions, outputs, dependencies and validation, but express only concise action-oriented implementation bullets. Do not create standalone pseudo-sections such as Proposed Approach, Key Outputs, Dependencies or Validation Evidence. Integrate unique boundaries, status and validation into the relevant bullet, merge repeated obligations, and use an inline bold lead-in only for one cohesive sub-capability. State the POC disposition wherever applicable and preserve source-specific workflows, rules, data, integrations, exceptions, evidence status and phase boundaries. Use tables only for indispensable comparable source records.
 
 [META_GENERATED]
 ## Technical Specifications and System Design
@@ -240,7 +240,7 @@ go-live and hypercare. Never infer calendar dates from the POC document unless e
 [META_TABLE]
 ## Shellkode Implementation Cost
 
-Create an indicative role/loading table consistent with the production gap and schedule. Use
+Create an indicative role/loading table consistent with the production enablement plan and schedule. Use
 Commercial Status = To be confirmed unless source-backed. Include roles warranted by transition,
 engineering, data/AI, platform/DevOps, quality, security, architecture and delivery; frontend only if required.
 

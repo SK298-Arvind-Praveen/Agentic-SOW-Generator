@@ -334,6 +334,9 @@ class POCWriterAgent:
             # cleaner correctly removes that duplicate heading, but the result
             # must still contain a body if the user selected the section.
             if not cleaned.strip():
+                if self._section_category(section) == "about_client":
+                    cleaned = self._about_company_fallback(metadata)
+            if not cleaned.strip():
                 raise RuntimeError(
                     f"{resolved_section_name} returned no usable content; generation halted"
                 )
@@ -540,9 +543,51 @@ class POCWriterAgent:
                 issues = self._authoring_issues(content, section)
                 if not issues:
                     break
+        elif not architected_scope:
+            concise_issues = self._concise_sow_issues(content)
+            if concise_issues:
+                retry_prompt = (
+                    prompt
+                    + "\n\nRewrite the draft below as a concise execution-focused SOW section. "
+                    "The deterministic style check found: "
+                    + "; ".join(concise_issues)
+                    + ". Preserve all material commitments, names, values and boundaries. Remove "
+                    "pain-point or deficiency narratives, background and repeated rationale. Use at "
+                    "most one 40-word opening paragraph, never consecutive prose paragraphs, and "
+                    "one-sentence action bullets of no more than 25 words. Return only the revised "
+                    "Markdown body.\n\nDRAFT:\n"
+                    + content[:12000]
+                )
+                try:
+                    revised = self._call_bedrock(
+                        retry_prompt,
+                        max_tokens=self._section_token_budget(section),
+                        model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+                        call_name=f"SOW Section - {section.name} concise rewrite",
+                    )
+                    revised = self._clean_content(revised, resolved_name)
+                    if revised and len(self._concise_sow_issues(revised)) < len(concise_issues):
+                        content = revised
+                except Exception:
+                    pass
+        if not content.strip() and about_client:
+            content = self._about_company_fallback(metadata)
         if not content.strip():
             raise RuntimeError(f"{section.name} returned empty content; generation halted")
         return content
+
+    @staticmethod
+    def _about_company_fallback(metadata: Dict[str, Any]) -> str:
+        """Keep optional company enrichment from aborting an otherwise valid SOW."""
+        supplied = str(metadata.get("company_description") or "").strip()
+        paragraphs = [item.strip() for item in re.split(r"\n\s*\n", supplied) if item.strip()]
+        if len(paragraphs) >= 2:
+            return "\n\n".join(paragraphs[:2])
+        company = str(metadata.get("company_name") or "The customer").strip()
+        return (
+            f"{company} is the customer organisation for this delivery.\n\n"
+            f"{company}'s confirmed operations provide the organisational context for the services in scope."
+        )
 
     def _generate_scope_deliverables(
         self,
@@ -614,12 +659,13 @@ SOURCE EVIDENCE:
 CONSISTENCY NOTES:
 {chr(10).join(prior_summaries[-4:]) or '(none)'}
 
-For each module, think through the task statement, objective, actors, triggering inputs, architecture/functionality requirements, implementation actions, expected operating output, dependencies, exceptions and validation evidence. Express the result as direct, concise implementation-scope bullets in the style of a professionally authored SOW. Do not narrate the reasoning framework.
+For each module, think through the delivery boundary, actors, triggering inputs, architecture/functionality requirements, implementation actions, operating output, dependencies, exceptions and validation evidence. Express only direct implementation-scope actions. Do not narrate the reasoning framework, source history, client pain points or negative impacts.
 
 Module writing rules:
 - Do not create standalone or inline pseudo-sections named Proposed Approach, Proposed Implementation, Implementation Approach, Key Outputs, Dependencies, Validation Evidence, Roles, Inputs, Requirements, or similar categories.
 - Do not repeat the module heading in an opening paragraph. Include an opening sentence only when it establishes a boundary that the bullets cannot express clearly.
 - Each bullet must add a distinct scope action, business rule, integration, boundary, qualification, or acceptance-relevant outcome. Remove any bullet that merely restates another bullet in different words.
+- Every bullet must be one sentence of no more than 25 words and short enough to render in one or two lines.
 - Combine closely related actions into one bullet where separating them adds no scope clarity. For example: `- **Monitoring and alert activation:** Configure platform, integration and journey-health monitoring with severity-based notifications to agreed support channels.`
 - A bold inline lead-in is allowed only inside the same bullet as its content; it is not a separate paragraph or subsection.
 - Integrate a unique dependency, proposal status, open point, output, or validation condition into the relevant implementation bullet instead of repeating category lists at the end of every module.
@@ -705,6 +751,43 @@ Preserve all source-specific workflows, business rules, systems, data, threshold
                         f"Scope Deliverable {deliverable_index} failed structure validation: "
                         + "; ".join(remaining_structure_issues)
                     )
+            concise_issues = self._concise_sow_issues(block)
+            if block and concise_issues:
+                concise_prompt = (
+                    prompt
+                    + "\n\nRewrite the draft below without changing or omitting any deliverable or "
+                    "module heading. Preserve every material scope commitment, name, value and boundary. "
+                    "Remove background, pain-point narratives, rationale and repetition. Beneath each "
+                    "module, use direct action bullets only; every bullet must be one sentence of no "
+                    "more than 25 words. The deterministic style check found: "
+                    + "; ".join(concise_issues)
+                    + ". Return only the revised Markdown.\n\nDRAFT:\n"
+                    + block[:18000]
+                )
+                try:
+                    revised = self._call_bedrock(
+                        concise_prompt,
+                        max_tokens=token_budget,
+                        model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+                        call_name=f"Scope Deliverable {deliverable_index} concise rewrite",
+                    ).strip()
+                    revised_key = _normalise_heading_text(revised)
+                    headings_preserved = (
+                        not multiple_deliverables
+                        or _normalise_heading_text(display_name) in revised_key
+                    )
+                    headings_preserved = headings_preserved and all(
+                        not name or _normalise_heading_text(name) in revised_key
+                        for name in expected_modules
+                    )
+                    if (
+                        revised
+                        and headings_preserved
+                        and len(self._concise_sow_issues(revised)) < len(concise_issues)
+                    ):
+                        block = revised
+                except Exception:
+                    pass
             if block:
                 # Heading names and numbering are contractual document structure,
                 # so do not leave them to probabilistic model compliance.
@@ -818,7 +901,7 @@ Return this shape:
       "separation_basis": "independent phase, deployment, acceptance boundary, or other source-backed reason",
       "modules": [
         {{
-          "name": "cohesive mini-problem or workstream",
+          "name": "cohesive implementation module or workstream",
           "task_statement": "problem this module solves",
           "objective": "target operating outcome",
           "actors": [],
@@ -847,7 +930,7 @@ Architecture rules:
   event does not override those explicit boundaries. Ordinary feature rows, artefacts, technical layers,
   and checklists remain modules or outputs.
 - Perform a final cohesion audit before returning JSON: if two proposed deliverables would be designed, built, demonstrated and accepted together, merge them while retaining every module and source requirement.
-- Every deliverable must contain the modules needed to deliver its outcome. A module is a cohesive mini-problem, not a generic document category.
+- Every deliverable must contain the modules needed to deliver its outcome. A module is a cohesive implementation workstream, not a generic document category.
 - Decompose source workflows, business rules, integrations, data, AI behaviour, user interaction, platform work, security, testing, and readiness where they materially affect delivery.
 - For every module reason from task/problem through objective, inputs, requirements and implementation approach to observable output and validation.
 - Preserve all source-specific systems, actors, thresholds, classifications, workflows, exceptions, channels, data objects and future-phase boundaries.
@@ -1063,6 +1146,60 @@ Review rules:
         return issues
 
     @staticmethod
+    def _concise_sow_issues(content: str) -> List[str]:
+        """Identify prose-heavy SOW output without making style a fatal gate."""
+        issues: List[str] = []
+        text = str(content or "")
+        negative = re.findall(
+            r"(?i)\b(?:pain points?|root causes?|current-state deficiencies?|"
+            r"client shortcomings?|operational weaknesses?)\b",
+            text,
+        )
+        if negative:
+            issues.append("contains client problem or deficiency framing")
+
+        long_bullets = 0
+        multi_sentence_bullets = 0
+        long_paragraphs = 0
+        prose_run = 0
+        max_prose_run = 0
+        for block in re.split(r"\n\s*\n", text):
+            stripped = block.strip()
+            if not stripped:
+                continue
+            lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+            is_structured = all(
+                re.match(r"^(?:#{1,6}\s+|[-*+]\s+|\|)", line)
+                for line in lines
+            )
+            if is_structured:
+                prose_run = 0
+            else:
+                prose_run += 1
+                max_prose_run = max(max_prose_run, prose_run)
+                if len(re.findall(r"\b[\w'-]+\b", stripped)) > 45:
+                    long_paragraphs += 1
+            for line in lines:
+                bullet = re.match(r"^[-*+]\s+(.+)$", line)
+                if not bullet:
+                    continue
+                body = re.sub(r"[*_`]", "", bullet.group(1))
+                if len(re.findall(r"\b[\w'-]+\b", body)) > 25:
+                    long_bullets += 1
+                if len(re.findall(r"[.!?](?=\s|$)", body)) > 1:
+                    multi_sentence_bullets += 1
+
+        if long_paragraphs:
+            issues.append(f"contains {long_paragraphs} prose paragraph(s) longer than 45 words")
+        if max_prose_run > 1:
+            issues.append("contains consecutive prose paragraphs")
+        if long_bullets:
+            issues.append(f"contains {long_bullets} bullet(s) longer than 25 words")
+        if multi_sentence_bullets:
+            issues.append(f"contains {multi_sentence_bullets} multi-sentence bullet(s)")
+        return issues
+
+    @staticmethod
     def _section_word_limit(section: TemplateSection) -> Optional[int]:
         """Return a compact but workable maximum for one generated section."""
         name = re.sub(
@@ -1200,6 +1337,10 @@ SECTION LENGTH BUDGET
 
 NON-NEGOTIABLE AUTHORING STANDARD
 - Return only the Markdown body. Do not repeat the top-level section heading and do not use code fences.
+- Write as an execution agreement. Lead with what the delivery team will design, configure, build,
+  integrate, migrate, test, document or hand over, together with the relevant boundary or evidence.
+- Do not narrate customer pain points, shortcomings, deficiencies, failures, weaknesses, root causes,
+  or negative business impact. Translate source concerns directly into neutral delivery actions and outcomes.
 - Use British Indian English throughout, never US spelling. Prefer forms such as
   organisation, organise, centralised, analyse, behaviour, colour, programme,
   licence (noun), and fulfilment. Preserve official product names, API fields,
@@ -1228,10 +1369,10 @@ NON-NEGOTIABLE AUTHORING STANDARD
 - Carry every source-named deliverable, module, workflow, requirement identifier, business
   rule, integration, data element, and acceptance condition into the relevant section.
   Do not replace specific BRD language with generic cloud activities or vague summaries.
-- Prefer one short orienting paragraph followed by the lightest useful structure. Do not
+- Prefer no opening paragraph. Where essential, use one orienting paragraph of no more than 40 words followed by the lightest useful structure. Do not
   restate the project objective, customer context, or the same requirement in multiple forms.
-- Default to no subsection headings. Use a single opening paragraph of no more than 60 words,
-  followed by concise bullets. Convert labels such as Roles, Data, Dependencies, Controls,
+- Never place prose paragraphs back to back; About Client is the only two-paragraph exception.
+- Default to no subsection headings. Follow any essential opening sentence with concise action bullets. Convert labels such as Roles, Data, Dependencies, Controls,
   Validation, or Risks into bold lead-in bullets instead of separate headings.
 - Outside Scope of Work, use at most two direct subsections and no nested subsections. In Scope of
   Work, use `### Deliverable 1 - <name>` and `#### <Module Name>` headings. Do not create headings for
@@ -1241,8 +1382,8 @@ NON-NEGOTIABLE AUTHORING STANDARD
   non-comparable items and Markdown tables only for genuinely comparable records. Aim for at
   least 60% of non-table content after the opening to be concise bullet points.
 - Use ### and #### for real subsection headings and standard '-' bullets only.
-- Put every bullet on its own Markdown line. Use one idea per bullet, normally one sentence
-  of no more than 25 words. Use the natural number of source-supported items and never add filler to meet a count. Use two leading
+- Put every bullet on its own Markdown line. Every bullet must contain one sentence and one idea,
+  normally no more than 25 words and short enough to render in one or two lines. Start with an action verb or concise bold capability label. Use the natural number of source-supported items and never add filler to meet a count. Use two leading
   spaces for a nested bullet and never embed bullet symbols inside a prose paragraph.
 - Keep heading hierarchy complete and consistent. The DOCX renderer normalizes every
   generated heading to 1.1 / 1.2 / 4.1 / 4.1.1 form; never use a bold Normal paragraph

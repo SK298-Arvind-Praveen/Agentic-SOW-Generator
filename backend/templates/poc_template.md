@@ -50,11 +50,13 @@ Sparse input is expected. Expand it into a professional SOW by decomposing state
 
 ## E. Content density and form
 
-- Write only the implementation detail needed to define scope, ownership, dependency, boundary, decision, or validation. Do not expand every category when it adds no decision value.
-- Prefer concise bullets for requirements, boundaries, responsibilities, decisions, dependencies, risks, and validation. Use prose only for a short rationale and tables only for genuinely comparable records.
-- Start a section with no more than one orienting paragraph of 60 words. Do not place a second prose paragraph immediately after it; move actionable content into bullets.
+- Write as an execution agreement, not a diagnostic report. State what the delivery team will design, configure, build, integrate, migrate, test, document, or hand over.
+- Do not narrate client pain points, shortcomings, deficiencies, failures, weaknesses, root causes, or negative business impact. Translate source concerns directly into neutral delivery actions and outcomes.
+- Write only the implementation detail needed to define scope, ownership, dependency, boundary, decision, output, or validation. Omit history, rationale, scene-setting, and repeated source background unless essential to a contractual boundary.
+- Prefer concise action bullets. Every bullet must be one sentence, normally no more than 25 words and short enough to render in one or two lines.
+- Use prose only when essential. Start a section with at most one orienting paragraph of 40 words; never place prose paragraphs back to back. About Company is the only two-paragraph exception.
 - Default to no subsections. Outside Scope of Work, use at most two direct subsections and no nested subsections. Within Scope of Work, use one direct heading per deliverable and one nested heading per cohesive module; use prose and bullets beneath the module.
-- Put each bullet on its own Markdown line, keep it to one main idea, and use a real nested Markdown bullet only when the hierarchy is necessary.
+- Put each bullet on its own Markdown line, start with an action verb or concise bold capability label, and keep it to one main idea.
 - Tables should normally contain two to four columns and must never exceed five. If detail will create narrow prose-heavy cells, split the table or put explanatory prose beneath it.
 - Each detailed module should normally contain: objective/boundary, workflow, functional requirements, roles and permissions, data, integrations, business rules and exceptions, AI/human review where relevant, security/compliance where relevant, dependencies, and validation notes. Omit a category only when genuinely inapplicable.
 - Use a sequential `Workflow` only where sequence materially aids understanding. A data store, reporting capability, integration layer, or governance capability does not automatically need its own numbered workflow.
@@ -161,11 +163,9 @@ QUALITY RULES
 [META_STATIC]
 ## About ShellKode
 
-**ShellKode** is a cloud-native technology company focused on helping organizations modernize their IT environments through Cloud, Data, AI/ML, and Generative AI. The company works with businesses to build scalable, enterprise-grade solutions that improve operational efficiency, generate insights, and solve complex technology challenges.
+**ShellKode** is an AWS-focused cloud and AI engineering company delivering cloud modernisation, data platforms, machine learning, generative AI and agentic solutions.
 
-ShellKode’s key capabilities include Cloud Strategy & Consulting, Cloud Migration & Modernization, Data Engineering & Analytics, Machine Learning, Generative AI, and Agentic AI. Its AI offerings include intelligent document processing, RAG-based knowledge systems, AI agents, conversational assistants, speech analytics, computer vision, and multilingual AI solutions.
-
-The company works across industries including BFSI, Retail & E-commerce, Logistics & Supply Chain, and Healthcare, delivering solutions that combine cloud infrastructure, enterprise data, and AI. ShellKode also has a strong AWS focus, with capabilities around AWS cloud migration, modernization, and Generative AI solutions.
+Its capabilities include cloud strategy and migration, data engineering, analytics, intelligent document processing, RAG systems, conversational AI, automation and computer vision.
 
 [META_GENERATED]
 ## About {COMPANY_NAME}
@@ -185,16 +185,9 @@ Translate the customer's stated need into the decision and implementation baseli
 
 REQUIRED STRUCTURE
 
-Opening narrative - write one concise paragraph covering:
+Open with at most one sentence stating the delivery purpose and boundary. Do not restate client problems, pain points, history, or negative impact.
 
-- the business problem or opportunity and why the POC is being undertaken;
-- the exact delivery boundary represented by this SOW;
-- the relationship between this POC and any broader programme, existing platform, prior phase, or future production rollout when supplied;
-- what this SOW enables: solution design, effort estimation, build, validation, or a go/no-go decision;
-- any confirmed supersession or precedence rule, without claiming that this SOW supersedes another document unless the source says so.
-
-- After the opening narrative, provide only the outcome-oriented bullets needed to cover the evidenced objective; do not add an `Objectives` subsection or filler to meet a count.
-- Each objective must name a capability or business outcome and its intended validation.
+- Follow with action-oriented bullets naming the capability to be delivered and its intended validation; do not add an `Objectives` subsection or filler.
 - Preserve confirmed outcomes and metrics. If no metric is supplied, state an observable demonstration outcome rather than inventing a number.
 - Cover the primary workflow, data/integration outcome, AI outcome where relevant, and operational/governance outcome where relevant.
 - Avoid generic objectives such as "improve efficiency" unless followed by the specific mechanism and evidence.
@@ -211,35 +204,19 @@ BOUNDARIES
 ## 2. Current State
 
 PURPOSE
-Explain the evidence-backed current operating context and why the POC is needed.
+Record only the existing systems, interfaces, actors, data and operating boundaries that the delivery team must work with.
 
 REQUIRED COVERAGE
 
-1. Opening context:
-   - identify the current process/platform only when named;
-   - identify the actors and channels involved;
-   - state whether the POC replaces, augments, integrates with, or validates an alternative to the current state.
-
-2. Current workflow:
-   - describe the current sequence from trigger/input to outcome;
-   - name systems, handoffs, manual steps, and data locations only when supplied;
-   - preserve known volumes, dates, age of platform, or usage patterns exactly.
-
-3. Pain points and constraints:
-   - use concise bullets for each source-supported pain point; do not infer extra shortcomings to make the section look comprehensive;
-   - connect each pain point to a workflow consequence such as delay, inconsistency, rework, weak visibility, risk, or cost;
-   - distinguish source-confirmed issues from plausible but unconfirmed concerns.
-
-4. Capability gaps:
-   - identify missing functionality addressed by the POC, including data, AI, search, quality, governance, integration, or user-experience gaps only when relevant;
-   - state when a capability is net-new rather than a migration.
-
-5. Evidence gaps:
-   - if current-state facts needed for sizing or design are unavailable, state them briefly and ensure the material item also appears in Open Clarifications.
+- Identify named platforms, channels, actors, data sources, interfaces and ownership boundaries as concise factual bullets.
+- State whether each relevant element will be retained, integrated, migrated, replaced or used for validation.
+- Preserve supplied volumes and operating constraints only when they directly affect design, sizing, sequencing or acceptance.
+- Convert source complaints into the corresponding delivery action; do not reproduce pain-point, root-cause, deficiency or negative-impact narratives.
+- Route unresolved design inputs to Open Clarifications without describing the client negatively.
 
 RULES
 
-- Use concise prose plus bullets; no table unless the source provides structured current-state data that benefits from comparison.
+- Use bullets by default; use a compact table only for genuinely comparable baseline elements.
 - Do not invent a legacy system name, failure rate, handling time, current architecture, or quantified business impact.
 - Do not prescribe the target architecture here.
 - Do not add a new top-level heading.
@@ -248,104 +225,28 @@ RULES
 ## 3. Scope of Work
 
 PURPOSE
-Produce the implementation-grade heart of the SOW. This section should carry most of the document's functional detail and should be materially more detailed than every other generated section.
+Define the agreed delivery actions, boundaries and observable outputs without repeating source background or producing an exhaustive requirements narrative.
 
 ARCHITECT-LED DECOMPOSITION
 
 - If the shared work breakdown contains more than one deliverable, begin with exactly one compact table using `#`, `Deliverable`, `Included Modules`, and `Core Outcome`. Omit this table when there is only one deliverable.
-- Follow the shared solution-architecture work breakdown. Group the scope first by outcome-oriented deliverable using `### Deliverable 1 - <Name>`, then by cohesive mini-problem using `#### <Module Name>`.
-- Determine the natural number of deliverables and modules from the source and problem. Do not force a standard module count, delivery lifecycle, or benchmark-specific taxonomy.
+- Follow the shared solution-architecture work breakdown. Group the scope first by outcome-oriented deliverable using `### Deliverable 1 - <Name>`, then by cohesive implementation module using `#### <Module Name>`.
+- Determine the natural number of deliverables and modules from source-backed delivery boundaries. Do not force a standard module count, delivery lifecycle, or benchmark-specific taxonomy.
 - Keep Scope of Work, architecture, timeline and acceptance terminology aligned to the same work breakdown.
 - Preserve source section/requirement identifiers. Otherwise create stable IDs using a short module prefix.
 
 MANDATORY CONTENT FOR EACH MODULE
 
-### Module reasoning (integrate into prose; do not emit this as a heading)
-
-Reason through the following internally. Use an opening sentence only when it establishes an essential module boundary that cannot be expressed clearly in the implementation bullets:
-
-- objective and business boundary;
-- actors/personas;
-- trigger/input and expected output;
-- relationship to the preceding/following modules;
-- explicit inclusion and partial-scope boundaries.
-
-### Workflow and functional behavior
-
-- Describe the normal flow in logical order from initiation to completion.
-- Cover user/system actions, states, handoffs, decision points, queues, notifications, and exception paths that are supported by the source.
-- Describe sequence with bullets when the module has a meaningful workflow; use capability or processing-rule bullets for non-sequential modules.
-- Include every material stage and decision needed to explain the source-backed process without imposing a fixed step count.
-- Do not invent screens, states, approval levels, classifications, or business rules absent from the evidence; mark proposed workflow mechanics clearly.
-
-### Concise gold-standard expression
-
-- Write direct implementation-scope bullets beneath each module heading; do not expose the reasoning framework as document structure.
-- Do not create standalone or inline pseudo-sections named Proposed Approach, Proposed Implementation, Implementation Approach, Key Outputs, Dependencies, Validation Evidence, Roles, Inputs, Requirements, or Outputs.
-- Where closely related actions form one sub-capability, use a single bullet with an inline bold lead-in, for example `- **Monitoring and alert activation:** Configure platform, integration and journey-health monitoring with severity-based notifications to agreed support channels.`
-- Each bullet must add a distinct scope action, rule, integration, boundary, qualification, or acceptance-relevant outcome. Remove repetitions and merge bullets that express the same obligation.
-- Integrate unique dependencies, proposal status, open points, outputs and validation conditions into the relevant scope bullet instead of appending repeated category lists to every module.
-- Avoid generic technology catalogues and inflated qualifiers. Name services only where they define a real Confirmed or explicitly Proposed design decision.
-
-### Functional requirements
-
-Use a compact table only when the source itself contains dense comparable requirements that cannot be expressed more clearly as direct bullets:
-
-| ID | Requirement | Detail |
-|---|---|---|
-
-For each requirement:
-
-- use an imperative, testable requirement statement;
-- include the actor, trigger/input, processing/rule, output/state, and exception or boundary when applicable;
-- preserve supplied values, thresholds, classification hierarchies, routing logic, escalation levels, TAT/SLA rules, and content constraints exactly;
-- separate unrelated requirements instead of packing a paragraph into one cell;
-- create enough requirements to cover every source-backed feature. Do not cap the count merely to keep the section short.
-
-### Roles and permissions
-
-- Identify relevant personas and permitted actions only when supplied or directly implied by the workflow.
-- Put an unconfirmed role/permission model in Open Clarifications rather than inventing access rights.
-- State administrative ownership for configurable rules, templates, taxonomies, or evaluation criteria when supported.
-
-### Data and migration
-
-- Cover source data, format, volume, classification, quality, history, attachments, metadata, retention, migration/reconciliation, and system of record when relevant.
-- Preserve confirmed numbers exactly and do not convert approximate values into exact commitments.
-- If migration is in scope but reconciliation criteria are unknown, state the dependency/open item.
-
-### Integrations
-
-- Name each source-confirmed external system and the supported interaction.
-- Cover direction, payload/business event, authentication, status/error handling, and ownership when known.
-- For an integration inferred as necessary but not supplied, label it proposed and carry interface/authentication details to Open Clarifications.
-- Do not invent an API, vendor, protocol, or latency.
-
-### AI/ML behavior and human review - conditional
-
-When AI/ML is in scope, cover only applicable capabilities such as drafting, summarization, retrieval, classification, extraction, recommendation, sentiment, scoring, or guardrails. For each:
-
-- identify grounding/context inputs;
-- state the produced output;
-- state confidence/fallback behavior only when supplied or clearly label it proposed;
-- state that the responsible human reviews generated output and remains responsible for sending, approving, or acting;
-- identify evaluation evidence and unresolved benchmark/threshold questions;
-- never claim guaranteed accuracy or fully autonomous regulated decision-making.
-
-### Security, compliance, and audit - conditional
-
-- Carry source-backed access, encryption, residency, retention, logging, disclaimer, audit, and regulator requirements into the relevant module.
-- Preserve exact mandatory wording when supplied.
-- If exact wording, control owner, evidence, or approval is missing, describe the mechanism and add an open clarification.
-
-### Dependencies and validation
-
-Conclude the module naturally with concise dependency and validation bullets covering:
-
-- confirmed customer inputs/access/approvals;
-- upstream/downstream module dependencies;
-- the observable demonstration, test record, reconciliation, log, report, or sign-off evidence for the module;
-- proposed items clearly labelled for baseline confirmation.
+- Use direct implementation bullets beneath the module heading; omit an introduction unless one sentence is essential to define the boundary.
+- Begin each bullet with a delivery action or a concise bold capability label.
+- Keep every bullet to one sentence and normally no more than 25 words.
+- Cover only the applicable action, input/output, rule, integration, dependency, boundary or validation evidence; do not emit a fixed checklist for every module.
+- Combine related workflow stages when separate bullets add no contractual clarity.
+- Preserve supplied systems, roles, values, rules, exceptions and requirement identifiers exactly.
+- State human review, security, compliance or migration treatment only where it materially applies to that module.
+- Route material unknowns to Open Clarifications instead of adding uncertainty prose to the module.
+- Do not add generic technology catalogues, lifecycle boilerplate, repeated outputs or repeated validation lists.
+- Use a compact requirement table only when source records are genuinely comparable and bullets would lose clarity.
 
 DOCUMENT-WIDE COMPLETENESS CHECK
 

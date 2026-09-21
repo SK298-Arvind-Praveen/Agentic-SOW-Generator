@@ -164,6 +164,7 @@ def section_category(title: str) -> Optional[str]:
         "current state and business context",
         "poc evidence and outcomes",
         "production gap assessment",
+        "production enablement plan",
     }:
         return "project_overview"
     if "project team effort" in normalised:

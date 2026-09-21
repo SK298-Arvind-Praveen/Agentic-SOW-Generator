@@ -17,8 +17,8 @@ class SowSectionPreferenceTests(unittest.TestCase):
         detailed = SimpleNamespace(name="Detailed Scope of Work")
         self.assertEqual(POCWriterAgent._section_word_limit(section), 320)
         self.assertIsNone(POCWriterAgent._section_word_limit(detailed))
-        self.assertEqual(POCWriterAgent._section_token_budget(section), 32768)
-        self.assertEqual(POCWriterAgent._section_token_budget(detailed), 32768)
+        self.assertEqual(POCWriterAgent._section_token_budget(section), 1800)
+        self.assertEqual(POCWriterAgent._section_token_budget(detailed), 12000)
         verbose = " ".join(["detail"] * 321)
         issues = POCWriterAgent._authoring_issues(verbose, section)
         self.assertFalse(any("word section limit" in issue for issue in issues))
@@ -149,6 +149,12 @@ class SowSectionPreferenceTests(unittest.TestCase):
                 "project_overview",
                 "scope_of_work",
             ],
+            scope_architecture_plan={
+                "deliverables": [{
+                    "name": "CRM Integration",
+                    "modules": [{"name": "Integration Delivery", "capability_ids": ["CAP-001"]}],
+                }],
+            },
         )
 
         toc = output["toc_structure"]
@@ -248,9 +254,8 @@ class SowSectionPreferenceTests(unittest.TestCase):
         )
         self.assertEqual(
             output["about_shellkode"],
-            "**ShellKode** is a cloud-native technology company focused on helping organizations modernize their IT environments through Cloud, Data, AI/ML, and Generative AI. The company works with businesses to build scalable, enterprise-grade solutions that improve operational efficiency, generate insights, and solve complex technology challenges.\n\n"
-            "ShellKode’s key capabilities include Cloud Strategy & Consulting, Cloud Migration & Modernization, Data Engineering & Analytics, Machine Learning, Generative AI, and Agentic AI. Its AI offerings include intelligent document processing, RAG-based knowledge systems, AI agents, conversational assistants, speech analytics, computer vision, and multilingual AI solutions.\n\n"
-            "The company works across industries including BFSI, Retail & E-commerce, Logistics & Supply Chain, and Healthcare, delivering solutions that combine cloud infrastructure, enterprise data, and AI. ShellKode also has a strong AWS focus, with capabilities around AWS cloud migration, modernization, and Generative AI solutions.",
+            "**ShellKode** is an AWS-focused cloud and AI engineering company delivering cloud modernisation, data platforms, machine learning, generative AI and agentic solutions.\n\n"
+            "Its capabilities include cloud strategy and migration, data engineering, analytics, intelligent document processing, RAG systems, conversational AI, automation and computer vision.",
         )
 
 

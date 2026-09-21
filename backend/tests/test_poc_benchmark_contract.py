@@ -143,6 +143,24 @@ class PocBenchmarkContractTests(unittest.TestCase):
         self.assertTrue(any("heading" in issue for issue in issues))
         self.assertTrue(any("engagement" in issue for issue in issues))
 
+    def test_concise_sow_style_detects_problem_framing_and_dense_bullets(self):
+        dense = (
+            "The current pain points and root causes create delays across the client operation.\n\n"
+            "A second paragraph continues the background narrative instead of defining delivery.\n\n"
+            "- Configure the complete workflow and all associated interfaces while also documenting every dependency, validation activity, operational control, ownership boundary, support requirement, operational procedure and production handover responsibility."
+        )
+        issues = POCWriterAgent._concise_sow_issues(dense)
+        self.assertTrue(any("problem or deficiency" in issue for issue in issues))
+        self.assertTrue(any("consecutive prose" in issue for issue in issues))
+        self.assertTrue(any("longer than 25 words" in issue for issue in issues))
+
+        concise = (
+            "Deliver the agreed workflow and integration boundary.\n\n"
+            "- Configure case routing using the approved ownership rules.\n"
+            "- Validate integration responses against the agreed acceptance evidence."
+        )
+        self.assertEqual(POCWriterAgent._concise_sow_issues(concise), [])
+
     def test_contract_is_prompted_but_never_parsed_as_document_sections(self):
         agent = POCWriterAgent.__new__(POCWriterAgent)
         agent.template_raw = self.template

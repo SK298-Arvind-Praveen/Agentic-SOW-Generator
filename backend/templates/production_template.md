@@ -3,10 +3,13 @@
 
 Use British Indian English throughout, never US spelling. Prefer forms such as `organisation`, `organise`, `centralised`, `analyse`, `behaviour`, `colour`, `programme`, `licence` (noun), and `fulfilment`. Preserve official product names, API fields, quoted source text, and identifiers exactly as supplied.
 
-Write only content needed to define scope, ownership, dependency, boundary, decision, or
-validation. Avoid repeated summaries and generic background. Use no more than one short opening
-paragraph per section, then concise bullets for non-comparable items or compact tables for genuinely
-comparable records. Put each bullet on its own Markdown line and keep it to one main idea.
+Write as an execution agreement, not a diagnostic report. State what the delivery team will design,
+configure, build, integrate, migrate, test, document or hand over. Do not narrate client pain points,
+shortcomings, deficiencies, failures, weaknesses, root causes or negative business impact; translate
+source concerns directly into neutral delivery actions and outcomes. Avoid repeated summaries and
+generic background. Use at most one 40-word opening paragraph per section and never place prose
+paragraphs back to back, except for the two-paragraph About Company section. Use concise action bullets
+or compact tables. Every bullet must be one sentence, normally no more than 25 words and one or two lines.
 Default to no subsections. Use at most two direct subsections outside Scope of Work and no nested
 subsections. Treat coverage labels in local instructions as bold bullet labels rather than mandatory
 headings. Scope of Work may use one heading per deliverable and one nested heading per cohesive module.
@@ -76,11 +79,9 @@ Planning Assumption, and Open Clarification. Do not invent approval or source do
 [META_STATIC]
 ## About ShellKode
 
-**ShellKode** is a cloud-native technology company focused on helping organizations modernize their IT environments through Cloud, Data, AI/ML, and Generative AI. The company works with businesses to build scalable, enterprise-grade solutions that improve operational efficiency, generate insights, and solve complex technology challenges.
+**ShellKode** is an AWS-focused cloud and AI engineering company delivering cloud modernisation, data platforms, machine learning, generative AI and agentic solutions.
 
-ShellKode’s key capabilities include Cloud Strategy & Consulting, Cloud Migration & Modernization, Data Engineering & Analytics, Machine Learning, Generative AI, and Agentic AI. Its AI offerings include intelligent document processing, RAG-based knowledge systems, AI agents, conversational assistants, speech analytics, computer vision, and multilingual AI solutions.
-
-The company works across industries including BFSI, Retail & E-commerce, Logistics & Supply Chain, and Healthcare, delivering solutions that combine cloud infrastructure, enterprise data, and AI. ShellKode also has a strong AWS focus, with capabilities around AWS cloud migration, modernization, and Generative AI solutions.
+Its capabilities include cloud strategy and migration, data engineering, analytics, intelligent document processing, RAG systems, conversational AI, automation and computer vision.
 
 [META_GENERATED]
 ## About {COMPANY_NAME}
@@ -95,9 +96,9 @@ to confirmed company facts; omit unsupported details without commenting that inf
 [META_GENERATED]
 ## Objective
 
-Write a decision-oriented production summary covering business problem, target operating outcome,
-solution boundary, production qualities, migration approach, principal dependencies, measurable
-acceptance basis, and intended handover. Use one brief paragraph followed by only the concise bullets
+Write a decision-oriented production summary covering the target operating outcome, solution boundary,
+production qualities, migration approach, principal dependencies, measurable acceptance basis, and
+intended handover. Do not restate client problems or negative impacts. Use at most one sentence followed by concise action bullets
 needed to cover evidenced outcomes; do not add filler to meet a count;
 add a key-facts table only when confirmed comparable values exist. Do not
 claim projected benefits have already been achieved.
@@ -105,14 +106,15 @@ claim projected benefits have already been achieved.
 [META_GENERATED]
 ## Current State and Business Context
 
-Document known current-state processes, systems, actors, volumes, pain points, constraints,
-existing controls, and operational impact. Separate facts, inferences, and gaps. Include Current-
-State Workflow, Pain Points and Root Causes, Business/Technical Drivers, and Evidence Gaps.
+Record only existing processes, systems, actors, data, interfaces, volumes, controls and constraints
+that affect delivery. State whether relevant elements will be retained, integrated, migrated or replaced.
+Convert source concerns into neutral implementation actions; do not reproduce pain points, root causes,
+deficiencies, failures or negative-impact narratives. Use concise factual bullets rather than prose.
 
 [META_GENERATED]
 ## Scope of Work
 
-Use the shared architect-generated work breakdown. When it contains more than one deliverable, begin with one compact table using `#`, `Deliverable`, `Included Modules`, and `Core Outcome`; omit this table for a single deliverable. Group the detailed scope by `### Deliverable 1 - <Name>` and place its cohesive mini-problems under `#### <Module Name>`. A top-level deliverable requires an independent phase, deployment, hand-off, or acceptance boundary; contractual capability rows that are built and accepted together remain modules or outputs. Determine the number and boundaries from the source without a fixed limit or generic lifecycle taxonomy. Reason internally about the problem, objective, actors, inputs, requirements, delivery approach, outputs, dependencies and validation, but express the result as concise direct implementation-scope bullets. Do not create standalone pseudo-sections such as Proposed Approach, Key Outputs, Dependencies or Validation Evidence. Integrate unique boundaries, status and validation into the relevant bullet, merge repeated obligations, and use an inline bold lead-in only when it helps group one cohesive sub-capability. Preserve source-specific workflows, rules, data, integrations, exceptions, evidence status and phase boundaries. Use tables only for indispensable comparable source records.
+Use the shared architect-generated work breakdown. When it contains more than one deliverable, begin with one compact table using `#`, `Deliverable`, `Included Modules`, and `Core Outcome`; omit this table for a single deliverable. Group the detailed scope by `### Deliverable 1 - <Name>` and place its cohesive implementation modules under `#### <Module Name>`. A top-level deliverable requires an independent phase, deployment, hand-off, or acceptance boundary; contractual capability rows that are built and accepted together remain modules or outputs. Determine the number and boundaries from the source without a fixed limit or generic lifecycle taxonomy. Reason internally about the delivery boundary, actors, inputs, requirements, actions, outputs, dependencies and validation, but express only concise action-oriented implementation bullets. Do not create standalone pseudo-sections such as Proposed Approach, Key Outputs, Dependencies or Validation Evidence. Integrate unique boundaries, status and validation into the relevant bullet, merge repeated obligations, and use an inline bold lead-in only when it helps group one cohesive sub-capability. Preserve source-specific workflows, rules, data, integrations, exceptions, evidence status and phase boundaries. Use tables only for indispensable comparable source records.
 
 [META_GENERATED]
 ## Technical Specifications and System Design
