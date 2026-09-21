@@ -276,6 +276,7 @@ def clean_markdown_preserving_structure(text: str) -> str:
         "unknown", "not specified", "not provided", "n/a", "na", "none",
         "null", "tbd", "to be determined", "to be confirmed",
         "pending confirmation", "pending customer confirmation", "pending completion",
+        "to be nominated", "not available",
     }
     cleaned_lines: List[str] = []
     for line in text.splitlines():
@@ -358,6 +359,69 @@ def remove_missing_information_disclaimers(content: str) -> str:
         if not retained:
             continue
         cleaned.append(prefix + " ".join(retained))
+    return clean_markdown_preserving_structure("\n".join(cleaned))
+
+
+_CLIENT_FACING_META_LINE = re.compile(
+    r"(?i)\b(?:"
+    r"uploaded (?:file|document)s?|supporting documents?|source documents?|source material|"
+    r"source-backed|source assumption|source (?:states|indicates|lists)|"
+    r"(?:in|from|by|according to) the source|the BRD|supplied material|"
+    r"evidence status|requirements provenance|"
+    r"confirmed_aws_services|proposed_aws_services|internal requirement fields?|"
+    r"generated (?:content|output)|model output|prompt instructions?"
+    r")\b"
+)
+
+_EVIDENCE_LABEL = re.compile(
+    r"(?i)\s*\((?:confirmed|proposed|open|derived|source assumption|"
+    r"proposed[^)]*confirmation[^)]*)\)"
+)
+
+
+def remove_client_facing_meta_language(content: str) -> str:
+    """Strip provenance and absent-input commentary from client-ready SOW text.
+
+    Requirement provenance remains available to the agents internally; it must
+    never appear in the document handed to a customer.  The cleanup is a final
+    deterministic guard for model drift, not a replacement for prompt rules.
+    """
+    content = remove_missing_information_disclaimers(content)
+    cleaned: List[str] = []
+    for line in str(content or "").splitlines():
+        value = _EVIDENCE_LABEL.sub("", line)
+        value = re.sub(
+            r"(?i)\b(?:source assumption|evidence status|provenance)\s*:\s*",
+            "",
+            value,
+        )
+        value = re.sub(r"(?i)\bsource-backed\s+", "", value)
+        value = re.sub(
+            r"(?i)\bthe generated (?:visual|diagram)\b",
+            lambda match: "The architecture diagram" if match.group(0)[0].isupper() else "the architecture diagram",
+            value,
+        )
+
+        # Remove rows or clauses that exist only to explain how the system
+        # interpreted its inputs.  Retain normal uses such as "source system"
+        # and "source environment", which describe the architecture itself.
+        if _CLIENT_FACING_META_LINE.search(value):
+            clauses = [
+                item.strip()
+                for item in re.split(r";\s*|(?<=[.!?])\s+", value)
+                if item.strip() and not _CLIENT_FACING_META_LINE.search(item)
+            ]
+            if not clauses:
+                continue
+            prefix = "- " if value.lstrip().startswith("- ") else ""
+            value = prefix + " ".join(item.removeprefix("- ").strip() for item in clauses)
+
+        value = re.sub(r"\s+([,.;:])", r"\1", value)
+        value = re.sub(r"[ \t]{2,}", " ", value).rstrip()
+        if value.strip():
+            cleaned.append(value)
+        elif not cleaned or cleaned[-1].strip():
+            cleaned.append("")
     return clean_markdown_preserving_structure("\n".join(cleaned))
 
 

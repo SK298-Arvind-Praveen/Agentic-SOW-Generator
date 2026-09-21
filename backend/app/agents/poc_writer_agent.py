@@ -21,6 +21,7 @@ from app.core.sow_quality import (
     classify_complexity,
     normalize_requirements,
     remove_missing_information_disclaimers,
+    remove_client_facing_meta_language,
     section_quality_issues,
     validate_generated_sections,
 )
@@ -1102,8 +1103,6 @@ Review rules:
         elif name.startswith(("document control", "document version control")):
             if not any(all(label in line for label in ("version", "date", "prepared by", "status", "classification")) for line in table_lines):
                 issues.append("Document Control is missing the required five-column control table")
-            if "revision basis" not in normalized:
-                issues.append("Document Control is missing Revision Basis")
         elif name in {"scope of work", "detailed scope of work"}:
             deliverables = re.findall(r"(?im)^###\s+.*\bdeliverable\b.*$", content or "")
             modules = re.findall(r"(?m)^####\s+.+$", content or "")
@@ -1128,15 +1127,15 @@ Review rules:
             if forbidden:
                 issues.append("Task statement, objective, inputs, requirements and outputs must be integrated into module content, not emitted as numbered headings")
         elif name.startswith("solution architecture"):
-            for required in ("architecture and flow", "decisions, controls and open boundaries"):
+            for required in ("architecture and flow", "architecture decisions and controls"):
                 if required not in normalized:
                     issues.append(f"Architecture is missing {required}")
         elif name.startswith("open clarifications"):
-            if not any(all(label in line for label in ("module/area", "open item", "status / note")) for line in table_lines):
+            if not any(all(label in line for label in ("module/area", "clarification")) for line in table_lines):
                 issues.append("Open Clarifications is missing the required register table")
         elif name.startswith("aws pricing"):
-            if "pricing calculator" not in normalized and "pricing is pending" not in normalized:
-                issues.append("AWS Pricing neither reproduces a calculator basis nor marks pricing pending")
+            if "pricing calculator" not in normalized:
+                issues.append("AWS Pricing is missing the calculator link or estimate basis")
         elif name.endswith("project team effort"):
             if not any(all(label in line for label in ("resource", "resource count", "effort duration in weeks")) for line in table_lines):
                 issues.append("Project Team Effort is missing the required staffing table")
@@ -1348,19 +1347,23 @@ NON-NEGOTIABLE AUTHORING STANDARD
 - Treat only unqualified source assertions as confirmed. Preserve source-authored labels such as
   Assumption (as "Source Assumption"), Derived, Proposed, To be confirmed, Not stated, Needs clarification, optional and
   future. Conflicts between uploaded sources are Open; do not silently choose one. Treat
-  architect-derived choices as "Proposed" and put unknown material facts under Open Clarifications.
+  architect-derived choices as recommendations internally and put unknown material facts under Open Clarifications.
+- The final SOW is client-facing. Never mention uploaded files, source documents, supporting documents,
+  source material, source-backed facts, model output, prompts, generation, extraction, evidence status,
+  provenance, or internal requirement field names. Do not append Confirmed, Proposed, Open, Source
+  Assumption, Derived, or pending-confirmation labels to client-facing statements or table cells.
 - Never invent customer facts, dates, prices, volumes, user counts, compliance claims, SLAs,
   model versions, named contacts, or achieved results.
 - Never describe information as absent in any section or emit phrases such as "not provided",
   "not specified", "unknown", "TBD", "to be confirmed", "inputs were not provided", or equivalent
   disclaimers. Omit unsupported ordinary-section content. In Open Clarifications, express the item
-  directly as an answerable question and leave an unavailable status/value cell blank.
+  directly as an answerable question and leave any unavailable value cell blank.
 - Do not diagnose a current-state deficiency merely because the target solution includes that
   capability. Describe a gap as confirmed only when a source states or directly demonstrates it.
 - A source-required capability must not appear in Out of Scope. A conflicting, optional or
   unconfirmed capability belongs in Open Clarifications or a clearly labelled future phase.
-- Do not present a planning target as an agreed acceptance criterion. If the source is silent,
-  propose a testable target and explicitly label it "proposed for baseline confirmation".
+- Do not present a planning target as an agreed acceptance criterion. When a material target is unresolved,
+  ask a direct question in Open Clarifications without adding a status or provenance label.
 - Be specific about capability, owner, input, output, boundary, dependency, and validation method.
 - Preserve cross-section consistency for terminology, timeline, scope, services, and metrics.
 - Preserve supplied compliance and regulatory wording exactly, including regulator names,
@@ -1573,8 +1576,16 @@ NON-NEGOTIABLE AUTHORING STANDARD
             filtered.append(line)
         content = clean_markdown_preserving_structure("\n".join(filtered))
         name_key = heading_key(section_label)
-        if name_key != "open clarification":
-            content = remove_missing_information_disclaimers(content)
+        content = remove_client_facing_meta_language(content)
+        blocked_columns = set()
+        if "architecture" in name_key:
+            blocked_columns.update({"status", "proposed", "open", "source", "evidence status"})
+        if "clarification" in name_key:
+            blocked_columns.update({"status", "status / note", "proposed", "open", "source", "evidence status"})
+        if "customer dependenc" in name_key:
+            blocked_columns.update({"status", "proposed", "open", "source", "evidence status"})
+        if blocked_columns:
+            content = self._remove_table_columns(content, blocked_columns)
         if name_key == "about {company_name}" or name_key.startswith("about "):
             paragraphs = [
                 paragraph.strip()
@@ -1592,6 +1603,33 @@ NON-NEGOTIABLE AUTHORING STANDARD
             ]
             content = "\n\n".join(paragraphs)
         return clean_markdown_preserving_structure(content)
+
+    @staticmethod
+    def _remove_table_columns(content: str, blocked_headers: set[str]) -> str:
+        """Remove internal status/provenance columns from Markdown tables."""
+        lines = str(content or "").splitlines()
+        output: List[str] = []
+        index = 0
+        normalise = lambda value: re.sub(r"[`*_]", "", value).strip().casefold()
+        while index < len(lines):
+            if not (lines[index].strip().startswith("|") and lines[index].strip().endswith("|")):
+                output.append(lines[index])
+                index += 1
+                continue
+            table: List[str] = []
+            while index < len(lines) and lines[index].strip().startswith("|") and lines[index].strip().endswith("|"):
+                table.append(lines[index])
+                index += 1
+            header = [cell.strip() for cell in table[0].strip().strip("|").split("|")]
+            keep = [position for position, value in enumerate(header) if normalise(value) not in blocked_headers]
+            if not keep or len(keep) == len(header):
+                output.extend(table)
+                continue
+            for row in table:
+                cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+                cells += [""] * (len(header) - len(cells))
+                output.append("| " + " | ".join(cells[position] for position in keep) + " |")
+        return clean_markdown_preserving_structure("\n".join(output))
 
     def _clean_markdown_artifacts(self, text: str) -> str:
         return clean_markdown_preserving_structure(text)

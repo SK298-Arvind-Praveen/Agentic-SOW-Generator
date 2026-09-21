@@ -4,6 +4,7 @@ from app.core.sow_quality import (
     clean_markdown_preserving_structure,
     merge_requirement_extractions,
     normalize_requirements,
+    remove_client_facing_meta_language,
     remove_missing_information_disclaimers,
     validate_generated_sections,
 )
@@ -101,6 +102,21 @@ class SowQualityTests(unittest.TestCase):
         self.assertNotIn("absence of", cleaned.casefold())
         self.assertNotIn("not available", cleaned.casefold())
         self.assertIn("Preserve the source-backed ticket classification hierarchy", cleaned)
+
+    def test_client_facing_cleanup_removes_provenance_and_absence_commentary(self):
+        source = (
+            "- Configure centralised logging (Confirmed).\n"
+            "- Use an eight-week plan (Source Assumption).\n"
+            "- The provider is not named in the source document.\n"
+            "The generated visual shows the secure migration path."
+        )
+        cleaned = remove_client_facing_meta_language(source)
+        self.assertIn("Configure centralised logging", cleaned)
+        self.assertIn("Use an eight-week plan", cleaned)
+        self.assertIn("architecture diagram", cleaned)
+        self.assertNotIn("Confirmed", cleaned)
+        self.assertNotIn("Source Assumption", cleaned)
+        self.assertNotIn("source document", cleaned)
 
 
 if __name__ == "__main__":

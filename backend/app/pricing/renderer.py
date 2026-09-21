@@ -113,7 +113,7 @@ def render_aws_pricing_section(result: Dict[str, Any]) -> str:
     if region:
         lines.extend([
             "",
-            f"The AWS estimate is built for the `{region}` region and is based on the source-backed "
+            f"The AWS estimate is built for the `{region}` region and is based on the "
             "workload assumptions set out below. Detailed service-level inputs remain editable through "
             "the AWS Pricing Calculator link.",
         ])

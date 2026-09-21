@@ -216,14 +216,59 @@ class ArchitectureDiagramTests(unittest.TestCase):
         positions, width, height = _geometry(spec)
         self.assertGreater(width, height)
 
-    def test_invalid_agent_output_halts_generation(self):
+    def test_invalid_agent_output_uses_deterministic_fallback(self):
         service = DiagramService(_Config(), bedrock=_Bedrock("not json"))
-        with self.assertRaises(RuntimeError):
-            service.generate_asset(
-                {"aws_services": ["Amazon Bedrock", "Amazon DynamoDB"]},
-                {"company_name": "Example", "project_title": "Support Assistant"},
-                "",
-            )
+        asset = service.generate_asset(
+            {"aws_services": ["Amazon Bedrock", "Amazon DynamoDB"]},
+            {"company_name": "Example", "project_title": "Support Assistant"},
+            "",
+        )
+        self.assertTrue(asset["used_fallback"])
+        self.assertTrue(base64.b64decode(asset["image_base64"]).startswith(b"\x89PNG"))
+
+    def test_network_role_and_following_flow_both_render(self):
+        response = {"diagrams": [
+            {
+                "diagram_type": "architecture_overview",
+                "title": "Migration Architecture",
+                "nodes": [
+                    {"id": "source", "label": "On-Premises", "kind": "external", "layer": 0,
+                     "placement_role": "external"},
+                    {"id": "vpn", "label": "VPN", "kind": "service", "layer": 1,
+                     "placement_role": "entry"},
+                    {"id": "firewall", "label": "Firewall", "kind": "service", "layer": 1,
+                     "placement_role": "network"},
+                    {"id": "workload", "label": "Workload", "kind": "service", "layer": 2,
+                     "placement_role": "compute"},
+                ],
+                "edges": [
+                    {"source": "source", "target": "vpn"},
+                    {"source": "vpn", "target": "firewall"},
+                    {"source": "firewall", "target": "workload"},
+                ],
+            },
+            {
+                "diagram_type": "data_flow",
+                "title": "Migration Flow",
+                "nodes": [
+                    {"id": "start", "label": "Start", "kind": "terminator", "layer": 0},
+                    {"id": "copy", "label": "Transfer", "kind": "process", "layer": 1},
+                    {"id": "end", "label": "Complete", "kind": "terminator", "layer": 2},
+                ],
+                "edges": [
+                    {"source": "start", "target": "copy"},
+                    {"source": "copy", "target": "end"},
+                ],
+            },
+        ]}
+        service = DiagramService(_Config(), bedrock=_Bedrock(json.dumps(response)))
+        assets = service.generate_assets(
+            {"aws_services": ["AWS Site-to-Site VPN"], "workflow_steps": ["Transfer data"]},
+            {"company_name": "Example", "project_title": "Cloud Migration"},
+            "The migration workflow transfers workloads through a firewall and validates the data flow.",
+        )
+        self.assertEqual([asset["diagram_type"] for asset in assets], ["architecture_overview", "data_flow"])
+        self.assertTrue(all(base64.b64decode(asset["image_base64"]).startswith(b"\x89PNG") for asset in assets))
 
     def test_drawio_edit_round_trip_validates_png_and_xml(self):
         spec = fallback_spec(

@@ -37,6 +37,16 @@ class SowSectionPreferenceTests(unittest.TestCase):
         )
         self.assertEqual(cleaned, "- Validate exception routing.")
 
+    def test_client_sections_remove_internal_status_columns(self):
+        agent = POCWriterAgent.__new__(POCWriterAgent)
+        dependencies = agent._clean_content(
+            "| ID | Customer Dependency | Status |\n|---|---|---|\n| DEP-01 | Grant access | Open |",
+            "Customer Dependencies",
+        )
+        self.assertIn("| ID | Customer Dependency |", dependencies)
+        self.assertNotIn("Status", dependencies)
+        self.assertNotIn("Open", dependencies)
+
     def test_request_parsing_defaults_to_all_but_preserves_clear_optional(self):
         self.assertEqual(
             set(parse_selected_section_ids(None, "POC")),
@@ -254,8 +264,9 @@ class SowSectionPreferenceTests(unittest.TestCase):
         )
         self.assertEqual(
             output["about_shellkode"],
-            "**ShellKode** is an AWS-focused cloud and AI engineering company delivering cloud modernisation, data platforms, machine learning, generative AI and agentic solutions.\n\n"
-            "Its capabilities include cloud strategy and migration, data engineering, analytics, intelligent document processing, RAG systems, conversational AI, automation and computer vision.",
+            "**ShellKode** is a cloud-native technology company focused on helping organizations modernize their IT environments through Cloud, Data, AI/ML, and Generative AI. The company works with businesses to build scalable, enterprise-grade solutions that improve operational efficiency, generate insights, and solve complex technology challenges.\n\n"
+            "ShellKode's key capabilities include Cloud Strategy & Consulting, Cloud Migration & Modernization, Data Engineering & Analytics, Machine Learning, Generative AI, and Agentic AI. Its AI offerings include intelligent document processing, RAG-based knowledge systems, AI agents, conversational assistants, speech analytics, computer vision, and multilingual AI solutions.\n\n"
+            "The company works across industries including BFSI, Retail & E-commerce, Logistics & Supply Chain, and Healthcare, delivering solutions that combine cloud infrastructure, enterprise data, and AI. ShellKode also has a strong AWS focus, with capabilities around AWS cloud migration, modernization, and Generative AI solutions.",
         )
 
 

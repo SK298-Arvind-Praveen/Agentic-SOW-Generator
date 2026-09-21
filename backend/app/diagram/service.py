@@ -564,7 +564,11 @@ def _aws_architecture_layout(
     data_vpc = [node for node in buckets["data"] if scopes[node.id] == "vpc"]
     managed += [node for node in buckets["data"] if scopes[node.id] != "vpc"]
     workload = buckets["compute"] + buckets["integration"]
-    entry = buckets["entry"]
+    # Network-boundary controls (firewalls, transit/routing components) share
+    # the ingress rail.  Previously they were accepted by validation but never
+    # assigned coordinates, causing a KeyError during PNG/draw.io rendering
+    # and dropping every diagram in the batch.
+    entry = buckets["entry"] + buckets["network"]
 
     # Fixed-width rails and content-derived vertical sizing produce consistent
     # diagrams from small serverless designs through 20+ component solutions.
@@ -1729,7 +1733,23 @@ DRAFT:
                     )
             return [accepted[item] for item in eligible_types], False
         except Exception as exc:
-            raise RuntimeError("Architecture diagram generation or validation failed; generation halted") from exc
+            # Keep the architecture section usable when the model returns
+            # malformed JSON, an invalid topology, or a transient Bedrock
+            # error.  Eligibility and fallback specs are deterministic and
+            # remain grounded in the normalized requirements.
+            print(
+                f"[DIAGRAM][FALLBACK] model diagram unavailable ({exc}); "
+                "using deterministic architecture specifications",
+                flush=True,
+            )
+            return [
+                (
+                    diagram_type,
+                    self._placement(diagram_type, {}),
+                    self._fallback_for_type(diagram_type, requirements, metadata),
+                )
+                for diagram_type in eligible_types
+            ], True
 
     def _asset(
         self,
@@ -1774,10 +1794,31 @@ DRAFT:
 
     def generate_assets(self, requirements: Dict[str, Any], metadata: Dict[str, Any], narrative: str) -> List[Dict[str, Any]]:
         planned, used_fallback = self._generate_specs(requirements, metadata, narrative)
-        return [
-            self._asset(diagram_type, placement, spec, metadata, used_fallback)
-            for diagram_type, placement, spec in planned[:MAX_DIAGRAMS]
-        ]
+        assets: List[Dict[str, Any]] = []
+        errors: List[str] = []
+        for diagram_type, placement, spec in planned[:MAX_DIAGRAMS]:
+            try:
+                assets.append(self._asset(diagram_type, placement, spec, metadata, used_fallback))
+                continue
+            except Exception as exc:
+                errors.append(f"{diagram_type}: {exc}")
+                print(
+                    f"[DIAGRAM][ASSET] {diagram_type} render failed ({exc}); retrying deterministic fallback",
+                    flush=True,
+                )
+            try:
+                fallback = self._fallback_for_type(diagram_type, requirements, metadata)
+                assets.append(self._asset(diagram_type, placement, fallback, metadata, True))
+            except Exception as fallback_exc:
+                errors.append(f"{diagram_type} fallback: {fallback_exc}")
+                print(
+                    f"[DIAGRAM][ASSET] {diagram_type} fallback render failed ({fallback_exc}); "
+                    "continuing with remaining diagrams",
+                    flush=True,
+                )
+        if not assets:
+            raise RuntimeError("No architecture diagram asset could be rendered: " + "; ".join(errors))
+        return assets
 
     def generate_asset(self, requirements: Dict[str, Any], metadata: Dict[str, Any], narrative: str) -> Dict[str, Any]:
         """Backward-compatible single-diagram API used by older callers."""

@@ -115,6 +115,7 @@ class ScopeArchitectAgent:
         elif (
             len(derived_outcome_names) >= 3
             and "Data Migration" in derived_outcome_names
+            and self._crm_outcome_split_applicable(requirements, metadata, source_context)
             and sum(
                 len(requirements.get(key) or [])
                 for key in ("key_deliverables", "functional_requirements")
@@ -355,6 +356,33 @@ class ScopeArchitectAgent:
             ("Management Reporting and Dashboards", ("report", "dashboard", "analytics", "scorecard")),
         ]
         return [name for name, signals in families if any(signal in text for signal in signals)]
+
+    @staticmethod
+    def _crm_outcome_split_applicable(
+        requirements: Dict[str, Any], metadata: Dict[str, Any], source_context: str
+    ) -> bool:
+        """Limit the legacy four-family split to actual CRM replacement work.
+
+        Generic cloud-migration BRDs commonly mention data migration,
+        communication, and dashboards.  Those incidental words must not create
+        ticketing or email-desk deliverables that the engagement never requests.
+        """
+        title = " ".join(str(metadata.get(key) or "") for key in ("project_title", "project_name"))
+        if re.search(r"\b(?:crm|customer relationship management)\b", title, flags=re.I):
+            return True
+        source = "\n".join([
+            str(source_context or ""),
+            "\n".join(str(item) for item in requirements.get("key_deliverables") or []),
+            "\n".join(str(item) for item in requirements.get("functional_requirements") or []),
+        ])
+        domain_signals = (
+            r"\bticket(?:ing)?\b",
+            r"\bcase management\b",
+            r"\bemail desk\b",
+            r"\bcustomer service\b",
+            r"\bcontact cent(?:re|er)\b",
+        )
+        return sum(bool(re.search(pattern, source, flags=re.I)) for pattern in domain_signals) >= 2
 
     @staticmethod
     def _fallback_inventory(requirements: Dict[str, Any]) -> List[Dict[str, Any]]:

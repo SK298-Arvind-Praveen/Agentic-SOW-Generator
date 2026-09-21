@@ -145,27 +145,23 @@ REQUIRED STRUCTURE
    - Status: use a supplied status; otherwise use `Draft for Client Review`.
    - Classification: use a supplied classification; otherwise use `Confidential - {COMPANY_NAME}`.
 
-3. Add `### Revision Basis` and identify the exact evidence used for this SOW:
-   - the user's product-details text;
-   - names/titles of uploaded documents or extracted sources when available;
-   - confirmed workshop, clarification, evaluation, phasing, or approval records only when the evidence names them.
-   - Never invent a BRD, evaluation sheet, workshop, approval, version history, or previous agreement.
-
-4. If confirmed priorities, phases, deliverables, or module order exist, add `### Phasing Direction Received from {COMPANY_NAME_SHORT}` with a compact table of no more than four columns. Preserve the customer wording and distinguish priority from dependency. If no phasing direction is supplied, omit this subsection entirely.
+3. If confirmed priorities, phases, deliverables, or module order exist, add `### Delivery Direction` with a compact table of no more than four columns. Preserve the customer wording and distinguish priority from dependency. If no delivery direction is supplied, omit this subsection entirely.
 
 QUALITY RULES
 
 - Keep the section within 500 words and preferably one page.
-- Make the relationship between sources and scope explicit.
+- Do not name uploaded files, source documents, evidence classifications, generation methods, or internal provenance.
 - Do not summarize the entire solution here.
 - Do not add assumptions, open questions, signatures, or commercial terms here.
 
 [META_STATIC]
 ## About ShellKode
 
-**ShellKode** is an AWS-focused cloud and AI engineering company delivering cloud modernisation, data platforms, machine learning, generative AI and agentic solutions.
+**ShellKode** is a cloud-native technology company focused on helping organizations modernize their IT environments through Cloud, Data, AI/ML, and Generative AI. The company works with businesses to build scalable, enterprise-grade solutions that improve operational efficiency, generate insights, and solve complex technology challenges.
 
-Its capabilities include cloud strategy and migration, data engineering, analytics, intelligent document processing, RAG systems, conversational AI, automation and computer vision.
+ShellKode's key capabilities include Cloud Strategy & Consulting, Cloud Migration & Modernization, Data Engineering & Analytics, Machine Learning, Generative AI, and Agentic AI. Its AI offerings include intelligent document processing, RAG-based knowledge systems, AI agents, conversational assistants, speech analytics, computer vision, and multilingual AI solutions.
+
+The company works across industries including BFSI, Retail & E-commerce, Logistics & Supply Chain, and Healthcare, delivering solutions that combine cloud infrastructure, enterprise data, and AI. ShellKode also has a strong AWS focus, with capabilities around AWS cloud migration, modernization, and Generative AI solutions.
 
 [META_GENERATED]
 ## About {COMPANY_NAME}
@@ -175,7 +171,8 @@ company profile, industry, products/services and established business operations
 this project, its problem, requirements, proposed solution, engagement, or ShellKode's involvement. Do not use subsections,
 bullets, numbered lists, or tables. Do not invent industry position, scale, revenue, locations,
 products, regulations, or achievements. When source information is limited, keep both paragraphs
-to confirmed company facts; omit unsupported details without commenting that information is missing.
+to confirmed company facts; do not repurpose project infrastructure, workload inventories, stakeholder
+roles, or migration activities as company-profile facts. Omit unsupported details without commenting that information is missing.
 
 [META_GENERATED]
 ## 1. Objective
@@ -268,8 +265,7 @@ Provide concise engineering context for the generated logical architecture visua
 
 ARCHITECTURE EVIDENCE RULE
 
-- Treat `confirmed_aws_services` as confirmed.
-- Treat `proposed_aws_services`, architect-selected patterns, topology, scaling, and availability choices as Proposed unless the source confirms them.
+- Use validated requirements to distinguish established constraints from design recommendations internally, but do not expose that provenance in the SOW.
 - Never state a deployment region, data residency rule, number of Availability Zones, environment count, service tier, or network path as confirmed unless supplied.
 - Use the module taxonomy from Section 2 and show how each module maps to components/services.
 
@@ -281,11 +277,11 @@ REQUIRED STRUCTURE
 - Add one brief boundary statement for the generated visual; do not repeat every node.
 - Use the natural number of steps required for the primary end-to-end data flow and material fallback; do not split actions merely to lengthen the sequence.
 
-### 5.2 Decisions, Controls and Open Boundaries
+### 5.2 Architecture Decisions and Controls
 
-- Use one compact `Decision/Boundary`, `Rationale`, and `Status` table containing only material decisions. Status must be `Confirmed`, `Proposed`, or `Open`.
-- Follow with concise bullets for decision-driving performance, availability, security and observability, audit, residency, retention and recovery requirements.
-- When a target is absent, state the confirmation needed instead of inventing one.
+- Use concise bullets for material architecture decisions and their rationale; do not expose evidence-status labels or provenance classifications.
+- Cover applicable performance, availability, security, observability, audit, residency, retention and recovery controls.
+- Omit unavailable targets here; ask a direct decision question only in Open Clarifications when the answer materially changes the design.
 
 COMPLIANCE BOUNDARY
 
@@ -295,8 +291,8 @@ OUTPUT RULES
 
 - Do not emit diagram syntax, a placeholder image box, or a prose duplicate of the generated diagram.
 - Do not list unrelated AWS services.
-- Every named service needs a purpose and Confirmed/Proposed status.
-- Do not state a multi-AZ, serverless, container, microservices, or managed-service pattern as decided unless the evidence supports it or it is explicitly labelled Proposed.
+- Every named service needs a clear purpose; do not append Confirmed, Proposed, Open, or evidence-status labels.
+- Do not state a multi-AZ, serverless, container, microservices, or managed-service pattern as decided unless it is established in the requirements; otherwise phrase it as a design recommendation without a status label.
 
 [META_TABLE]
 ## 5. Open Clarifications
@@ -308,10 +304,10 @@ REQUIRED OUTPUT
 
 Start with one short paragraph explaining that items must be closed during discovery/design before the affected baseline is committed.
 
-Use exactly this three-column table:
+Use exactly this two-column table:
 
-| Module/Area | Open Item | Status / Note |
-|---|---|---|
+| Module/Area | Clarification |
+|---|---|
 
 INCLUSION RULES
 
@@ -320,8 +316,7 @@ INCLUSION RULES
 - Include, where applicable: roles/permissions, sample data, volumes/peaks, data quality, migration reconciliation, interfaces/APIs, authentication, error handling, AI evaluation dataset, quality thresholds, human-review workflow, exact disclaimers/guardrails, regulatory approval owner, retention/deletion, environments, NFRs, RTO/RPO, acceptance evidence, calculator inputs, staffing, duration, and production boundary.
 - Phrase each item as one answerable question or confirmation request, not a vague topic.
 - Never say that information was not provided, specified, stated, supplied, available or confirmed.
-  Ask the question directly and leave `Status / Note` blank when no source-backed status or action exists.
-- State a source-backed impact or next action in `Status / Note` and preserve meaningful supplied statuses verbatim.
+- Ask the question directly without an Open, Proposed, Pending Confirmation, evidence or provenance label.
 - Use the same module names as Section 2.
 
 PROHIBITIONS
@@ -370,12 +365,11 @@ RULES
 [META_GENERATED]
 ## Customer Dependencies
 
-Create a concise dependency register using `ID`, `Customer Dependency`, `Owner Role`, `Needed By`,
-`Impact if Delayed`, and `Status`. Include only dependencies that follow from the selected scope,
+Create a concise dependency register using exactly `ID`, `Customer Dependency`, `Owner Role`, `Needed By`,
+and `Impact if Delayed`. Include only dependencies that follow from the selected scope,
 such as AWS account access, representative data, integration access, subject-matter experts,
 security decisions, reviews, test participants, licences, and approvals. Preserve confirmed dates
-and owners; otherwise use `To be confirmed`. Do not convert planning assumptions into confirmed
-customer commitments.
+and owners; leave unavailable values blank. Do not add a separate dependency-status table and do not convert planning assumptions into customer commitments.
 
 [META_GENERATED]
 ## 7. Assumptions

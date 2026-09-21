@@ -462,6 +462,23 @@ def test_brd_outcome_families_are_enforced_when_labels_are_inconsistent():
     ]
 
 
+def test_generic_cloud_migration_does_not_invent_crm_deliverables():
+    requirements = {
+        "key_deliverables": [
+            "Current-state assessment and application inventory",
+            "Data migration and validation",
+            "Cloud landing zone and centralised monitoring dashboards",
+            "Operational runbooks and stakeholder communication plan",
+        ],
+        "functional_requirements": ["Secure network connectivity", "Cost reporting"],
+    }
+    assert not ScopeArchitectAgent._crm_outcome_split_applicable(
+        requirements,
+        {"project_title": "On-Premises to Cloud Migration"},
+        "Migrate servers and databases into a secure cloud landing zone.",
+    )
+
+
 def test_scope_node_skips_when_scope_is_not_selected():
     result = scope_architecture_node({"selected_sow_sections": ["aws_pricing"]})
     assert result["scope_architecture_plan"] == {}

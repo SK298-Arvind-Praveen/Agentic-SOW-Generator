@@ -72,16 +72,17 @@ Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
 [META_GENERATED]
 ## Document Version Control
 
-Create document control and purpose/source-basis sections. Identify the uploaded POC as evidence,
-not automatically as an approved production baseline. Define Confirmed POC Evidence, Proposed
-Production Requirement, Planning Assumption, and Open Clarification. Do not invent approval status.
+Create concise document control, purpose, and intended-audience content. Do not name uploaded files,
+source documents, evidence classifications, generation methods, or internal provenance.
 
 [META_STATIC]
 ## About ShellKode
 
-**ShellKode** is an AWS-focused cloud and AI engineering company delivering cloud modernisation, data platforms, machine learning, generative AI and agentic solutions.
+**ShellKode** is a cloud-native technology company focused on helping organizations modernize their IT environments through Cloud, Data, AI/ML, and Generative AI. The company works with businesses to build scalable, enterprise-grade solutions that improve operational efficiency, generate insights, and solve complex technology challenges.
 
-Its capabilities include cloud strategy and migration, data engineering, analytics, intelligent document processing, RAG systems, conversational AI, automation and computer vision.
+ShellKode's key capabilities include Cloud Strategy & Consulting, Cloud Migration & Modernization, Data Engineering & Analytics, Machine Learning, Generative AI, and Agentic AI. Its AI offerings include intelligent document processing, RAG-based knowledge systems, AI agents, conversational assistants, speech analytics, computer vision, and multilingual AI solutions.
+
+The company works across industries including BFSI, Retail & E-commerce, Logistics & Supply Chain, and Healthcare, delivering solutions that combine cloud infrastructure, enterprise data, and AI. ShellKode also has a strong AWS focus, with capabilities around AWS cloud migration, modernization, and Generative AI solutions.
 
 [META_GENERATED]
 ## About {COMPANY_NAME}
@@ -91,7 +92,8 @@ company profile, industry, products/services and established business operations
 this project, its problem, requirements, proposed solution, engagement, or ShellKode's involvement. Do not use subsections,
 bullets, numbered lists, or tables. Do not invent industry position, scale, revenue, locations,
 products, regulations, or achievements. When source information is limited, keep both paragraphs
-to confirmed company facts; omit unsupported details without commenting that information is missing.
+to confirmed company facts; do not repurpose project infrastructure, workload inventories, stakeholder
+roles, or migration activities as company-profile facts. Omit unsupported details without commenting that information is missing.
 
 [META_GENERATED]
 ## Objective
@@ -162,9 +164,9 @@ steps, recovery validation, hypercare, and handover. Make unknown change windows
 [META_GENERATED]
 ## Customer Dependencies
 
-Create a dependency register covering production accounts/environments, POC artifact access,
+Create a dependency register with exactly ID, Dependency, Customer Owner Role, Needed By, and Impact if Late, covering production accounts/environments, POC artifact access,
 connectivity, data, SMEs, integration owners, security/compliance decisions, licenses, change
-windows, UAT, go-live and operations readiness. Include owner role, needed-by, impact, mitigation, status.
+windows, UAT, go-live and operations readiness. Do not add a status or provenance column.
 
 [META_GENERATED]
 ## Assumptions
@@ -176,10 +178,9 @@ operational ownership, and schedule basis without presenting assumptions as fact
 [META_GENERATED]
 ## Open Clarifications
 
-Create a decision log with ID, Clarification, Why It Matters, Owner Role, Required By, Affected
-Sections, Status. Include gaps from the source POC and every material production open item as a
+Create a clarification register with ID, Clarification, Why It Matters, Owner Role, and Required By. Include every material production open item as a
 direct answerable question. Never state that information was not provided, specified, stated,
-supplied, available or confirmed; leave an unavailable status/value cell blank.
+supplied, available or confirmed; leave unavailable values blank and do not expose Open, Proposed, pending-confirmation, evidence or provenance labels.
 
 [META_GENERATED]
 ## Out of Scope

@@ -36,6 +36,7 @@ from app.core.sow_quality import (
     clean_markdown_preserving_structure,
     merge_requirement_extractions,
     normalize_requirements,
+    remove_client_facing_meta_language,
 )
 from app.core.document_context import select_section_evidence
 import boto3
@@ -155,7 +156,7 @@ def _clean_final_content(text: str) -> str:
     if not text:
         return text
     
-    return clean_markdown_preserving_structure(text)
+    return remove_client_facing_meta_language(text)
 
 def poc_ingestion_node(state: AgentState) -> AgentState:
     """
