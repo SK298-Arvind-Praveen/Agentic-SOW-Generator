@@ -1,27 +1,30 @@
 <!-- BEGIN_GLOBAL_TEMPLATE_CONTRACT -->
-# DOCUMENT-WIDE LANGUAGE STANDARD
+CONCISE, RELEVANT, SIMPLE — CLIENT DELIVERY AGREEMENT
+Selecting a section authorises its subject; it does not require a full checklist or a page of content.
+Give every detail one primary home. Scope owns the work; other sections add only a different contractual fact.
+Before retaining a point, ask: what specific scope boundary, delivery condition, acceptance decision or customer duty would be lost if this were removed?
+If the answer is none, remove it. A true fact is not automatically relevant to this section.
+Merge points describing the same action or boundary, retaining distinct obligations and exceptions.
+Use familiar verbs: build, connect, check, store, test, hand over. Avoid 'enterprise-grade', 'comprehensive', 'robust', 'posture', 'governance baseline' and repeated 'evidenced by'.
+Use one short sentence per bullet. Never prefix a bullet with a bold summary label and colon; write the sentence directly.
+In every generated narrative bullet, use one meaningful inline **bold** phrase, usually 1-2 words, highlighting the key action, outcome or delivery condition, not just a product name. Never bold whole sentences or add label-and-colon prefixes. Keep About Client as two factual paragraphs with sparse emphasis; leave static/legal content unchanged. Tables do not need bold in every cell.
+Write at agreement level, not test-plan or operational-runbook level. Combine related actions and approvals, keep each fact in its primary section, and omit implementation microsteps unless they change acceptance or scope.
+Do not shorten prose by dropping qualifiers, negation, units, thresholds, human review or phase boundaries.
+Tables are for values people compare (pricing, staffing, schedule, contacts); narrative commitments use bullets.
+Never turn a list of processes into a tracking register with invented IDs, owners, status, impact and evidence columns.
+Do not add minimum counts, arbitrary page limits or an item for every module in every section.
+No comments about missing inputs, source documents, generation, confirmation status or how the SOW was written.
+Keep undecided matters undecided; never convert a question into an assumption or exclusion to shorten it.
+Style examples only, never copy their facts into another project:
+- Long: 'Implement comprehensive monitoring covering platform health ... Configure alerting mechanisms ... Establish real-time dashboards ...'
+  Concise: 'Configure health monitoring and alerts for the platform and its integrations.'
+- Repeated prerequisites: API credentials, API documentation, sandbox credentials for each system.
+  Concise: 'Provide API documentation and sandbox access for the agreed integrations.' Keep any unique access constraint.
+- Weak assumption: 'The chatbot will include reporting dashboards.' Delete: this is a scope feature.
+- Relevant assumption: 'Capacity is based on 500 concurrent sessions.' Retain only if this is an adopted sizing baseline, not an invented value.
+- Relevant exclusion: 'Migration to another AI model after acceptance is excluded.' Include only if applicable and compatible with the agreed support scope.
 
-Use British Indian English throughout, never US spelling. Prefer forms such as `organisation`, `organise`, `centralised`, `analyse`, `behaviour`, `colour`, `programme`, `licence` (noun), and `fulfilment`. Preserve official product names, API fields, quoted source text, and identifiers exactly as supplied.
-
-Write as an execution agreement, not a diagnostic report. State what the delivery team will design,
-configure, build, integrate, migrate, test, document or hand over. Do not narrate client pain points,
-shortcomings, deficiencies, failures, weaknesses, root causes or negative business impact; translate
-source concerns directly into neutral delivery actions and outcomes. Avoid repeated summaries and
-generic background. Use at most one 40-word opening paragraph per section and never place prose
-paragraphs back to back, except for the two-paragraph About Company section. Use concise action bullets
-or compact tables. Every bullet must be one sentence, normally no more than 25 words and one or two lines.
-Default to no subsections. Use at most two direct subsections outside Scope of Work and no nested
-subsections. Treat coverage labels in local instructions as bold bullet labels rather than mandatory
-headings. Scope of Work may use one heading per deliverable and one nested heading per cohesive module.
-
-Treat only unqualified source assertions as confirmed. Preserve source labels such as Assumption,
-Derived, Proposed, To be confirmed, Not stated, Needs clarification, optional, and future. A conflict
-between uploaded sources is an Open Clarification, not permission to select a preferred value. Do not
-diagnose a current-state gap solely because the target solution requests a capability.
-
-A source table row named a deliverable is a contractual output to preserve, not automatically a
-separate architectural delivery package. Separate top-level deliverables require independent phase,
-deployment, hand-off, or acceptance boundaries; otherwise cluster the outputs as cohesive modules.
+Use British Indian English; preserve official names and exact regulatory language. Preserve source qualifications internally without printing provenance labels. Do not turn optional work into a commitment or select a value to resolve conflicting sources. Scope boundaries follow independently accepted delivery packages, not one deliverable per feature. Preserve POC versus production and build versus support boundaries.
 <!-- END_GLOBAL_TEMPLATE_CONTRACT -->
 
 [META_STATIC]
@@ -37,122 +40,120 @@ Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
 ## Table_of_contents
 
 1. Document Version Control
-2. About {AUTHOR_ORG_SHORT}
-3. About {COMPANY_NAME}
-4. Objective
-5. POC Evidence and Outcomes
-6. Production Enablement Plan
-7. Scope of Work
-8. Technical Specifications and System Design
-9. Architecture and Integrations
-10. Data Migration and Readiness
-11. Security, Privacy and Compliance
-12. Migration, Cutover and Rollback
-13. Customer Dependencies
-14. Assumptions
-15. Open Clarifications
-16. Out of Scope
-17. Timelines and Deliverables
-18. Testing and Acceptance Plan
-19. AWS Pricing
-20. Customer Responsibilities
-21. Duration of Work
-22. Shellkode Implementation Cost
-23. Success Criteria
-24. Risks and Mitigations
-25. Day-2 Operations and Support
-26. Deliverable Acceptance
-27. Change Management
-28. Project Plan Termination
-30. Contacts and Reporting
-31. Marketing Authorization
-32. Terms and Conditions
-33. Acceptance and Signatories to Statement of Work
+2. Service Agreement
+3. About ShellKode
+4. About {COMPANY_NAME}
+5. Objective
+6. POC Evidence and Outcomes
+7. Production Enablement Plan
+8. Business Benefits
+9. Solution Architecture
+10. Scope of Work
+11. Technical Specifications and System Design
+12. Data Migration and Readiness
+13. Security, Privacy and Compliance
+14. Migration, Cutover and Rollback
+15. Customer Dependencies
+16. Assumptions
+17. Open Clarifications
+18. Out of Scope
+19. Project Timeline
+20. Success Criteria
+21. AWS Pricing
+22. Customer Responsibilities
+23. Duration of Work
+24. Shellkode Implementation Cost
+25. Risks and Mitigations
+26. Day-2 Operations and Support
+27. Deliverable Acceptance
+28. Roles and Responsibilities
+29. Change Order
+30. Project Plan Termination
+31. Contacts and Reporting
+32. Marketing Authorization
+33. Terms & Conditions
+34. Acceptance and Signatories to Statement of Work
 
 [META_GENERATED]
 ## Document Version Control
 
-Create concise document control, purpose, and intended-audience content. Do not name uploaded files,
-source documents, evidence classifications, generation methods, or internal provenance.
+Use a compact table of document title, customer, version and date. Leave unavailable values blank. Do not add an audience statement, engagement summary, source register, revision-basis narrative or planning-horizon commentary.
+
+[META_STATIC]
+## Service Agreement
+
+This document describes the proposal for engagement to be executed by and between SHELLCODE Private Limited, having its registered office at 10/17, 3rd street Neelikonampalayam, Coimbatore, TamilNadu, India - 641033, hereinafter referred to as “ShellKode” and {COMPANY_NAME}, having its registered office at [address], hereinafter referred to as the “Client”.  This proposal applies to the services described herein and is effective from  (“Effective Date”) and ends by (“Expiration Date”). This proposal is the complete and exclusive agreement between the parties regarding the subject matter of this Agreement and replaces any prior, oral, or written communications, representations, understandings, warranties, promises, covenants, commitments, or agreements between the Parties concerning the subject matter of this Agreement.
 
 [META_STATIC]
 ## About ShellKode
 
-**ShellKode** is a cloud-native technology company focused on helping organizations modernize their IT environments through Cloud, Data, AI/ML, and Generative AI. The company works with businesses to build scalable, enterprise-grade solutions that improve operational efficiency, generate insights, and solve complex technology challenges.
-
-ShellKode's key capabilities include Cloud Strategy & Consulting, Cloud Migration & Modernization, Data Engineering & Analytics, Machine Learning, Generative AI, and Agentic AI. Its AI offerings include intelligent document processing, RAG-based knowledge systems, AI agents, conversational assistants, speech analytics, computer vision, and multilingual AI solutions.
-
-The company works across industries including BFSI, Retail & E-commerce, Logistics & Supply Chain, and Healthcare, delivering solutions that combine cloud infrastructure, enterprise data, and AI. ShellKode also has a strong AWS focus, with capabilities around AWS cloud migration, modernization, and Generative AI solutions.
+ShellKode is a cloud-native company with a global presence, delivering services from multiple strategic locations worldwide. We empower organizations to embrace change, accelerate innovation, and unlock holistic business value by placing Cloud and Data at the core of their digital transformation. At ShellKode, we are committed to continuous improvement and innovation, consistently exploring new ways to leverage modern technologies to drive agility, resilience, and long-term success for our customers.
 
 [META_GENERATED]
 ## About {COMPANY_NAME}
 
-Write exactly two brief, source-grounded prose paragraphs about {COMPANY_NAME}. Cover only its
-company profile, industry, products/services and established business operations. Do not describe
-this project, its problem, requirements, proposed solution, engagement, or ShellKode's involvement. Do not use subsections,
-bullets, numbered lists, or tables. Do not invent industry position, scale, revenue, locations,
-products, regulations, or achievements. When source information is limited, keep both paragraphs
-to confirmed company facts; do not repurpose project infrastructure, workload inventories, stakeholder
-roles, or migration activities as company-profile facts. Omit unsupported details without commenting that information is missing.
+Write exactly two short factual paragraphs about {COMPANY_NAME}: its identity, products and established operations. No bullets, subsection headings or tables. Keep only confirmed company facts; never add project requirements, engagement commentary, invented scale or generic praise. Never pad sparse evidence to fill two paragraphs.
 
 [META_GENERATED]
 ## Objective
 
-State the production outcome, reusable POC capabilities, delivery actions, dependencies, migration
-approach and acceptance basis. Do not frame the client or POC negatively.
+State the solution being delivered, who uses it and its end result. Do not enumerate modules, test evidence, dependencies or controls.
+Use concise, plain-English bullets unless the section specifically needs a comparison table. Include only relevant content, not one item per category or module. Keep source-specific commitments and constraints; never invent values to fill a table.
 
 [META_GENERATED]
 ## POC Evidence and Outcomes
 
-Use only the ingested POC evidence. Include:
-### POC Evidence Summary
-Use concise bullets for implemented scope, demonstrated workflow/architecture, measured outcomes,
-reusable assets and explicitly deferred items. Omit unavailable evidence without commentary.
-### Evidence Register
-Use Evidence ID, POC Claim/Artifact, Source Location/Description, Confidence, Production Relevance,
-and Verification Needed.
+Briefly state demonstrated POC outcomes and reusable assets relevant to production.
+Preserve actual measured results; omit unsupported results without commentary.
+Do not create an evidence register, confidence labels or provenance columns.
 
 [META_GENERATED]
 ## Production Enablement Plan
 
-Define the work required to establish production readiness. Use a compact matrix: Domain, Reusable
-POC Capability, Production Action, Evidence/Decision, Priority. Cover only applicable architecture,
-performance, security, compliance, data, integrations, reliability, deployment, testing, observability,
-support, documentation and governance actions. Do not describe deficiencies or negative impacts.
+Summarise the material changes needed to move the demonstrated POC into production.
+Use short action bullets and keep detailed implementation in Scope of Work.
+Do not enumerate every readiness category or add a priority/decision tracking matrix.
+
+[META_GENERATED]
+## Business Benefits
+
+Return only brief one-sentence bullets describing distinct customer, agent or operational outcomes. Merge related benefits instead of listing every feature. No introduction, headings, chunky paragraphs or bold lead-in labels. Do not repeat implementation steps or objectives, discuss pain points, or invent savings, ROI, accuracy or time improvements.
+
+[META_GENERATED]
+## Solution Architecture
+
+Normally use 4-6 short design bullets, not one bullet per service or processing step. Keep implementation detail in Scope. Before writing, check the chosen runtime's VPC, subnet, ingress, egress and private-endpoint needs; include necessary deployment decisions without inventing sizing or redundancy. Explain one main flow and only material security/data decisions.
+
+Return short, one-sentence Markdown bullets only, with no opening or closing paragraphs. Explain the main request flow and relevant integration, data, handover and security choices; do not turn each AWS service into its own point. Never join the bullets into flowing prose during review.
+
+The diagram is supplied separately by the diagram generator. Write only the concise solution description here; do not produce ASCII art, Mermaid, diagram code, box drawings or a duplicate text diagram. Explain component interactions, not a service-by-service catalogue table.
+
+After the diagram, use short bullet points to explain how inputs reach the application, are processed and produce outputs. Name relevant AWS services in context, combining related services in the same design point rather than describing each separately. Include deployment, storage, integrations, security and operations only when they explain a material design choice. Preserve agreed choices and distinguish new components from existing systems; do not invent sizing, regions, environments or redundancy. Do not repeat Scope of Work or add generic cloud benefits.
+Use concise, plain-English bullets unless the section specifically needs a comparison table. Include only relevant content, not one item per category or module. Keep source-specific commitments and constraints; never invent values to fill a table.
 
 [META_GENERATED]
 ## Scope of Work
 
-Use the shared architect-generated work breakdown. When it contains more than one deliverable, begin with one compact table using `#`, `Deliverable`, `Included Modules`, and `Core Outcome`; omit this table for a single deliverable. Group the detailed scope by `### Deliverable 1 - <Name>` and place its cohesive implementation modules under `#### <Module Name>`. A top-level deliverable requires an independent phase, deployment, hand-off, or acceptance boundary; contractual capability rows that transition and are accepted together remain modules or outputs. Determine the number and boundaries from the source without a fixed limit or generic lifecycle taxonomy. Reason internally about the delivery boundary, actors, inputs, requirements, production actions, outputs, dependencies and validation, but express only concise action-oriented implementation bullets. Do not create standalone pseudo-sections such as Proposed Approach, Key Outputs, Dependencies or Validation Evidence. Integrate unique boundaries, status and validation into the relevant bullet, merge repeated obligations, and use an inline bold lead-in only for one cohesive sub-capability. State the POC disposition wherever applicable and preserve source-specific workflows, rules, data, integrations, exceptions, evidence status and phase boundaries. Use tables only for indispensable comparable source records.
+Use the shared architect-generated work breakdown. For multiple deliverables begin with a compact Deliverable / Outcome table, followed by `### Deliverable N - <Name>` and `#### <Module Name>`; for one deliverable omit the wrapper and use `### <Module Name>`. Do not list all modules again in the summary table. Own the implementation commitments. Group related actions under meaningful modules; preserve distinct business rules, interfaces, exceptions and outputs once. Do not add a bullet for each reasoning dimension or a test record for every action.
+Reason about inputs, outputs, dependencies and tests internally; do not create separate mini-sections for them. Write short action bullets, not implementation runbooks. Preserve distinct business rules, thresholds, exceptions, interfaces and support boundaries. Cross-cutting setup, logging and testing are stated once, not appended to every module. Never force a fixed number of deliverables, modules or bullets.
 
 [META_GENERATED]
 ## Technical Specifications and System Design
 
-Define production specifications for components, APIs, data model, AI/rules if applicable,
-environment/configuration, CI/CD, infrastructure as code, backup/recovery, retention/deletion,
-availability/scaling, and design decisions. Number NFRs and label unsupplied targets as proposed.
-
-[META_GENERATED]
-## Architecture and Integrations
-
-Provide concise context for the generated target-architecture visual: POC-to-production component
-disposition, data flow, environment and trust boundaries, integration contracts, resilience,
-observability, and significant trade-offs. Do not duplicate every visual node in prose. Distinguish
-confirmed and proposed AWS services.
+Keep only specific interface, data and non-functional constraints not already stated in scope or architecture. No generic NFR catalogue or invented requirement IDs.
+Use concise, plain-English bullets unless the section specifically needs a comparison table. Include only relevant content, not one item per category or module. Keep source-specific commitments and constraints; never invent values to fill a table.
 
 [META_GENERATED]
 ## Data Migration and Readiness
 
-Cover POC data disposition, source profiling, ownership, mapping, cleansing, migration waves,
-reconciliation, production seeding, rollback, archival/deletion, and validation. State what POC
-test data cannot be promoted and why. Use a migration inventory table.
+Describe only the agreed datasets and migration/readiness boundary. Do not manufacture migration waves, cleansing or historical migration when they are not required.
+Use concise, plain-English bullets unless the section specifically needs a comparison table. Include only relevant content, not one item per category or module. Keep source-specific commitments and constraints; never invent values to fill a table.
 
 [META_GENERATED]
 ## Security, Privacy and Compliance
 
-Create a control matrix covering identity, secrets, encryption, network, audit/logging,
-vulnerability management, data privacy/classification, threat modeling, incident response,
-and evidence/approvals. Contrast POC controls with production needs. Mention frameworks only if confirmed.
+State the applicable access, data protection and regulatory controls once. No generic control matrix or invented audit/certification commitments.
+Use concise, plain-English bullets unless the section specifically needs a comparison table. Include only relevant content, not one item per category or module. Keep source-specific commitments and constraints; never invent values to fill a table.
 
 [META_GENERATED]
 ## Migration, Cutover and Rollback
@@ -164,108 +165,88 @@ steps, recovery validation, hypercare, and handover. Make unknown change windows
 [META_GENERATED]
 ## Customer Dependencies
 
-Create a dependency register with exactly ID, Dependency, Customer Owner Role, Needed By, and Impact if Late, covering production accounts/environments, POC artifact access,
-connectivity, data, SMEs, integration owners, security/compliance decisions, licenses, change
-windows, UAT, go-live and operations readiness. Do not add a status or provenance column.
+Own concrete prerequisites such as integration access and test data. Combine access for related systems in one bullet. Do not create dependency IDs, timing/impact columns or a separate row per credential. Decisions belong in Open Clarifications and ongoing customer duties in Customer Responsibilities.
+Use concise, plain-English bullets unless the section specifically needs a comparison table. Include only relevant content, not one item per category or module. Keep source-specific commitments and constraints; never invent values to fill a table.
 
 [META_GENERATED]
 ## Assumptions
 
-Write only the POC-to-production assumptions needed for this project, with owner/impact. Address reusability of POC assets,
-source completeness, environment access, data rights, decisions, test windows, change controls,
-operational ownership, and schedule basis without presenting assumptions as facts.
+State only material gap-filling delivery premises Shellkode relies on for the agreed work. A premise must identify a project-specific condition whose failure would change delivery effort, design, cost or acceptance, such as usable linked customer data, representative test cases or compatible existing interfaces. Do not turn confirmed features, launch channels, languages, phases or platform choices into assumptions merely to repeat Scope. Use a capacity, format or retention baseline only when evidenced and materially relied upon; never invent quantities or treat model planning guesses as customer agreement. State the condition directly, without saying information was missing or explaining the rationale. Access checklists belong in Dependencies; exclusions belong in Out of Scope. Keep genuinely unresolved material decisions in Open Clarifications. Use short one-sentence bullets with one meaningful bold phrase; no quota or filler.
+Use concise, plain-English bullets unless the section specifically needs a comparison table. Include only relevant content, not one item per category or module. Keep source-specific commitments and constraints; never invent values to fill a table.
 
 [META_GENERATED]
 ## Open Clarifications
 
-Create a clarification register with ID, Clarification, Why It Matters, Owner Role, and Required By. Include every material production open item as a
-direct answerable question. Never state that information was not provided, specified, stated,
-supplied, available or confirmed; leave unavailable values blank and do not expose Open, Proposed, pending-confirmation, evidence or provenance labels.
+Ask only unresolved decisions that block scope agreement, architecture sizing, price or acceptance. Merge questions about the same decision. API field mappings, survey copy, log schemas, workshop scheduling and implementation tuning belong in discovery, not a contract questionnaire. Do not carry every upstream unknown forward.
+Use concise, plain-English bullets unless the section specifically needs a comparison table. Include only relevant content, not one item per category or module. Keep source-specific commitments and constraints; never invent values to fill a table.
 
 [META_GENERATED]
 ## Out of Scope
 
-Include only source-supported or expressly agreed production exclusions and clearly state which POC
-features/assets are not production-ready. Never exclude a requested production deliverable. Treat
-conflicts, optional items and unconfirmed boundaries as Open Clarifications unless explicitly deferred.
-Label architect-proposed boundaries `Proposed - subject to baseline confirmation`; reconcile them with
-the gap assessment and requirements register before routing additions through Change Management.
+State only relevant work outside the agreed deliverables: explicit exclusions or plausible adjacent work that could reasonably be mistaken as included. Check every exclusion against Scope, phase boundaries and Assumptions; never exclude included work or infer exclusion from silence. Do not mirror each scope feature or assumption with its negative. Remove generic absent technologies, hardware and certifications unless genuinely relevant. Keep distinct boundaries separate and remove duplicate exclusions. Post-acceptance model migration is appropriate only when relevant and not already included in agreed support. Use short one-sentence bullets; no quota or filler.
+Use concise, plain-English bullets unless the section specifically needs a comparison table. Include only relevant content, not one item per category or module. Keep source-specific commitments and constraints; never invent values to fill a table.
 
 [META_TABLE]
-## Timelines and Deliverables
+## Project Timeline
 
-Build a planning schedule across confirmed duration or planning_duration_weeks with no gaps.
-Columns: Timeframe, Phase/Objective, POC Asset Disposition/Activities, Deliverables/Evidence,
-Customer Inputs, Exit Criteria. Include evidence validation, gap closure, hardening, security,
-migration, multiple test cycles, rehearsal, go-live, hypercare and handover as applicable.
+Follow the user-selected timeline_format; default to table. Output only the selected format.
 
-[META_GENERATED]
-## Testing and Acceptance Plan
+TABLE FORMAT: One milestone table: Timeframe | Milestone | Outcome. Group related activities. Preserve input dates/durations and leave unsupported timing blank. No additional prose.
 
-Define regression against POC behavior plus production functional, integration, data/AI quality,
-performance/resilience, security, migration, UAT, cutover and operational acceptance. Include test
-data/evidence, defects/retest, entry/exit criteria, authority, and a traceability matrix. Do not reuse
-POC results as production evidence without explicit applicability and revalidation.
-
-[META_TABLE]
-## AWS Pricing
-
-Put the editable AWS Pricing Calculator link above all tables. Show only a two-column
-`Estimated Volume Metrics` table of source-backed business workload measures such as interactions,
-turns, inference share, handovers, backend calls, users, concurrency and retention. Follow it with a
-two-column `AWS Cost Summary` containing the calculator estimate, AWS MRR and AWS ARR in the
-calculator currency. Do not expose raw service configuration fields, unresolved calculator
-parameters, or a confirmation-needed column. Route unresolved material inputs to Open Clarifications.
-Always retain the standard workload and cost rows, leaving unavailable values blank without commentary.
-Use a broad non-binding fallback only when time-based business volumetrics support it. Distinguish
-POC, transition/test and production usage only where sourced. Never invent approved funding,
-precise calculator totals, or an unsupported currency conversion.
-
-[META_STATIC]
-## Customer Responsibilities
-
-- Nominate executive, product, technical, security, data, operations, and acceptance owners.
-- Provide the complete POC repository, artifacts, configurations, test evidence, known defects, environments, and access required for assessment and transition.
-- Approve reuse/refactor/replace decisions, target architecture, security controls, migration, change windows, rollback, and go-live.
-- Confirm data ownership, lawful use, classification, privacy, retention, residency, and applicable controls.
-- Supply production-representative data and execute customer-owned UAT and go/no-go responsibilities.
-- Prepare operational teams for knowledge transfer and assume agreed ownership at handover.
-
-[META_GENERATED]
-## Duration of Work
-
-State confirmed dates if supplied; otherwise state the planning horizon and baseline conditions.
-Reconcile evidence assessment, remediation, migration, test cycles, approvals, change windows,
-go-live and hypercare. Never infer calendar dates from the POC document unless explicitly stated as future dates.
-
-[META_TABLE]
-## Shellkode Implementation Cost
-
-Create an indicative role/loading table consistent with the production enablement plan and schedule. Use
-Commercial Status = To be confirmed unless source-backed. Include roles warranted by transition,
-engineering, data/AI, platform/DevOps, quality, security, architecture and delivery; frontend only if required.
+GANTT FORMAT: One grid: S.No | Activity | W1 ... Wn (weeks) or M1 ... Mn (months), using only the input schedule's horizon and unit. Concise phase/activity rows; ■ for active delivery cells (light green), ◆ for explicitly included hypercare/support (blue), blank inactive cells. Grey headers. Preserve source-supported overlaps, not invented allocation. Never copy the example's activities or eight-month duration. If timing is unsupported, leave cells blank; without a horizon use a blank Timeframe column. No legend, second table or prose.
 
 [META_GENERATED]
 ## Success Criteria
 
-Create SC-identified production acceptance criteria with confirmed/proposed target, measurement,
-evidence, test window, and authority. Cover gap closure, retained POC behavior, functional/integration,
-data/AI, performance/resilience, security, migration, deployment/rollback, operations and handover.
+Use a minimal Markdown bullet list (normally 3-5 bullets; fewer when evidence supports fewer). Include quantifiable success targets explicitly stated in the BRD/user inputs, preserving the supplied target, unit, baseline and period. Also include descriptive success criteria grounded in explicitly stated functional requirements or required outcomes; when no numerical targets exist, use these observable functional outcomes instead. Each bullet is one short, factual sentence describing what successful delivery demonstrates, not an implementation task or a general benefit. Every criterion must be traceable to the BRD/user inputs; never derive commitments from proposed architecture, templates, industry norms or assumptions. Do not infer targets from workload volumes or architecture sizing. Do not invent percentages, baselines, SLAs, test counts, performance guarantees, acceptance processes or X% placeholders. Preserve conditions, exclusions and phase boundaries; do not turn optional/future requirements into current commitments. Deduplicate outcomes and do not repeat a descriptive equivalent of the same quantitative criterion. No tables, paragraphs, introductory labels or source/meta commentary. If neither quantitative targets nor supported functional outcomes exist, leave the section body blank without commentary.
+
+[META_TABLE]
+## AWS Pricing
+
+PURPOSE
+Use tables only, with no paragraphs before, between or after them. Start with the monthly cost table. Put AWS region, material sizing metrics, planning range and estimate qualifications in a second compact Pricing basis | Details table.
+
+| Item | Monthly (<actual currency>) | Estimate |
+|---|---:|---|
+| <supported workload or environment> | <amount or blank> | <linked AWS Pricing Calculator or planning estimate label> |
+
+Use only supported workload/environment rows; do not invent separate POC and production estimates or divide an aggregate estimate between environments.
+Put the genuine calculator estimate hyperlink in the Estimate cell. Never label a homepage link as an estimate.
+Keep only the few material business sizing assumptions as table rows; no prose notes, generic ten-row volume checklist, repeated MRR/ARR totals or service-request details.
+Keep fallback figures explicitly labelled as non-binding planning estimates, not calculator quotes. Partial calculator totals must be labelled as components only, never whole-workload totals.
+Leave unavailable prices blank. Do not mention missing inputs, pending confirmation, source documents or the generation process.
+Preserve the calculated currency and values. Never copy pricing, dates, throughput, funding claims or commercial commitments from a reference SOW.
+
+[META_GENERATED]
+## Customer Responsibilities
+
+Keep access and test-material prerequisites in Customer Dependencies. Combine customer design decisions, business acceptance, content ownership and live-agent operations into distinct duties without repeating the integration inventory. Existing staffing figures do not authorise a UAT staffing commitment.
+
+Return only brief one-sentence customer duties. Combine related approvals, UAT participation and operational ownership. Do not repeat Dependencies, list every system, enumerate tests or add a discovery questionnaire. No introduction, subsection headings, invented response deadlines or staffing commitments.
+Use concise, plain-English bullets unless the section specifically needs a comparison table. Include only relevant content, not one item per category or module. Keep source-specific commitments and constraints; never invent values to fill a table.
+
+[META_GENERATED]
+## Duration of Work
+
+State only the agreed duration and dates. Leave unavailable dates blank; do not repeat the timeline or add scheduling caveats.
+
+[META_TABLE]
+## Shellkode Implementation Cost
+
+Show the compact resource/count/effort table only. Do not narrate each role or invent counts or durations. Leave unavailable numeric cells blank.
+Use concise, plain-English bullets unless the section specifically needs a comparison table. Include only relevant content, not one item per category or module. Keep source-specific commitments and constraints; never invent values to fill a table.
 
 [META_GENERATED]
 ## Risks and Mitigations
 
-Create a legible six-column risk register: ID, Risk / Trigger, Likelihood / Impact, Mitigation,
-Contingency, Owner Role. Emphasize incomplete POC evidence, non-production code/design, data drift,
-integration constraints, security/compliance gaps, scale, migration, cutover/rollback, operations,
-dependency, schedule and cost.
+Include only concrete project-specific risks and their actionable mitigations. No generic risk catalogue, invented likelihood scores or repeated dependencies.
+Use concise, plain-English bullets unless the section specifically needs a comparison table. Include only relevant content, not one item per category or module. Keep source-specific commitments and constraints; never invent values to fill a table.
 
 [META_GENERATED]
 ## Day-2 Operations and Support
 
-Define target service ownership, monitoring/alerting, incident model, runbooks, backup/recovery,
-patch/vulnerability, capacity/cost, model/data monitoring where relevant, maintenance/change,
-service reviews, knowledge, support hours/SLA status, hypercare, and separate-support boundary.
+State included support work, period, hours and responsibility where agreed. Do not restate the build scope or manufacture incident tiers, response SLAs or ongoing services.
+Use concise, plain-English bullets unless the section specifically needs a comparison table. Include only relevant content, not one item per category or module. Keep source-specific commitments and constraints; never invent values to fill a table.
 
 [META_STATIC]
 ## Deliverable Acceptance
@@ -274,18 +255,23 @@ The Customer will review each deliverable against its documented acceptance crit
 written acceptance or a consolidated rejection notice identifying unmet criteria within ten (10)
 calendar days, unless another period is approved. POC evidence does not waive production acceptance testing.
 
+[META_TABLE]
+## Roles and Responsibilities
+
+Aim for 5-8 delivery-stage rows, not a feature inventory. Combine related implementation work with the same ownership; keep client business acceptance separate from Shellkode technical testing. No legend.
+
+Both party columns must contain only R/A/C/I codes (for example RA and CI), never duty descriptions. Cover delivery workstreams, not individual systems or features; do not add migration or other excluded work. Keep business acceptance separate from technical implementation because ownership differs.
+
+Return exactly one Markdown table with columns Workstream | Shellkode | {COMPANY_NAME}, with no legend, code definitions, introduction or closing paragraph. Use combined codes such as RA, CI, RAC or I, not individual job-role columns. Group work by distinct accountability boundaries (design, build/integrate, customer prerequisites, technical testing, business acceptance, handover and included support); merge rows when both parties have the same responsibilities, while keeping distinct acceptance ownership; do not make a row for each module, integration, feature or security control. Shellkode normally owns design, implementation and technical testing (RA), with the client consulted/informed (CI). The client owns business acceptance, access provision and policy approval where applicable; reflect Shellkode's support in those rows. Separate implementation from acceptance only when accountability differs. Do not assign the client CI for every activity or invent responsibilities. No extra tables or commentary.
+
 [META_STATIC]
-## Change Management
+## Change Order
 
-Changes to the approved gap baseline, POC asset disposition, production scope, assumptions,
-deliverables, architecture, migration, schedule, support, resources, or commercials require a
-mutually approved written change record describing rationale, impact, revised criteria and effective date.
-
+Changes to project scope, incorrect assumptions, or missing prerequisites may affect cost, resources, or scheduling. Other circumstances may arise beyond ShellKode’s control that may cause it to be unable to accomplish the project objectives and would require a modification to this proposal. Any such modification shall be memorialized in a mutually executed change order that details material changes to staff requirements, deliverables, fees, and milestones, as applicable. If the parties do not agree to such a proposed change order, then either may suspend the Services to allow time for the parties to agree on an alternative change order. Should Services be suspended for a consecutive period of five (5) business days, either party may thereafter terminate this proposal immediately upon notice
 [META_STATIC]
 ## Project Plan Termination
 
-Termination is governed by the applicable master agreement. The parties will agree an orderly
-handover of completed work, POC and production artifacts, data, access, environments, and open obligations.
+Upon termination of this Project Plan executed in accordance with the terms of the Agreement, Client shall pay ShellKode for any Customer-approved Services performed and expenses incurred up to the date of the termination and any expenses necessarily and reasonably incurred by ShellKode in terminating Customer-approved obligations to third parties.
 
 [META_STATIC_TABLE]
 ## Contacts and Reporting
@@ -301,16 +287,68 @@ handover of completed work, POC and production artifacts, data, access, environm
 [META_STATIC]
 ## Marketing Authorization
 
-No public reference, customer name/logo use, case study, press release, or marketing statement is
-authorized by this SOW alone. Any such use requires separate prior written Customer approval.
+Upon successful completion of the project, Customer agrees to provide a reference for ShellKode for services provided under this SOW. ShellKode agrees to follow the Customer’s terms and conditions for the use of such reference and the Customer’s name and logo.
 
 [META_STATIC]
-## Terms and Conditions
+## Terms & Conditions
 
-- This SOW is governed by the applicable master agreement or other agreement executed by the parties.
-- AWS and third-party availability, pricing, and service levels are governed by their providers.
-- Customer data and POC/production artifacts remain subject to agreed ownership, confidentiality, privacy, security, retention, and deletion obligations.
-- Intellectual property, warranties, liability, indemnities, payment, and order of precedence are governed by the applicable agreement.
+### Change Management:
+
+It may become necessary to amend this Statement of Work for reasons including, but not limited to: changes to the Project Schedule, Scope or Budget; changes in key {COMPANY_NAME} stakeholders assigned to the project; or changes in {COMPANY_NAME} priorities (external or internal to the project) that impact the project.
+
+In the event a change is necessary, the following process will be followed:
+
+A Project Change Request (PCR), raised by e-mail or support ticket, will be used to communicate the change.
+
+The PCR must describe the change, the reasons for it, and its effect on the project, including scheduling and pricing impact.
+
+Any such change shall be formally communicated to ShellKode by {COMPANY_NAME} and carried out subject to mutually agreed terms.
+
+Scope changes in Design, Implementation, Testing or Managed Services will be mutually understood and agreed; changes proposed by {COMPANY_NAME} beyond the scope defined in this agreement may be charged in addition to the price under the Commercial section, upon mutual agreement. 
+
+### Jurisdiction
+
+This Agreement shall be governed and interpreted in accordance with the laws of India and courts at Bangalore shall have the exclusive jurisdiction to decide upon any dispute or litigation between the Parties to this Agreement.
+
+### Travel
+
+Any Travel expenses for travel outside Bangalore the cost of travel on actuals will be reimbursed by the {COMPANY_NAME}. The travel cost will include Flight Tickets, Boarding/ Lodging, Food, Cabs etc. 
+
+### Working hours
+
+Standard work hours are 10 am - 07 pm IST Monday to Friday. 
+
+If the resource has to be summoned before or after the specified business hour prior notice is to be issued.
+
+### Third-Party & Platform SLAs
+
+The SLAs of cloud services and any third-party platforms leveraged for this engagement (including AWS Bedrock, ElevenLabs, and (Telephone to be confirmed with customers)) are governed and owned by the respective platform provider directly, and not by ShellKode.
+
+### Effort & Scope
+
+The effort estimate is limited to the understood scope of work as defined in this Statement of Work. Any substantial change in scope may lead to a corresponding change in commercials and effort, to be mutually agreed in writing per Section 18.1.
+
+### Indemnification
+
+The indemnification obligations set forth in this Section shall be the parties' exclusive rights and remedies with respect to this Agreement.
+
+Indemnity by {COMPANY_NAME}: {COMPANY_NAME} shall indemnify and hold harmless ShellKode, its affiliates, and each of their respective officers, directors, members, agents and employees from and against any and all claims, demands, liabilities, obligations, losses, damages, penalties and fines of any kind and nature whatsoever (including reasonable attorneys' fees) brought by a third party under any theory of legal liability arising out of or related to: (i) the actual or alleged use of the Services in violation of this Agreement or applicable law, or (ii) any breach by {COMPANY_NAME} of its obligations under this Agreement.
+
+Reciprocal Indemnification: Each party shall indemnify and hold harmless the other party, its affiliates, and each of their respective officers, directors, members, agents and employees from and against any and all claims, demands, liabilities, obligations, losses, damages, penalties and fines of any kind and nature whatsoever (including reasonable attorneys' fees) brought by a third party under any theory of legal liability arising out of or related to the indemnifying party's actual or alleged: (i) gross negligence, (ii) willful misconduct, or (iii) infringement or misappropriation of a third party's copyright, trade secret, patent, trademark or other intellectual property right.
+
+### Termination
+
+This Agreement will be in effect from the date of signing until completion of the implementation phase and expiry of the associated AMC term, unless terminated earlier in accordance with this Section. This Agreement may be terminated on the occurrence of any of the events below:
+
+Either party commits breach of any provision of this Agreement or fails to perform any obligation under it, and the party alleged to have committed such breach or failed in performance is served thirty (30) days' notice in writing by the other party.
+
+Either party may terminate this Agreement — for Consulting/Implementation, upon written notice of thirty (30) days to the other party; for Managed Services (if applicable), upon written notice of sixty (60) days to the other party. The duties of non-disclosure set forth herein shall continue during the term of this Agreement and shall survive for a period of one (1) year from termination or expiry of this Agreement.
+
+On termination for whatever reason, {COMPANY_NAME} will be responsible for all fees payable to ShellKode and all expenses incurred by ShellKode on behalf of {COMPANY_NAME} up to the date termination takes effect.
+
+### Confidentiality
+
+This proposal contains proprietary and confidential information of ShellKode and shall not be used, disclosed, or reproduced, in whole or in part, for any purpose other than to evaluate this proposal, without the prior written consent of authorized ShellKode personnel. All information contained herein remains at all times the property of ShellKode.
 
 [META_STATIC_TABLE]
 ## Acceptance and Signatories to Statement of Work

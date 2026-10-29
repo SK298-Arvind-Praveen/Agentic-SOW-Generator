@@ -18,7 +18,8 @@ import {
   RefreshCw,
   X,
   Edit,
-  BarChart3
+  BarChart3,
+  Trash2
 } from 'lucide-react';
 import SOWGenerator from './SOWGenerator';
 import DatePicker from 'react-datepicker';
@@ -30,7 +31,8 @@ import { formatTokenCount } from '../utils/tokenUsage';
 import { documentTimestamp, formatDocumentDateTime, sowDownloadFilename } from '../utils/documentPresentation';
 import './Dashboard.css';
 import './SOWGenerator.css';
-import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
+import SOWDeleteDialog from './SOWDeleteDialog';
 
 type SOWType = 'poc' | 'production' | 'poc-to-production';
 type ViewType = 'generate' | 'records' | 'documents';
@@ -39,9 +41,6 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { isAdmin, user } = useAuth();
-  const selectableBusinessUnits = isAdmin ? BUSINESS_UNITS : (user?.business_units || []);
-  const canSelectBusinessUnit = isAdmin || selectableBusinessUnits.length > 1;
-  const [businessUnitFilter, setBusinessUnitFilter] = useState('');
   const [selectedSOW, setSelectedSOW] = useState<SOWType>('poc');
   const [selectedView, setSelectedView] = useState<ViewType>('generate');
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -63,7 +62,7 @@ const Dashboard: React.FC = () => {
   });
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [rowVersions, setRowVersions] = useState<{ [key: string]: Array<{ version: string; date: string; author: string; status: string; s3_url: string; total_tokens?: number | string }> }>({});
+  const [rowVersions, setRowVersions] = useState<{ [key: string]: Array<{ document_id?: string; version: string; date: string; author: string; status: string; s3_url: string; total_tokens?: number | string }> }>({});
   const [recordsSearchQuery, setRecordsSearchQuery] = useState('');
   const [showRecordsFilter, setShowRecordsFilter] = useState(false);
   const [recordsFilterBy, setRecordsFilterBy] = useState<'company' | 'author'>('company');
@@ -71,6 +70,8 @@ const Dashboard: React.FC = () => {
   const isFetchingRecords = useRef(false);
   const recordsCachedAt = useRef<number>(0);
   const RECORDS_CACHE_TTL = 60_000; // re-fetch at most once per 60s
+  const [deleteTarget, setDeleteTarget] = useState<Document | null>(null);
+  const [deletingSOW, setDeletingSOW] = useState(false);
 
   // To Production flow state
   const [isProductionLoading, setIsProductionLoading] = useState(false);
@@ -131,7 +132,7 @@ const Dashboard: React.FC = () => {
     if (selectedView === 'records') {
       fetchAllRecords(true);
     }
-  }, [selectedView, businessUnitFilter]);
+  }, [selectedView]);
 
   // Smooth progress animation for production loader
   useEffect(() => {
@@ -191,7 +192,7 @@ const Dashboard: React.FC = () => {
     isFetchingRecords.current = true;
     try {
       const response = await apiService.fetchCompaniesGrouped(
-        canSelectBusinessUnit && businessUnitFilter ? businessUnitFilter : undefined
+        undefined
       );
       if (!response?.success || !response.companies) return;
 
@@ -246,6 +247,7 @@ const Dashboard: React.FC = () => {
                 const vDocs = versionMap[vk];
                 const vDoc = latestDocumentForVersion(vDocs);
                 return {
+                  document_id: vDoc?.document_id,
                   version: vk,
                   date: documentTimestamp(vDoc || {}) || 'N/A',
                   author: vDoc?.author_name || 'N/A',
@@ -538,9 +540,6 @@ const Dashboard: React.FC = () => {
         const progressMap: { [key: string]: number } = {
           'Validating inputs': 10,
           'Extracting metadata': 15,
-          'Retrieving RAG data': 20,
-          'Retrieving POC RAG data': 20,
-          'Retrieving PROD RAG data': 20,
           'Generating document': 30,
           'Researching': 35,
           'Research': 35,
@@ -691,6 +690,24 @@ const Dashboard: React.FC = () => {
       return;
     }
     navigate(`/sow-records?regenerate=${encodeURIComponent(documentId)}`);
+  };
+
+  const deleteSOW = async () => {
+    if (!deleteTarget || deletingSOW) return;
+    const documentId = getDocumentProperty(deleteTarget, 'document_id');
+    setDeletingSOW(true);
+    try {
+      const response = await apiService.deleteSOW(documentId);
+      if (!response.success) throw new Error(response.error || 'Unable to delete SOW');
+      setDeleteTarget(null);
+      recordsCachedAt.current = 0;
+      await fetchAllRecords(true);
+      toast.success('SOW permanently deleted');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to delete SOW');
+    } finally {
+      setDeletingSOW(false);
+    }
   };
 
   const handleProductionEditFromPreview = async () => {
@@ -884,6 +901,7 @@ const Dashboard: React.FC = () => {
                     const versionDocs = modeData[v];
                     const vDoc = latestDocumentForVersion(versionDocs);
                     return {
+                      document_id: vDoc?.document_id,
                       version: v,
                       date: documentTimestamp(vDoc || {}) || 'N/A',
                       author: vDoc?.author_name || 'N/A',
@@ -1030,20 +1048,6 @@ const Dashboard: React.FC = () => {
                   <p>View and manage your generated SOW documents</p>
                 </div>
                 <div className="records-header-right">
-                  {canSelectBusinessUnit && (
-                    <select
-                      className="records-bu-filter"
-                      value={businessUnitFilter}
-                      onChange={(event) => {
-                        recordsCachedAt.current = 0;
-                        setBusinessUnitFilter(event.target.value);
-                      }}
-                      aria-label="Filter records by business unit"
-                    >
-                      <option value="">All Business Units</option>
-                      {selectableBusinessUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}
-                    </select>
-                  )}
                   <div className="records-search-container">
                     <Search className="records-search-icon" size={14} />
                     <input
@@ -1281,6 +1285,11 @@ const Dashboard: React.FC = () => {
                                     >
                                       <RefreshCw width={"16px"} height={"16px"} />
                                     </button>
+                                    {isAdmin && <button
+                                      className="download-icon-btn sow-delete-icon"
+                                      onClick={() => setDeleteTarget(record)}
+                                      title="Permanently delete SOW"
+                                    ><Trash2 width="16px" height="16px" /></button>}
                                   </div>
                                 </td>
                               </tr>
@@ -1312,6 +1321,16 @@ const Dashboard: React.FC = () => {
                                           <Download width="16px" height="16px" className="download-icon" />
                                         </span>
                                       )}
+                                      {isAdmin && version.document_id && <button
+                                        className="download-icon-btn sow-delete-icon"
+                                        title={`Permanently delete ${version.version}`}
+                                        onClick={() => setDeleteTarget({
+                                          document_id: version.document_id,
+                                          project_name: getDocumentProperty(record, 'name'),
+                                          mode: record.mode,
+                                          version: version.version,
+                                        } as Document)}
+                                      ><Trash2 width="16px" height="16px" /></button>}
                                     </div>
                                   </td>
                                 </tr>
@@ -1742,6 +1761,12 @@ const Dashboard: React.FC = () => {
 
       {/* Production loader overlay */}
       {/* Removed blocking production loader - now using non-blocking toast notifications */}
+      {deleteTarget && <SOWDeleteDialog
+        name={`${getDocumentProperty(deleteTarget, 'name')} - ${deleteTarget.mode || ''} ${deleteTarget.version || ''}`.trim()}
+        deleting={deletingSOW}
+        onCancel={() => !deletingSOW && setDeleteTarget(null)}
+        onConfirm={() => void deleteSOW()}
+      />}
     </>
   );
 };

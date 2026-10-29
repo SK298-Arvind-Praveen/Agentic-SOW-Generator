@@ -375,12 +375,25 @@ Never turn an absent number, integration, compliance framework, service, SLA, da
 volume, user count, or accuracy threshold into a confirmed requirement. Use null or [] for
 unknown facts. Recommended architecture belongs in proposed_aws_services or
 planning_assumptions. Do not invent facts about the customer.
+Preserve exact product identity. A system called Connect CRM is not automatically
+Amazon Connect; do not expand ambiguous names into AWS products. Keep customer
+systems distinct from optional new services and never treat a reference design as
+proof of the customer's selected platform. Preserve requested smart enhancements
+and their actual phase/status; absence from a draft is not evidence of exclusion.
+Do not silently correct ambiguous acronyms or category codes (for example NPA to
+NPS, or ER to ET). Retain the literal wording and raise a focused clarification
+when conflicting labels affect a rule, report or acceptance condition.
 
 Evidence-status rule: an uploaded document can contain questions, vendor responses, assumptions
 and proposals as well as facts. Preserve explicit labels such as "Assumption", "Derived",
 "Proposed", "To be confirmed", "Not stated", "Needs clarification", "optional" and "future".
 Do not promote those statements to confirmed requirements. If two uploaded sources disagree,
 record the conflict in open_clarifications and retain both qualified positions.
+An existing/proposed SOW is not proof that its proposed AWS services are already
+deployed or mandated. "We propose", vendor solution descriptions, sizing assumptions
+and service inventories belong in proposed_aws_services even when product names are
+explicitly written. confirmed_aws_services is only for an existing deployed service
+or an explicit customer mandate. Do not treat every AWS name in a document as confirmed.
 
 Return one valid JSON object using this contract:
 {{
@@ -391,7 +404,7 @@ Return one valid JSON object using this contract:
   "key_features": ["functional capability"],
   "functional_requirements": ["testable functional requirement"],
   "non_functional_requirements": ["only explicitly supplied constraints"],
-  "confirmed_aws_services": ["only services named in a source"],
+  "confirmed_aws_services": ["only existing deployed services or explicit customer mandates"],
   "proposed_aws_services": ["architectural recommendations, kept distinct from facts"],
   "aws_services": ["deduplicated union of confirmed and proposed services"],
   "architecture_components": ["logical component or layer"],

@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 export type GeneratorMode = 'poc' | 'production' | 'poc-to-production';
 
-type SectionOption = {
+export type SectionOption = {
   id: string;
   label: string;
   modes: GeneratorMode[];
@@ -18,40 +18,51 @@ const ALL_MODES: GeneratorMode[] = ['poc', 'production', 'poc-to-production'];
 
 export const SOW_SECTION_OPTIONS: SectionOption[] = [
   { id: 'document_version_control', label: 'Document Version Control', modes: ALL_MODES },
+  { id: 'service_agreement', label: 'Service Agreement', modes: ALL_MODES },
   { id: 'about_shellkode', label: 'About Shellkode', modes: ALL_MODES },
   { id: 'about_client', label: 'About Client', modes: ALL_MODES },
   { id: 'project_overview', label: 'Objective', modes: ALL_MODES },
+  { id: 'business_benefits', label: 'Business Benefits', modes: ALL_MODES },
+  { id: 'architecture_diagram', label: 'Solution Architecture', modes: ALL_MODES },
   { id: 'scope_of_work', label: 'Scope of Work', modes: ALL_MODES },
-  { id: 'architecture_diagram', label: 'Architecture Diagram', modes: ALL_MODES },
   { id: 'customer_dependencies', label: 'Customer Dependencies', modes: ALL_MODES },
   { id: 'assumptions', label: 'Assumptions', modes: ALL_MODES },
   { id: 'out_of_scope', label: 'Out of Scope', modes: ALL_MODES },
-  { id: 'timelines_deliverables', label: 'Timelines and Deliverables', modes: ALL_MODES },
+  { id: 'timelines_deliverables', label: 'Project Timeline', modes: ALL_MODES },
   { id: 'aws_pricing', label: 'AWS Pricing', modes: ALL_MODES },
   { id: 'customer_responsibilities', label: 'Customer Responsibilities', modes: ALL_MODES },
   { id: 'project_team_effort', label: 'Project Team Effort', modes: ALL_MODES },
-  { id: 'open_clarifications', label: 'Open Clarifications', modes: ALL_MODES },
   { id: 'success_criteria', label: 'Success Criteria', modes: ALL_MODES },
+  { id: 'raci_matrix', label: 'Roles and Responsibilities', modes: ALL_MODES },
+  { id: 'change_order', label: 'Change Order', modes: ALL_MODES },
   { id: 'project_plan_termination', label: 'Project Plan Termination', modes: ALL_MODES },
   { id: 'contacts_reporting', label: 'Contacts and Reporting', modes: ALL_MODES },
-  { id: 'terms_conditions', label: 'Terms and Conditions', modes: ALL_MODES },
+  { id: 'marketing_authorization', label: 'Marketing Authorization', modes: ALL_MODES },
+  { id: 'terms_conditions', label: 'Terms & Conditions', modes: ALL_MODES },
   { id: 'acceptance_signatories', label: 'Acceptance and Signatories', modes: ALL_MODES },
 ];
 
 export const availableSowSectionIds = (mode: GeneratorMode): string[] =>
   SOW_SECTION_OPTIONS.filter(option => option.modes.includes(mode)).map(option => option.id);
 
+const isOpenClarifications = (option: SectionOption): boolean =>
+  option.id === 'open_clarifications'
+  || option.label.trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ') === 'open clarifications';
+
 interface SOWSectionChecklistProps {
   mode: GeneratorMode;
   selected: string[];
   onChange: (sectionIds: string[]) => void;
+  extractedSections?: SectionOption[];
+  timelineFormat?: 'table' | 'gantt';
+  onTimelineFormatChange?: (format: 'table' | 'gantt') => void;
 }
 
 // A drag can originate either from the master (available) list — which adds the
 // item to the order — or from within the order list itself — which reorders it.
 type DragPayload = { source: 'available' | 'order'; id: string };
 
-const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selected, onChange }) => {
+const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selected, onChange, extractedSections = [], timelineFormat = 'table', onTimelineFormatChange }) => {
   const { isAdmin } = useAuth();
   const [options, setOptions] = useState<SectionOption[]>(SOW_SECTION_OPTIONS);
   const [showManager, setShowManager] = useState(false);
@@ -64,9 +75,10 @@ const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selecte
     try {
       const response = await apiService.fetchSowSections();
       if (response.success && Array.isArray(response.sections)) {
-        setOptions(response.sections.filter((section: SectionOption) =>
+        setOptions(response.sections.map((section: SectionOption) => section.id === 'timelines_deliverables' ? { ...section, label: 'Project Timeline' } : section).filter((section: SectionOption) =>
           !['deliverables', 'scope_at_a_glance', 'deliverable_scope_at_a_glance'].includes(section.id)
           && section.label.trim().toLowerCase() !== 'deliverables'
+          && !isOpenClarifications(section)
         ));
       }
     } catch (error) {
@@ -76,21 +88,39 @@ const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selecte
 
   useEffect(() => { void loadSections(); }, []);
 
-  const availableOptions = options.filter(option => option.modes.includes(mode));
+  const customOptions = extractedSections.filter(option => !isOpenClarifications(option))
+    .map(option => ({ ...option, modes: option.modes || ALL_MODES }));
+  useEffect(() => {
+    const removedIds = new Set(['open_clarifications',
+      ...extractedSections.filter(isOpenClarifications).map(option => option.id)]);
+    const next = selected.filter(id => !removedIds.has(id));
+    if (next.length !== selected.length) onChange(next);
+  }, [selected, extractedSections, onChange]);
+  const customIds = new Set(customOptions.map(option => option.id));
+  const availableOptions = [
+    ...options.filter(option => option.modes.includes(mode) && !customIds.has(option.id)),
+    ...customOptions.filter(option => option.modes.includes(mode)),
+  ];
   const availableIds = availableOptions.map(option => option.id);
   const selectedSet = new Set(selected);
 
   // The user's exact selected order — selected items filtered to what's valid for
   // this mode, in the order the user arranged them (never re-sorted to master order).
   const orderedSelected = selected.filter(id => availableIds.includes(id));
+  if (orderedSelected.includes('scope_of_work') && orderedSelected.includes('architecture_diagram')
+      && orderedSelected.indexOf('architecture_diagram') > orderedSelected.indexOf('scope_of_work')) {
+    orderedSelected.splice(orderedSelected.indexOf('architecture_diagram'), 1);
+    orderedSelected.splice(orderedSelected.indexOf('scope_of_work'), 0, 'architecture_diagram');
+  }
 
   // Left panel only shows sections that haven't been added to the SOW order yet —
   // once moved to the right, an item leaves this list entirely.
-  const unselectedOptions = availableOptions.filter(option => !selectedSet.has(option.id));
+  const unselectedBaseOptions = availableOptions.filter(option => !customIds.has(option.id) && !selectedSet.has(option.id));
+  const unselectedCustomOptions = availableOptions.filter(option => customIds.has(option.id) && !selectedSet.has(option.id));
 
   const [dragPayload, setDragPayload] = useState<DragPayload | null>(null);
   const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
-  const labelFor = (id: string): string => options.find(option => option.id === id)?.label || id;
+  const labelFor = (id: string): string => availableOptions.find(option => option.id === id)?.label || id;
 
   const resetEditor = () => {
     setEditingId(null);
@@ -203,6 +233,7 @@ const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selecte
   };
 
   return (
+    <>
     <div className="sow-section-checklist" aria-labelledby="sow-section-checklist-title">
       <div className="checklist-heading-row">
         <div>
@@ -264,10 +295,10 @@ const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selecte
             onDragOver={handleAvailablePanelDragOver}
             onDrop={handleAvailablePanelDrop}
           >
-            {unselectedOptions.length === 0 ? (
+            {unselectedBaseOptions.length === 0 ? (
               <p className="order-empty-message">All sections have been added to Selected.</p>
             ) : (
-              unselectedOptions.map(option => (
+              unselectedBaseOptions.map(option => (
                 <button
                   type="button"
                   className="checklist-option"
@@ -281,6 +312,27 @@ const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selecte
                   <span className="drag-handle" aria-hidden="true"><GripVertical size={14} /></span>
                 </button>
               ))
+            )}
+            {customOptions.length > 0 && (
+              <>
+                <div className="checklist-group-title">Custom extracted sections</div>
+                {unselectedCustomOptions.length === 0 ? (
+                  <p className="order-empty-message">All custom sections have been added.</p>
+                ) : unselectedCustomOptions.map(option => (
+                  <button
+                    type="button"
+                    className="checklist-option custom-extracted-option"
+                    key={option.id}
+                    draggable
+                    onClick={() => addToOrder(option.id)}
+                    onDragStart={handleAvailableDragStart(option.id)}
+                    onDragEnd={handleDragEnd}
+                  >
+                    <span className="checklist-option-title">{option.label}</span>
+                    <span className="drag-handle" aria-hidden="true"><GripVertical size={14} /></span>
+                  </button>
+                ))}
+              </>
             )}
           </div>
         </div>
@@ -327,6 +379,22 @@ const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selecte
         </div>
       </div>
     </div>
+      {selected.includes('timelines_deliverables') && onTimelineFormatChange && (
+        <div className="timeline-options-panel" role="group" aria-labelledby="timeline-format-title">
+          <h3 id="timeline-format-title">Project Timeline format</h3>
+          <p>Choose how the project schedule appears in the SOW.</p>
+          <div className="timeline-format-options">
+            {(['table', 'gantt'] as const).map(format => (
+              <label key={format}>
+                <input type="radio" name="timeline-format" value={format} checked={timelineFormat === format}
+                  onChange={() => onTimelineFormatChange(format)} />
+                {format === 'table' ? 'Table' : 'Gantt chart'}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 

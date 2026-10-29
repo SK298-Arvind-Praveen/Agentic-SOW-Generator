@@ -10,7 +10,8 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Loader
+  Loader,
+  Trash2
 } from 'lucide-react';
 import { toast } from '../utils/toast';
 import apiService from '../services/apiService';
@@ -18,7 +19,8 @@ import { downloadWithNativeSaveAs } from '../utils/downloadFile';
 import { formatTokenCount } from '../utils/tokenUsage';
 import { formatDocumentDateTime, sowDownloadFilename } from '../utils/documentPresentation';
 import './SOWTracker.css';
-import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
+import SOWDeleteDialog from './SOWDeleteDialog';
 
 interface SOWRecord {
   sow_id: string;
@@ -61,12 +63,13 @@ const SOWTracker: React.FC = () => {
   // Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMode, setSelectedMode] = useState<string>('all');
-  const [selectedBusinessUnit, setSelectedBusinessUnit] = useState<string>('all');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SOWRecord | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetchSOWRecords();
-  }, [selectedBusinessUnit]);
+  }, []);
 
   useEffect(() => {
     applyFilters();
@@ -78,7 +81,7 @@ const SOWTracker: React.FC = () => {
 
       // Fetch all SOW records from history API
       const response = await apiService.fetchDocuments({
-        businessUnit: isAdmin && selectedBusinessUnit !== 'all' ? selectedBusinessUnit : undefined,
+        
       });
 
       if (response.success && response.documents) {
@@ -133,6 +136,24 @@ const SOWTracker: React.FC = () => {
     };
 
     setStatistics(stats);
+  };
+
+  const deleteSOW = async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      const response = await apiService.deleteSOW(deleteTarget.document_id || deleteTarget.sow_id);
+      if (!response.success) throw new Error(response.error || 'Unable to delete SOW');
+      const remaining = sowRecords.filter(record => record.document_id !== deleteTarget.document_id);
+      setSOWRecords(remaining);
+      calculateStatistics(remaining);
+      setDeleteTarget(null);
+      toast.success('SOW permanently deleted');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to delete SOW');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const applyFilters = () => {
@@ -274,7 +295,7 @@ const SOWTracker: React.FC = () => {
       <div className="tracker-header">
         <div className="header-content">
           <h1>SOW Tracker Dashboard</h1>
-          <p>{isAdmin ? 'Monitor and manage SOWs across all business units' : `Monitor and manage ${user?.business_unit} SOWs`}</p>
+          <p>Monitor and manage your accessible SOWs</p>
         </div>
       </div>
 
@@ -349,17 +370,6 @@ const SOWTracker: React.FC = () => {
           />
         </div>
 
-        {isAdmin && (
-          <select
-            className="search-input bu-filter-select"
-            value={selectedBusinessUnit}
-            onChange={(event) => setSelectedBusinessUnit(event.target.value)}
-            aria-label="Filter by business unit"
-          >
-            <option value="all">All Business Units</option>
-            {BUSINESS_UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
-          </select>
-        )}
 
         <div className="filter-buttons">
           <button
@@ -420,7 +430,6 @@ const SOWTracker: React.FC = () => {
                   </span>
                 </th>
                 <th>Type</th>
-                {isAdmin && <th>Business Unit</th>}
                 <th onClick={() => handleSort('date')} className="sortable-header">
                   <span className="header-content">
                     Date
@@ -449,7 +458,6 @@ const SOWTracker: React.FC = () => {
                         {getModeLabel(record.mode)}
                       </span>
                     </td>
-                    {isAdmin && <td>{record.business_unit || 'Unassigned'}</td>}
                     <td>{formatDocumentDateTime(record.document_date)}</td>
                     <td>{formatTokenCount(record.total_tokens)}</td>
                     <td className="actions-column">
@@ -462,12 +470,17 @@ const SOWTracker: React.FC = () => {
                           <Download size={16} />
                         </button>
                       )}
+                      {isAdmin && <button
+                        onClick={() => setDeleteTarget(record)}
+                        className="download-icon-btn sow-delete-icon"
+                        title="Permanently delete SOW"
+                      ><Trash2 size={16} /></button>}
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={isAdmin ? 8 : 7} className="no-records">
+                  <td colSpan={7} className="no-records">
                     No SOW records found
                   </td>
                 </tr>
@@ -480,6 +493,12 @@ const SOWTracker: React.FC = () => {
       <div className="tracker-footer">
         <p>Showing {filteredRecords.length} of {sowRecords.length} records</p>
       </div>
+      {deleteTarget && <SOWDeleteDialog
+        name={`${deleteTarget.project_name} - ${deleteTarget.mode} ${deleteTarget.version || ''}`.trim()}
+        deleting={deleting}
+        onCancel={() => !deleting && setDeleteTarget(null)}
+        onConfirm={() => void deleteSOW()}
+      />}
     </div>
   );
 };

@@ -55,17 +55,24 @@ class Config:
         # Bedrock inference profiles are region-specific. Keep its region
         # independent from DynamoDB/S3 so storage can live in another region.
         self.BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-east-1")
-        # All task routes default to the organisation-approved application
-        # inference profile. Per-task variables remain available for controlled
-        # future overrides without changing call sites.
-        default_inference_profile = (
+        # Keep high-judgement work on Sonnet while routing bounded extraction,
+        # normalisation and lookup work to the approved Haiku profile.
+        default_sonnet_inference_profile = (
             "arn:aws:bedrock:us-east-1:106611079163:"
             "application-inference-profile/20kstbja9ona"
         )
-        legacy_model = os.environ.get("BEDROCK_MODEL_ID") or default_inference_profile
+        default_fast_inference_profile = (
+            "arn:aws:bedrock:us-east-1:106611079163:"
+            "application-inference-profile/hbq88skix7wt"
+        )
+        default_embedding_inference_profile = (
+            "arn:aws:bedrock:us-east-1:106611079163:"
+            "application-inference-profile/ve7wpqurv75w"
+        )
+        legacy_model = os.environ.get("BEDROCK_MODEL_ID") or default_sonnet_inference_profile
         self.FAST_MODEL_ID = os.environ.get(
             "BEDROCK_FAST_MODEL_ID",
-            legacy_model,
+            default_fast_inference_profile,
         )
         self.ANALYSIS_MODEL_ID = os.environ.get(
             "BEDROCK_ANALYSIS_MODEL_ID",
@@ -81,11 +88,18 @@ class Config:
         )
         self.EDITOR_MODEL_ID = os.environ.get(
             "BEDROCK_EDITOR_MODEL_ID",
-            self.WRITER_MODEL_ID,
+            self.FAST_MODEL_ID,
+        )
+        self.DIAGRAM_REVIEW_MODEL_ID = os.environ.get(
+            "BEDROCK_DIAGRAM_REVIEW_MODEL_ID", self.FAST_MODEL_ID,
         )
         self.FALLBACK_MODEL_ID = os.environ.get(
             "BEDROCK_FALLBACK_MODEL_ID",
             legacy_model,
+        )
+        self.SEMANTIC_SEARCH_EMBEDDING_MODEL_ID = os.environ.get(
+            "SEMANTIC_SEARCH_EMBEDDING_MODEL_ID",
+            default_embedding_inference_profile,
         )
         # Compatibility for older call sites while they migrate to task routing.
         self.MODEL_ID = legacy_model or self.WRITER_MODEL_ID
@@ -123,12 +137,12 @@ class Config:
         
         # Boto3 timeout configuration
         self.BOTO_CONFIG = BotocoreConfig(
-            read_timeout=9000,
+            read_timeout=int(os.getenv("BEDROCK_READ_TIMEOUT_SECONDS", "300")),
             connect_timeout=30,
             # Bedrock can return transient 503 capacity errors after several
             # otherwise successful calls. Standard mode applies exponential
             # backoff with jitter; total_max_attempts includes the first call.
-            retries={'mode': 'standard', 'total_max_attempts': 6}
+            retries={'mode': 'standard', 'total_max_attempts': 3}
         )
         
         # =====================================================================
@@ -224,9 +238,6 @@ class Config:
         
         self.DYNAMODB_TABLE_ACCOUNTS = os.environ.get(
             "DYNAMODB_TABLE_ACCOUNTS", "agentic-sow-v2"
-        )
-        self.DYNAMODB_TABLE_RAG_SCHEMA = os.environ.get(
-            "DYNAMODB_TABLE_RAG_SCHEMA", "rag-schema"
         )
         self.DYNAMODB_TABLE_POC_DOCUMENTS = os.environ.get(
             "DYNAMODB_TABLE_POC_DOCUMENTS", "agentic-poc"
@@ -388,6 +399,7 @@ class Config:
             "diagram_model_id": self.DIAGRAM_MODEL_ID,
             "editor_model_id": self.EDITOR_MODEL_ID,
             "fallback_model_id": self.FALLBACK_MODEL_ID,
+            "semantic_search_embedding_model_id": self.SEMANTIC_SEARCH_EMBEDDING_MODEL_ID,
             "max_tokens": self.MAX_TOKENS,
             "temperature": self.TEMPERATURE
         }
@@ -499,6 +511,7 @@ class Config:
         print(f"  Writer Model: {self.WRITER_MODEL_ID}")
         print(f"  Diagram Model: {self.DIAGRAM_MODEL_ID}")
         print(f"  Fallback Model: {self.FALLBACK_MODEL_ID}")
+        print(f"  Semantic Search Embeddings: {self.SEMANTIC_SEARCH_EMBEDDING_MODEL_ID}")
         print(f"  Max Tokens: {self.MAX_TOKENS}")
         print(f"  Temperature: {self.TEMPERATURE}")
         
@@ -518,7 +531,6 @@ class Config:
         
         print(f"\n✓ DynamoDB Tables:")
         print(f"  Accounts: {self.DYNAMODB_TABLE_ACCOUNTS}")
-        print(f"  RAG Schema: {self.DYNAMODB_TABLE_RAG_SCHEMA}")
         print(f"  POC Documents: {self.DYNAMODB_TABLE_POC_DOCUMENTS}")
         print(f"  S3 Bucket: {self.S3_BUCKET_NAME}")
         

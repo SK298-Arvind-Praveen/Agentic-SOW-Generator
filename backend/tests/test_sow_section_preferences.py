@@ -108,7 +108,7 @@ class SowSectionPreferenceTests(unittest.TestCase):
         agent.sections = agent._parse_template()
 
         def fake_generate(self, section, requirements, metadata, source_context, consistency_notes):
-            return f"Generated content for {section.name}."
+            return f"Deliver the agreed work for {section.name}."
 
         agent._generate_section = MethodType(fake_generate, agent)
         output = agent.generate_poc(
@@ -128,7 +128,7 @@ class SowSectionPreferenceTests(unittest.TestCase):
         self.assertNotIn("aws_pricing", output)
         self.assertNotIn("architecture_diagram", output)
         toc = output["toc_structure"]
-        self.assertIn("Timeline and Deliverables", toc)
+        self.assertIn("Project Timeline", toc)
         self.assertNotIn("AWS Pricing", toc)
         self.assertNotIn("Signatories", toc)
 
@@ -143,7 +143,7 @@ class SowSectionPreferenceTests(unittest.TestCase):
         agent.sections = agent._parse_template()
 
         def fake_generate(self, section, requirements, metadata, source_context, consistency_notes):
-            return f"Generated content for {section.name}."
+            return f"Deliver the agreed work for {section.name}."
 
         agent._generate_section = MethodType(fake_generate, agent)
         output = agent.generate_poc(
@@ -169,11 +169,13 @@ class SowSectionPreferenceTests(unittest.TestCase):
 
         toc = output["toc_structure"]
         self.assertLess(toc.index("AWS Pricing"), toc.index("Objective"))
-        self.assertLess(toc.index("Current State"), toc.index("Scope of Work"))
+        self.assertLess(toc.index("Objective"), toc.index("Scope of Work"))
+        self.assertNotIn("Current State", toc)
 
         output_keys = list(output)
         self.assertLess(output_keys.index("aws_pricing"), output_keys.index("project_overview"))
-        self.assertLess(output_keys.index("current_state_and_business_context"), output_keys.index("scope_of_work"))
+        self.assertLess(output_keys.index("project_overview"), output_keys.index("scope_of_work"))
+        self.assertNotIn("current_state_and_business_context", output)
 
     def test_dynamic_toc_numbers_document_control_and_acceptance(self):
         backend = Path(__file__).resolve().parents[1]
@@ -264,9 +266,7 @@ class SowSectionPreferenceTests(unittest.TestCase):
         )
         self.assertEqual(
             output["about_shellkode"],
-            "**ShellKode** is a cloud-native technology company focused on helping organizations modernize their IT environments through Cloud, Data, AI/ML, and Generative AI. The company works with businesses to build scalable, enterprise-grade solutions that improve operational efficiency, generate insights, and solve complex technology challenges.\n\n"
-            "ShellKode's key capabilities include Cloud Strategy & Consulting, Cloud Migration & Modernization, Data Engineering & Analytics, Machine Learning, Generative AI, and Agentic AI. Its AI offerings include intelligent document processing, RAG-based knowledge systems, AI agents, conversational assistants, speech analytics, computer vision, and multilingual AI solutions.\n\n"
-            "The company works across industries including BFSI, Retail & E-commerce, Logistics & Supply Chain, and Healthcare, delivering solutions that combine cloud infrastructure, enterprise data, and AI. ShellKode also has a strong AWS focus, with capabilities around AWS cloud migration, modernization, and Generative AI solutions.",
+            "ShellKode is a cloud-native company with a global presence, delivering services from multiple strategic locations worldwide. We empower organizations to embrace change, accelerate innovation, and unlock holistic business value by placing Cloud and Data at the core of their digital transformation. At ShellKode, we are committed to continuous improvement and innovation, consistently exploring new ways to leverage modern technologies to drive agility, resilience, and long-term success for our customers.",
         )
 
 

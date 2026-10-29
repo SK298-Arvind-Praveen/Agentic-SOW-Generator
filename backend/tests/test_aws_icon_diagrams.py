@@ -62,8 +62,10 @@ def test_grouped_icon_layout_is_editable_and_static_render_matches_canvas():
         ], "edges": [{"source": "users", "target": "lambda"}, {"source": "lambda", "target": "s3"}],
     }, "Architecture", cmap)
     xml = drawio_xml(spec, registry)
-    assert "data:image/svg+xml;base64," in xml
-    assert "AWS Account" in xml and "Regional managed services" in xml
+    assert "data:image/svg+xml," in xml
+    assert "data:image/svg+xml;base64," not in xml
+    assert "AWS Account" in xml and "Region" in xml and "AWS Region" not in xml
+    assert "__vpc" not in _layout(spec)[1]  # Lambda/S3 alone do not imply a VPC.
     png = render_png(spec, _Config(), registry)
     image = Image.open(io.BytesIO(png))
     assert image.width >= 900 and image.height >= 680
@@ -150,7 +152,8 @@ def test_aws_overview_uses_nested_boundaries_and_semantic_placement():
         ],
     }, "Architecture", cmap)
     positions, boxes, width, height = _layout(spec)
-    assert {"__aws_account", "__region", "__vpc", "__az_a", "__az_b", "__workload", "__managed"} <= set(boxes)
+    assert {"__aws_account", "__region", "__vpc", "__az_a", "__workload", "__managed"} <= set(boxes)
+    assert "__az_b" not in boxes  # No second-zone deployment was specified.
 
     def contains(outer, point):
         ox, oy, ow, oh = outer
@@ -159,7 +162,8 @@ def test_aws_overview_uses_nested_boundaries_and_semantic_placement():
 
     assert contains(boxes["__aws_account"], boxes["__region"])
     assert contains(boxes["__region"], boxes["__vpc"])
-    assert contains(boxes["__vpc"], positions["api"])
+    assert contains(boxes["__managed"], positions["api"])
+    assert not contains(boxes["__vpc"], positions["api"])
     assert contains(boxes["__vpc"], positions["ecs_a"])
     assert contains(boxes["__az_a"], positions["ecs_a"])
     assert contains(boxes["__vpc"], positions["rds"])
@@ -232,7 +236,7 @@ def test_architecture_enrichment_assigns_server_owned_role_and_scope():
     by_id = {node["id"]: node for node in enriched["nodes"]}
     assert by_id["rds"]["placement_role"] == "data" and by_id["rds"]["scope"] == "vpc"
     assert by_id["watch"]["placement_role"] == "operations" and by_id["watch"]["scope"] == "regional"
-    assert by_id["lambda"]["placement_role"] == "compute" and by_id["lambda"]["scope"] == "vpc"
+    assert by_id["lambda"]["placement_role"] == "compute" and by_id["lambda"]["scope"] == "managed"
 
 
 def test_architecture_edges_are_reduced_without_removing_components():
@@ -262,9 +266,17 @@ def test_architecture_edges_are_reduced_without_removing_components():
     ]
     reduced = DiagramService._simplify_architecture_edges(nodes, edges)
     assert len(nodes) == 8
-    assert len(reduced) <= 6
-    assert sum("customer" in (edge["source"], edge["target"]) for edge in reduced) <= 1
+    # Meaningful dependencies survive even when nodes have multiple consumers.
+    assert len(reduced) == 12  # Preserve explicit control dependencies too.
+    assert sum("customer" in (edge["source"], edge["target"]) for edge in reduced) == 2
     labels = [edge["label"].casefold() for edge in reduced if edge.get("label")]
-    assert len(labels) == len(set(labels))
-    assert sum("watch" in (edge["source"], edge["target"]) for edge in reduced) <= 1
-    assert sum("kms" in (edge["source"], edge["target"]) for edge in reduced) <= 1
+    assert labels == [edge['label'].casefold() for edge in edges]
+    assert sum("watch" in (edge["source"], edge["target"]) for edge in reduced) == 2
+    assert sum("kms" in (edge["source"], edge["target"]) for edge in reduced) == 2
+
+def test_short_network_and_identity_labels_resolve_exact_products():
+    from pathlib import Path
+    from app.diagram.aws_icons import AwsIconRegistry
+    registry = AwsIconRegistry(Path(__file__).resolve().parents[1] / 'assets')
+    assert registry.match('AWS IAM')['label'] == 'AWS Identity and Access Management'
+    assert registry.match('Internet Gateway')['label'] == 'Amazon VPC Internet Gateway'

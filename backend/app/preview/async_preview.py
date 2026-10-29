@@ -13,7 +13,7 @@ if _backend_root not in sys.path:
 
 from app.preview.preview_handler import preview_storage, preview_lock, PreviewStatus
 
-def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fast_mode: bool = True):
+def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fast_mode: bool = True, on_complete=None):
     """
     Process preview generation in background thread
     Updates status in real-time with 5 distinct phases
@@ -119,18 +119,28 @@ def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fa
             # Update with final result - Status: Ready
             with preview_lock:
                 if preview_id in preview_storage:
-                    preview_storage[preview_id]["status"] = "ready"
+                    preview_storage[preview_id]["status"] = "draft_pending" if on_complete else "ready"
                     preview_storage[preview_id]["content"] = poc_content
-                    preview_storage[preview_id]["progress"] = 100
-                    preview_storage[preview_id]["current_step"] = "Preview generation complete"
+                    preview_storage[preview_id]["progress"] = 98 if on_complete else 100
+                    preview_storage[preview_id]["current_step"] = "Saving recoverable draft" if on_complete else "Preview generation complete"
                     
                     # Store additional state data
                     preview_storage[preview_id]["final_state"] = final_state
                     preview_storage[preview_id]["token_usage"] = token_usage
                     preview_storage[preview_id]["total_tokens"] = int(token_usage.get("total_tokens") or 0)
+                    preview_storage[preview_id]["ready_at"] = time.time()
+                    preview_storage[preview_id]["last_activity_at"] = time.time()
+                    preview_storage[preview_id].setdefault("auto_draft_enabled", True)
 
                     # Preview stays in memory (preview_storage) - no database persistence needed
                     print(f"✅ Preview stored in memory: {preview_id}")
+
+            if on_complete:
+                try:
+                    on_complete(preview_id, automatic=True)
+                except Exception as save_error:
+                    # Generation remains recoverable; the server autosave monitor retries.
+                    print(f"[DRAFT] Autosave will retry: {save_error}", flush=True)
 
             # Print token usage summary after preview generation
             from app.core.nodes import print_token_summary

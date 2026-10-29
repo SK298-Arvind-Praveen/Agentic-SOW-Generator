@@ -352,12 +352,14 @@ def remove_missing_information_disclaimers(content: str) -> str:
         body = line[len(prefix):]
         clauses = [
             item.strip()
-            for item in re.split(r";\s*|(?<=[.!?])\s+", body)
+            for item in re.split(r"(?<=[;.!?])\s+", body)
             if item.strip()
         ]
         retained = [item for item in clauses if not _MISSING_INFORMATION_LANGUAGE.search(item)]
         if not retained:
             continue
+        if len(retained) < len(clauses) and retained[-1].endswith(';'):
+            retained[-1] = retained[-1][:-1] + '.'
         cleaned.append(prefix + " ".join(retained))
     return clean_markdown_preserving_structure("\n".join(cleaned))
 
@@ -408,11 +410,13 @@ def remove_client_facing_meta_language(content: str) -> str:
         if _CLIENT_FACING_META_LINE.search(value):
             clauses = [
                 item.strip()
-                for item in re.split(r";\s*|(?<=[.!?])\s+", value)
+                for item in re.split(r"(?<=[;.!?])\s+", value)
                 if item.strip() and not _CLIENT_FACING_META_LINE.search(item)
             ]
             if not clauses:
                 continue
+            if clauses[-1].endswith(';'):
+                clauses[-1] = clauses[-1][:-1] + '.'
             prefix = "- " if value.lstrip().startswith("- ") else ""
             value = prefix + " ".join(item.removeprefix("- ").strip() for item in clauses)
 
@@ -428,7 +432,10 @@ def remove_client_facing_meta_language(content: str) -> str:
 def section_quality_issues(content: str, section_name: str = "") -> List[str]:
     issues: List[str] = []
     normalized = clean_markdown_preserving_structure(str(content or ""))
-    if len(normalized) < 80:
+    # A single supported success outcome can be a complete short sentence;
+    # a generic minimum-length gate would encourage padding or invented criteria.
+    is_success = re.sub(r"[^a-z]+", " ", section_name.casefold()).strip() == 'success criteria'
+    if len(normalized) < (12 if is_success else 80):
         issues.append("content is missing or too short")
     lowered = normalized.lower()
     if any(marker in lowered for marker in ("generation failed", "please regenerate", "lorem ipsum")):
@@ -452,12 +459,14 @@ def validate_generated_sections(
         if required_keys is not None
         else REQUIRED_GENERATED_KEYS.get(mode, REQUIRED_GENERATED_KEYS["POC"])
     )
-    missing = sorted(key for key in required if not sections.get(key))
+    missing = sorted(key for key in required if not sections.get(key) and key != 'success_criteria')
     issues: List[str] = []
     for key, value in sections.items():
         if key in {"cover_page", "toc_structure"}:
             continue
         rendered = str(value or "")
+        if key == 'success_criteria' and not rendered.strip():
+            continue  # No supported numerical or functional outcomes: intentional blank.
         for issue in section_quality_issues(rendered, key.replace("_", " ")):
             issues.append(f"{key}: {issue}")
         missing_language = _MISSING_INFORMATION_LANGUAGE.search(rendered)

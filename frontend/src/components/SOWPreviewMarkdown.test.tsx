@@ -8,6 +8,12 @@ import {
 } from './SOWPreviewMarkdown';
 
 describe('SOW preview Markdown', () => {
+  it('renders Gantt activity cells with delivery and support colours', () => {
+    const { container } = render(<MarkdownRenderer markdown={'| S.No | Activity | M1 | M2 |\n|---|---|---|---|\n|1|Build|■||\n|2|Support||◆|'} />);
+    expect(container.querySelectorAll('table')).toHaveLength(1);
+    expect(screen.getByLabelText('Active delivery')).toHaveStyle({ background: '#CCFFCC' });
+    expect(screen.getByLabelText('Support')).toHaveStyle({ background: '#4A86E8' });
+  });
   it('renders headings, emphasis, lists, and tables instead of raw Markdown', () => {
     const markdown = `### 1.1 Organisation Profile
 

@@ -13,7 +13,8 @@ def _safe(value: Any) -> str:
 
 def _money(value: Any) -> str:
     try:
-        return f"{Decimal(str(value)).quantize(Decimal('0.01')):,.2f}"
+        amount = Decimal(str(value))
+        return f"{amount.quantize(Decimal('0.01')):,.2f}" if amount.is_finite() and amount >= 0 else ""
     except (InvalidOperation, ValueError):
         return ""
 
@@ -25,6 +26,14 @@ _CALCULATOR_FIELD_TERMS = (
     "nat gateway", "data transfer out", "log data ingested", "custom metrics",
     "api gateway requests", "step functions state transitions",
 )
+
+
+def _is_workflow_setting(label: str) -> bool:
+    """Business rule deadlines and page sizes are not infrastructure volumes."""
+    return bool(re.search(
+        r'(?i)\b(?:regulatory\s+(?:tat|turnaround)|re[- ]?open(?:ing)?\s+(?:window|period)|'
+        r'(?:escalation|reminder|acknowledg\w*)\s+(?:days?|time|deadlines?|intervals?)|'
+        r'(?:records?|items?|results?|emails?)\s*(?:per|/)\s*page|page\s+size)\b', label))
 
 _CANONICAL_VOLUME_METRICS = (
     ("Annual interaction volume (design point)", ("annual|year", "conversation|interaction|ticket|case|email")),
@@ -52,7 +61,7 @@ def _business_volume_rows(items: Iterable[Any]) -> List[Tuple[str, str]]:
             continue
         metric = _safe(item["metric"])
         value = _safe(item["value"])
-        label = re.sub(r"\s+", " ", metric.casefold())
+        label = re.sub(r"[_\s]+", " ", metric.casefold())
         if any(term in label for term in _CALCULATOR_FIELD_TERMS):
             continue
         candidates.append((metric, value, label))
@@ -68,6 +77,10 @@ def _business_volume_rows(items: Iterable[Any]) -> List[Tuple[str, str]]:
                 matched_value = value
                 used.add(index)
                 break
+        # A share of conversations is not a count of API calls. Preserve the
+        # supplied metric without silently changing its unit or inventing a rate.
+        if display_name == "Backend API calls" and re.search(r"%|\bpercent", matched_value, re.I):
+            display_name = "Interactions requiring backend API calls"
         rows.append((display_name, matched_value))
     return rows
 
@@ -88,130 +101,60 @@ def _calculator_item(result: Dict[str, Any], qualifier: str = "") -> str:
     return "AWS Pricing Calculator" + (f" ({'; '.join(details)})" if details else "")
 
 
-def _blank_cost_lines(result: Dict[str, Any], calculator_value: str = "") -> List[str]:
-    currency = _safe(result.get("currency") or "USD")
-    return [
-        "",
-        "### AWS Cost Summary",
-        "",
-        f"| Item | MRR and ARR in {currency} |",
-        "|---|---:|",
-        f"| {_calculator_item(result)} | {calculator_value} |",
-        "| AWS MRR |  |",
-        "| AWS ARR |  |",
-    ]
-
-
 def render_aws_pricing_section(result: Dict[str, Any]) -> str:
+    """Reference-style monthly summary; no invented environment split or costs."""
     status = str(result.get("status") or "needs_input")
-    lines = []
-    estimate_url = _safe(result.get("estimate_url"))
-    calculator_url = estimate_url or "https://calculator.aws/"
-    lines.append(f"**AWS Pricing Calculator Link:** {calculator_url}")
-
+    currency = _safe(result.get("currency") or "USD")
     region = _safe(result.get("region"))
-    if region:
-        lines.extend([
-            "",
-            f"The AWS estimate is built for the `{region}` region and is based on the "
-            "workload assumptions set out below. Detailed service-level inputs remain editable through "
-            "the AWS Pricing Calculator link.",
-        ])
-
-    if status == "hybrid_priced" and result.get("fallback_estimate"):
-        fallback = result["fallback_estimate"]
-        currency = _safe(result.get("currency") or "USD")
-        calculator_monthly = _money(result.get("calculator_monthly_cost"))
-        monthly = _money(fallback.get("monthly_base"))
-        low = _money(fallback.get("monthly_low"))
-        high = _money(fallback.get("monthly_high"))
-        annual = _money(Decimal(str(fallback.get("monthly_base"))) * 12)
-        priced_count = int(result.get("calculator_priced_services") or 0)
-        planned_count = int(result.get("calculator_planned_services") or 0)
-        cost_lines = [
-            "",
-            "### AWS Cost Summary",
-            "",
-            f"| Item | MRR and ARR in {currency} |",
-            "|---|---:|",
-        ]
-        if calculator_monthly:
-            cost_lines.append(
-                f"| {_calculator_item(result, f'{priced_count} of {planned_count} services priced')} | "
-                f"{currency} {calculator_monthly} per month |"
-            )
-        cost_lines.extend([
-            f"| AWS workload planning range | {currency} {low}–{high} per month |",
-            f"| AWS MRR (planning base case) | {currency} {monthly} |",
-            f"| AWS ARR (planning base case) | {currency} {annual} |",
-        ])
-    elif status == "partial_priced" and result.get("estimate_url"):
-        currency = _safe(result.get("currency") or "USD")
-        calculator_monthly = _money(result.get("calculator_monthly_cost"))
-        priced_count = int(result.get("calculator_priced_services") or 0)
-        planned_count = int(result.get("calculator_planned_services") or 0)
-        cost_lines = [
-            "",
-            "### AWS Cost Summary",
-            "",
-            f"| Item | MRR and ARR in {currency} |",
-            "|---|---:|",
-            f"| {_calculator_item(result, f'{priced_count} of {planned_count} services priced')} | {currency} {calculator_monthly} per month |",
-            "| AWS MRR |  |",
-            "| AWS ARR |  |",
-        ] if calculator_monthly else _blank_cost_lines(result)
-    elif status in {"priced", "url_only"} and result.get("estimate_url"):
-        monthly = _money(result.get("monthly_cost"))
-        if monthly:
-            annual = _money(Decimal(str(result["monthly_cost"])) * 12)
-            currency = _safe(result.get("currency") or "USD")
-            cost_lines = [
-                "",
-                "### AWS Cost Summary",
-                "",
-                f"| Item | MRR and ARR in {currency} |",
-                "|---|---:|",
-                f"| {_calculator_item(result)} | {currency} {monthly} per month |",
-                f"| AWS MRR | {currency} {monthly} |",
-                f"| AWS ARR | {currency} {annual} |",
-            ]
-        else:
-            cost_lines = _blank_cost_lines(result)
-    elif status == "fallback_priced" and result.get("fallback_estimate"):
-        fallback = result["fallback_estimate"]
-        currency = _safe(result.get("currency") or "USD")
-        monthly = _money(fallback.get("monthly_base"))
-        low = _money(fallback.get("monthly_low"))
-        high = _money(fallback.get("monthly_high"))
-        annual = _money(Decimal(str(fallback.get("monthly_base"))) * 12)
-        lines.extend([
-            "",
-            "The cost summary is a non-binding volumetric planning range rather than an AWS quote.",
-        ])
-        cost_lines = [
-            "",
-            "### AWS Cost Summary",
-            "",
-            f"| Item | MRR and ARR in {currency} |",
-            "|---|---:|",
-            f"| AWS Pricing Calculator (workload planning estimate) | {currency} {low}–{high} per month |",
-            f"| AWS MRR (planning base case) | {currency} {monthly} |",
-            f"| AWS ARR (planning base case) | {currency} {annual} |",
-        ]
-    elif status == "stale":
-        cost_lines = _blank_cost_lines(result)
+    url = str(result.get("estimate_url") or "").strip()
+    # Do not label the calculator homepage as a saved estimate.
+    valid_url = bool(re.fullmatch(r"https://calculator\.aws/(?:#?/)?estimate\?id=[A-Za-z0-9_-]+", url))
+    link = f"[AWS Pricing Calculator]({url})" if valid_url else ""
+    # Keep business sizing concise and workload-specific, never ten generic empty rows.
+    metrics = []
+    for item in result.get("volume_metrics") or []:
+        if not isinstance(item, dict) or not item.get("metric") or item.get("value") in (None, ""):
+            continue
+        label, value = _safe(item["metric"]), _safe(item["value"])
+        label = re.sub(r"[_\s]+", " ", label).strip()
+        if any(term in label.casefold() for term in _CALCULATOR_FIELD_TERMS) or _is_workflow_setting(label):
+            continue
+        if re.search(r"backend.*api", label, re.I) and re.search(r"%|\bpercent", value, re.I):
+            label = "Interactions requiring backend API calls"
+        pair = f"{label}: {value}"
+        if pair not in metrics:
+            metrics.append(pair)
+    environment = _environment_summary(result)
+    item = "AWS infrastructure" + (f" ({environment})" if environment else "")
+    rows = []
+    fallback = result.get("fallback_estimate") or {}
+    if status in {"fallback_priced", "hybrid_priced"}:
+        amount = _money(fallback.get("monthly_base"))
+        low, high = _money(fallback.get("monthly_low")), _money(fallback.get("monthly_high"))
+        qualifier = "Workload planning estimate"
+        if status == "hybrid_priced" and link:
+            qualifier += f"; calculator-priced components: {link}"
+        rows.append((item, amount, qualifier))
+    elif status == "partial_priced":
+        # A partial calculator subtotal must never masquerade as the whole workload.
+        rows.append(("Calculator-priced components only", _money(result.get("calculator_monthly_cost")), link))
+        rows.append((item + " total", "", ""))
+    elif status in {"priced", "url_only"}:
+        rows.append((item, _money(result.get("monthly_cost")), link))
     else:
-        cost_lines = _blank_cost_lines(result)
-
-    metric_rows = _business_volume_rows(result.get("volume_metrics") or [])
-    lines.extend([
-        "",
-        "### Estimated Volume Metrics",
-        "",
-        "| Metric | Estimated Volume |",
-        "|---|---:|",
-    ])
-    lines.extend(f"| {metric} | {value} |" for metric, value in metric_rows)
-    lines.extend(cost_lines)
-
+        rows.append((item, "", ""))
+    lines = [f"| Item | Monthly ({currency}) | Estimate |", "|---|---:|---|"]
+    lines.extend(f"| {label} | {amount} | {estimate} |" for label, amount, estimate in rows)
+    lines.extend(['', '| Pricing basis | Details |', '|---|---|'])
+    if region:
+        lines.append(f'| AWS region | {region} |')
+    for metric in metrics[:3]:
+        label, _, value = metric.partition(': ')
+        lines.append(f'| {label} | {value} |')
+    if status in {'fallback_priced', 'hybrid_priced'}:
+        if low and high:
+            lines.append(f'| Monthly planning range | {currency} {low}–{high} |')
+        lines.append('| Estimate basis | Non-binding planning estimate, not an AWS quote. |')
+    if not region and not metrics and status not in {'fallback_priced', 'hybrid_priced'}:
+        lines.append('| AWS region |  |')
     return "\n".join(lines).strip()

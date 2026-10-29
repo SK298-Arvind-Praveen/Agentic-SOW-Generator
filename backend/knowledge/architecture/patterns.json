@@ -1,0 +1,477 @@
+{
+  "schema_version": 1,
+  "library_version": "2026-10-12.2",
+  "patterns": [
+    {
+      "id": "private-batch-call-analytics",
+      "title": "Private batch speech analytics with a separate model lifecycle",
+      "source_type": "user_reference",
+      "source_url": "local:references/kreditbee-batch-call-analytics.png",
+      "image_path": "references/kreditbee-batch-call-analytics.png",
+      "image_sha256": "11129ecef0363de397bacad132eca265398e54ac429e1c0c1e86a638049c4610",
+      "reviewed_on": "2026-10-12",
+      "review_type": "visual_user_reference",
+      "historical": false,
+      "triggers": ["batch call analytics", "post call analytics", "speech analytics", "call recordings", "audio transcription"],
+      "use_when": "Private batch audio processing with transcription, masking, scoring and model inference; reference for structure, not a mandatory stack.",
+      "avoid": "Do not copy the customer name, Mumbai region, instance families, models, two-AZ sizing, retention or existing dashboards into other projects. The picture is a user reference, not AWS-verified architecture. Treat schedule arrows as orchestration control, not audio transfer.",
+      "flow": "Customer-owned recordings -> landing object store -> transcription compute -> masking/scoring compute <-> model inference -> results store -> existing consumer. Model training -> approved model registry -> deployment is a separate lifecycle, with container images distinct from model artifacts.",
+      "layout": "Clear customer/sandbox ownership boundaries; private workload subnets inside VPC; regional S3 and orchestration outside subnets; public egress above workloads only when required. Main batch path centrally, model lifecycle in a lower band, security/monitoring in a compact separate band. Do not connect shared controls merely for appearance.",
+      "deployment_checks": ["Identify private compute and required service endpoints", "Separate approved download egress from network-isolated training", "Show AZ redundancy only when selected in the project design", "Place NAT in public subnets and compute in private subnets where applicable", "Distinguish orchestration control from transcript transfer"],
+      "anchors": ["KreditBee SLM Platform and Batch Call Analytics POC", "AWS Batch nightly jobs", "Model lifecycle"]
+    },
+    {
+      "id": "async-jobs",
+      "title": "Asynchronous job workers",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/autoscaling-async-job-queues/autoscaling-async-job-queues.html",
+      "published": "2021-04-15",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "background jobs",
+        "job queue",
+        "asynchronous jobs",
+        "batch workers"
+      ],
+      "use_when": "Queue-backed work that outlives an HTTP request.",
+      "avoid": "Do not use for a simple synchronous lookup.",
+      "flow": "API → submitter → queue → worker; worker updates job state; client queries status.",
+      "layout": "Keep queue and workers on the main job path; notifications branch from completion; image registry and monitoring belong to supporting controls.",
+      "anchors": [
+        "Amazon SQS",
+        "Amazon ECS"
+      ]
+    },
+    {
+      "id": "transactional-outbox",
+      "title": "Transactional events",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/domain-consistency-event-driven/domain-consistency-event-driven.html",
+      "published": "2022-03-08",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "transactional outbox",
+        "domain events",
+        "eventual consistency"
+      ],
+      "use_when": "Reliable propagation of committed business changes.",
+      "avoid": "Do not introduce event infrastructure for ordinary CRUD alone.",
+      "flow": "Business update and outbox commit together; change capture → event bus → consumer queue → projection.",
+      "layout": "Show producer and consumer ownership separately; relational CDC and database streams are alternatives.",
+      "anchors": [
+        "outbox",
+        "EventBridge"
+      ]
+    },
+    {
+      "id": "external-callback",
+      "title": "External asynchronous API callback",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/invoking-async-external-apis/invoking-async-external-apis.html",
+      "published": "2023-01-30",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "external callback",
+        "task token",
+        "asynchronous external",
+        "third party job"
+      ],
+      "use_when": "A remote job returns later through a callback.",
+      "avoid": "Do not model a synchronous API as a long-running workflow.",
+      "flow": "Workflow submits queued request → external job; callback endpoint → correlation lookup → waiting workflow resumes.",
+      "layout": "Keep outbound submission and callback lanes distinct; preserve correlation and timeout handling.",
+      "anchors": [
+        "task token",
+        "callback"
+      ]
+    },
+    {
+      "id": "graphql-backend",
+      "title": "GraphQL application backend",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/modern-serverless-mobile-web/modern-serverless-mobile-web.html",
+      "published": "2021-05-10",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "graphql",
+        "appsync"
+      ],
+      "use_when": "A selected GraphQL interface resolves multiple backend resources.",
+      "avoid": "Do not add GraphQL to an existing REST-only contract.",
+      "flow": "Authenticated client → GraphQL API → selected resolver → data or application backend.",
+      "layout": "Authentication supports ingress; optional private backend integration is separate from managed API placement.",
+      "anchors": [
+        "AppSync",
+        "Cognito"
+      ]
+    },
+    {
+      "id": "parallel-composition",
+      "title": "Parallel API composition",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/parallel-api-composition/parallel-api-composition.html",
+      "published": "2022-05-17",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "parallel api",
+        "api composition",
+        "aggregate apis",
+        "parallel microservices"
+      ],
+      "use_when": "One response requires independent service calls.",
+      "avoid": "Do not chain independent services or introduce parallelism for dependent steps.",
+      "flow": "Ingress → orchestrator → independent services; results → aggregator → caller.",
+      "layout": "Draw fan-out and merge; caches and circuit breakers are conditional, not mandatory nodes.",
+      "anchors": [
+        "parallel",
+        "Lambda"
+      ]
+    },
+    {
+      "id": "search-backed",
+      "title": "Search-backed application",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/search-backed-applications/search-backed-applications.html",
+      "published": "2022-11-17",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "search index",
+        "search backed",
+        "full text search",
+        "opensearch"
+      ],
+      "use_when": "Indexed search selects records from a separate source of truth.",
+      "avoid": "Do not treat the search index as the transactional authority.",
+      "flow": "Client → query service → search index; selected keys → system of record. Change ingestion updates the index separately.",
+      "layout": "Separate online queries from indexing; optional query enrichment must be justified.",
+      "anchors": [
+        "OpenSearch",
+        "query"
+      ]
+    },
+    {
+      "id": "audio-insights",
+      "title": "Recorded audio processing",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/ai-audio-insight-pipeline/ai-audio-insight-pipeline.html",
+      "published": "2022-06-20",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "audio transcription",
+        "recorded audio",
+        "speech to text",
+        "transcribe"
+      ],
+      "use_when": "Uploaded recordings require transcription or text analysis.",
+      "avoid": "Not a live telephony architecture; excluded voice remains excluded.",
+      "flow": "Audio storage → transcription job → transcript storage → selected text analysis.",
+      "layout": "Keep language translation and downstream analytics optional; do not invent a contact centre.",
+      "anchors": [
+        "Transcribe",
+        "Amazon S3"
+      ]
+    },
+    {
+      "id": "content-moderation",
+      "title": "Media content moderation",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/content-moderation-compliance/content-moderation-compliance.html",
+      "published": "2022-10-28",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "content moderation",
+        "moderate content",
+        "unsafe content"
+      ],
+      "use_when": "A delivered feature checks uploaded media.",
+      "avoid": "Do not add every media modality or model training.",
+      "flow": "Media ingestion → modality-specific analysis → decision storage; uncertain items may route to human review.",
+      "layout": "Branch by actual media type; human review and training labels are distinct optional paths.",
+      "anchors": [
+        "Rekognition",
+        "Textract"
+      ]
+    },
+    {
+      "id": "multi-model",
+      "title": "Parallel model inference",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/multi-model-inference-orchestration/multi-model-inference-orchestration.html",
+      "published": "2022-03-28",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "multi model inference",
+        "multiple model endpoints",
+        "parallel inference"
+      ],
+      "use_when": "Independent deployed models process the same job.",
+      "avoid": "Internal reasoning steps do not justify multiple model deployments.",
+      "flow": "Authenticated API → job storage → workflow fan-out → model endpoints → results; status API reads results.",
+      "layout": "Separate job control from model execution and results access.",
+      "anchors": [
+        "SageMaker",
+        "Step Functions"
+      ]
+    },
+    {
+      "id": "document-speech",
+      "title": "Document to speech",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/readforme/readforme.html",
+      "published": "2022-01-25",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "text to speech",
+        "document to speech",
+        "read aloud"
+      ],
+      "use_when": "Document content is explicitly delivered as audio.",
+      "avoid": "Do not add speech or translation to ordinary document extraction.",
+      "flow": "Client uploads document → workflow → text extraction → selected language processing → speech synthesis → audio storage.",
+      "layout": "Show upload and download paths; omit optional translation when unnecessary.",
+      "anchors": [
+        "Polly",
+        "Textract"
+      ]
+    },
+    {
+      "id": "contact-centre",
+      "title": "Selected AWS contact centre",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/retail-customer-service-contact-center/retail-customer-service-contact-center.html",
+      "published": "2021-12-09",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "amazon connect",
+        "connect contact centre",
+        "connect contact center"
+      ],
+      "use_when": "Amazon Connect is explicitly selected for contact-centre delivery.",
+      "avoid": "Existing Genesys or another agent platform is not permission to replace it.",
+      "flow": "Customer → contact routing → human agent; routing or agent application calls required business APIs.",
+      "layout": "Keep recordings and analytics on supporting branches; preserve external CRM ownership.",
+      "anchors": [
+        "Amazon Connect",
+        "CRM"
+      ]
+    },
+    {
+      "id": "realtime-bff",
+      "title": "Real-time backend for frontend",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/backend-for-frontend-api-gateway/backend-for-frontend-api-gateway.html",
+      "published": "2022-04-27",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "websocket",
+        "backend for frontend",
+        "real time notifications"
+      ],
+      "use_when": "Clients need event-driven updates and a tailored read model.",
+      "avoid": "Do not add persistent connections for ordinary request-response pages.",
+      "flow": "Domain events → consumer → read model; client → query API → read model; changes → push handler → connected client.",
+      "layout": "Separate read path, connection registry and push path.",
+      "anchors": [
+        "WebSocket",
+        "DynamoDB"
+      ]
+    },
+    {
+      "id": "logging",
+      "title": "Centralized log analytics",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/centralized-log-analytics/centralized-log-analytics.html",
+      "published": "2022-11-07",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "centralized logging",
+        "centralised logging",
+        "log analytics",
+        "log ingestion"
+      ],
+      "use_when": "Centralized log analysis is an actual delivery requirement.",
+      "avoid": "Routine monitoring alone does not justify an analytics platform.",
+      "flow": "Log producers → storage → notification queue → transform → search index → dashboards.",
+      "layout": "Use a side lane; business requests do not pass through logging services.",
+      "anchors": [
+        "OpenSearch",
+        "Amazon S3"
+      ]
+    },
+    {
+      "id": "edge-origin",
+      "title": "Protected external origin",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/securing-custom-origins-waf/securing-custom-origins-waf.html",
+      "published": "2022-07-26",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "custom origin",
+        "external origin",
+        "cloudfront waf"
+      ],
+      "use_when": "A CDN fronts a selected external web origin.",
+      "avoid": "Do not invent an external origin or credential rotation workflow.",
+      "flow": "Client → CDN associated with web ACL → protected origin.",
+      "layout": "WAF is an associated control, not a separate application hop; origin protection is distinct from viewer authentication.",
+      "anchors": [
+        "CloudFront",
+        "WAF"
+      ]
+    },
+    {
+      "id": "iot-telemetry",
+      "title": "Device telemetry ingestion",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/connected-home-telemetry/connected-home-telemetry.html",
+      "published": "2021-03-22",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "mqtt",
+        "iot telemetry",
+        "device telemetry"
+      ],
+      "use_when": "Devices publish operational telemetry.",
+      "avoid": "Do not add devices or legacy analytics products to an ordinary web application.",
+      "flow": "Device → MQTT broker → routing rule → operational store; API reads stored telemetry.",
+      "layout": "Separate device ingress and application queries; use only currently selected analytics capabilities.",
+      "anchors": [
+        "IoT Core",
+        "DynamoDB"
+      ]
+    },
+    {
+      "id": "hybrid-files",
+      "title": "Hybrid and partner file ingestion",
+      "source_url": "https://docs.aws.amazon.com/reference-architecture-diagrams/latest/life-sciences-data-collection-storage-processing/life-sciences-data-collection-storage-processing.html",
+      "published": "2022-07-20",
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "datasync",
+        "sftp",
+        "hybrid file",
+        "partner file transfer"
+      ],
+      "use_when": "On-premises or partner files enter cloud storage.",
+      "avoid": "Do not mandate both private connectivity and internet transfer.",
+      "flow": "On-premises files → transfer service → object storage; partner SFTP is an alternative ingress.",
+      "layout": "Show ownership boundaries; processing branches and specialist file systems require separate justification.",
+      "anchors": [
+        "DataSync",
+        "Transfer Family"
+      ]
+    },
+    {
+      "id": "knowledge-retrieval",
+      "title": "Grounded knowledge retrieval",
+      "source_url": "https://docs.aws.amazon.com/prescriptive-guidance/latest/retrieval-augmented-generation-options/rag-fully-managed-bedrock.html",
+      "published": null,
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "knowledge base",
+        "retrieval augmented",
+        "rag",
+        "grounded answers",
+        "document retrieval"
+      ],
+      "use_when": "Answers must use a selected document knowledge source.",
+      "avoid": "Not every chatbot needs a vector store; select one supported retrieval implementation.",
+      "flow": "Documents → chunking and embeddings → retrieval index; query → retriever → relevant passages → answer model.",
+      "layout": "Separate offline ingestion from online answering; managed retrieval and custom orchestration are alternatives.",
+      "anchors": [
+        "RetrieveAndGenerate",
+        "Retrieve"
+      ]
+    },
+    {
+      "id": "agent-runtime",
+      "title": "Tool-using agent runtime",
+      "source_url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/what-is-bedrock-agentcore.html",
+      "published": null,
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "agentcore",
+        "tool using agent",
+        "agent tools",
+        "agentic workflow"
+      ],
+      "use_when": "An agent invokes permitted tools through a selected runtime.",
+      "avoid": "Do not replace an agreed runtime or add every AgentCore capability.",
+      "flow": "Caller → agent runtime; runtime invokes model and authorized tools; tool results return to the runtime.",
+      "layout": "Model and tools are runtime dependencies, not a fabricated serial chain; memory and gateways are optional.",
+      "anchors": [
+        "Runtime",
+        "Gateway"
+      ]
+    },
+    {
+      "id": "container-ingress",
+      "title": "Container application ingress",
+      "source_url": "https://docs.aws.amazon.com/AmazonECS/latest/developerguide/networking-inbound.html",
+      "published": null,
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "fargate",
+        "ecs",
+        "container hosting",
+        "containerized application",
+        "containerised application"
+      ],
+      "use_when": "A container workload needs an inbound application interface.",
+      "avoid": "Do not stack ALB, NLB and API Gateway by default.",
+      "flow": "Client → selected ingress → container service → required dependencies.",
+      "layout": "An ALB belongs to one VPC across selected subnets, not between VPCs; private tasks and managed services have different boundaries.",
+      "anchors": [
+        "Application Load Balancer",
+        "private"
+      ]
+    },
+    {
+      "id": "async-documents",
+      "title": "Asynchronous document extraction",
+      "source_url": "https://docs.aws.amazon.com/textract/latest/dg/api-async.html",
+      "published": null,
+      "reviewed_on": "2026-10-12",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "textract",
+        "ocr",
+        "document extraction",
+        "multipage documents",
+        "document processing"
+      ],
+      "use_when": "Document analysis needs an asynchronous job lifecycle.",
+      "avoid": "Do not route already structured records through OCR.",
+      "flow": "Stored document → start analysis; completion topic → queue or handler → fetch analysis results.",
+      "layout": "Separate job submission, completion notification and result retrieval; notification targets are alternatives.",
+      "anchors": [
+        "SNS",
+        "SQS"
+      ]
+    }
+  ]
+}

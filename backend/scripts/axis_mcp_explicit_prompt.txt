@@ -1,0 +1,15 @@
+Create a compact AWS solution architecture diagram for Axis Securities CRM integration.
+
+Outside the AWS Cloud boundary, show I-Leverage as the legacy source, Cisco Telephony as the call-event source, and Connect CRM as the existing target application. Connect CRM is not Amazon Connect.
+
+Inside AWS Cloud, create a nested Region group containing Amazon S3, AWS Glue, Amazon API Gateway, AWS Lambda and Amazon Bedrock. Use real nested diagram clusters, not icons representing boundaries.
+
+Show historical migration as I-Leverage -> Amazon S3 -> AWS Glue -> AWS Lambda -> Connect CRM. S3 stores exported records and attachments; Glue reads and transforms them; Lambda imports the transformed records through the CRM API.
+
+Show call integration as Cisco Telephony -> Amazon API Gateway -> a call-integration AWS Lambda -> Connect CRM. Show AI drafting as Connect CRM -> Amazon API Gateway -> a separate compose-assist AWS Lambda -> Amazon Bedrock. Preserve separate business responsibilities and least-privilege function permissions; do not force functions into one service icon. Keep the visible service labels AWS Lambda and distinguish responsibilities with the paths. Do not draw separate response arrows for synchronous requests.
+
+Place AWS Secrets Manager, AWS KMS and Amazon CloudWatch together in a small Security and Monitoring group inside Region, away from the main processing path. Place AWS IAM at account/global scope outside Region. Do not connect every control to every service.
+
+Keep the main data path left-to-right, with short branches for call integration and AI drafting. Use official service names below icons, concise edge labels, white backgrounds and ample spacing. Do not add databases, queues, additional compute services or decorative VPCs/subnets.
+
+This logical design assumes exported legacy data and authenticated HTTPS interfaces for Cisco and Connect CRM; these are design assumptions, not confirmed BRD facts. Check AWS documentation for the selected services and read relevant pages before creating the diagram. If a technical incompatibility is found, explain it rather than silently expanding the architecture.

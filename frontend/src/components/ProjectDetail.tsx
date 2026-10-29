@@ -21,6 +21,7 @@ import apiService from '../services/apiService';
 import { downloadWithNativeSaveAs } from '../utils/downloadFile';
 import { formatTokenCount } from '../utils/tokenUsage';
 import { formatDocumentDateTime, sowDownloadFilename } from '../utils/documentPresentation';
+import { useAuth } from '../contexts/AuthContext';
 import SOWGenerator from './SOWGenerator';
 import './ProjectDetail.css';
 
@@ -52,6 +53,7 @@ type SOWMode = 'POC' | 'PROD' | 'POC_TO_PROD';
 const ProjectDetail: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
   const [project, setProject] = useState<Project | null>(null);
   const [account, setAccount] = useState<any>(null);
   const [sows, setSOWs] = useState<SOW[]>([]);
@@ -589,13 +591,15 @@ const ProjectDetail: React.FC = () => {
           <div className="sows-list">
             {getFilteredSOWs().map((sow) => (
               <div key={sow.sow_id} className="sow-card">
-                <button
-                  className="delete-sow-btn"
-                  onClick={(e) => handleDeleteSOWClick(sow, e)}
-                  title="Delete SOW"
-                >
-                  <Trash2 size={16} />
-                </button>
+                {isAdmin && (
+                  <button
+                    className="delete-sow-btn"
+                    onClick={(e) => handleDeleteSOWClick(sow, e)}
+                    title="Permanently delete SOW"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
                 <div className="sow-card-content">
                   <div className="sow-card-icon" style={{ backgroundColor: `${getModeColor(sow.mode)}20` }}>
                     <FileText size={24} color={getModeColor(sow.mode)} />
@@ -665,7 +669,7 @@ const ProjectDetail: React.FC = () => {
       </div>
 
       {/* Delete SOW Confirmation Modal */}
-      {showDeleteSOWModal && sowToDelete && (
+      {isAdmin && showDeleteSOWModal && sowToDelete && (
         <div className="modal-overlay" onClick={() => setShowDeleteSOWModal(false)}>
           <div className="modal-content delete-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">

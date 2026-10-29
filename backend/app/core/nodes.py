@@ -90,6 +90,11 @@ def clear_token_usage(run_id: str) -> None:
         _token_usage_by_run.pop(str(run_id or _DEFAULT_TOKEN_RUN), None)
 
 
+def _section_progress_label(section_name: str) -> str:
+    """Drop document numbering, not numbers that are part of a section title."""
+    return re.sub(r"^\s*(?:\d+(?:\.\d+)*[.)]\s+|\d+(?:\.\d+)*\s+[-–—:]\s*)", "", str(section_name)).strip()
+
+
 def _report_progress(state: AgentState, progress: int, step: str) -> None:
     """Publish a real workflow milestone when preview generation supplied a reporter."""
     callback = state.get("progress_callback")
@@ -163,41 +168,12 @@ def poc_ingestion_node(state: AgentState) -> AgentState:
     Ingest existing POC file (PDF/DOCX) for POC_TO_PROD mode
     ENHANCED: Uses improved doc_reader with OCR support and LLM metadata extraction
     FIXED: Now properly extracts requirements when content extraction succeeds
-    UPDATED: Creates RAG context from ingested document for enhanced generation
+    Preserves the uploaded document as supporting context for generation.
     """
     print(f"\n--- Step: Ingesting POC Document ---")
     source_file = state.get('source_file')
-    
-    # Handle POC table conversion (no source file needed)
     if not source_file:
-        print(f"⊝ No source file provided - checking for POC table conversion...")
-        
-        # Check if this is a POC table conversion
-        metadata = state.get('metadata', {})
-        rag_context = state.get('rag_context', {})
-        
-        if rag_context and rag_context.get('rag_data'):
-            print(f"✅ POC table conversion detected - using RAG data")
-            print(f"   Company: {metadata.get('company_name', 'N/A')}")
-            print(f"   Project: {metadata.get('project_title', 'N/A')}")
-            
-            # Use RAG data as the "ingested" content
-            analyzed_requirements = {
-                "source": "poc_table_conversion",
-                "company_name": metadata.get('company_name'),
-                "project_title": metadata.get('project_title'),
-                "rag_data": rag_context.get('rag_data'),
-                "conversion_type": "poc_to_production",
-                "content_extracted": True
-            }
-            
-            return {
-                "analyzed_requirements": analyzed_requirements,
-                "current_step": "ingestion_complete"
-            }
-        else:
-            print(f"❌ Error: No source file and no RAG data for POC table conversion")
-            return {"errors": ["POC_TO_PROD requires either source file or existing POC data"]}
+        raise ValueError("POC_TO_PROD requires an existing POC document as source_file")
     
     try:
         # Enhanced file-based ingestion using improved doc_reader
@@ -312,32 +288,6 @@ def poc_ingestion_node(state: AgentState) -> AgentState:
             'timezone': extracted_metadata.get('timezone', 'IST')
         }
         
-        # Create RAG context from ingested document
-        print(f"\n📋 Creating RAG context from ingested document...")
-        rag_context = {
-            "rag_data": {
-                "unique_use_cases": requirements.get('key_features', []),
-                "unique_technical_components": requirements.get('technical_stack', []),
-                "unique_data_sources": [],
-                "unique_integrations": requirements.get('integration_details', requirements.get('integrations', [])),
-                "unique_success_criteria": requirements.get('success_metrics', []),
-                "unique_challenges_addressed": [],
-                "unique_data_flow": {},
-                "unique_aws_service_usage": requirements.get('aws_services', []),
-                "unique_data_retention": {},
-                "unique_team_expertise_required": [],
-                "extracted_content": content  # Include the full extracted document content
-            },
-            "retrieval_success": True,
-            "schema_type": "POC_TO_PROD",
-            "source": "ingested_document"
-        }
-        
-        print(f"✅ RAG context created from ingested document:")
-        print(f"   Use Cases: {len(rag_context['rag_data']['unique_use_cases'])}")
-        print(f"   Technical Components: {len(rag_context['rag_data']['unique_technical_components'])}")
-        print(f"   AWS Services: {len(rag_context['rag_data']['unique_aws_service_usage'])}")
-        
         # Print final extraction summary
         print(f"\n📋 FINAL EXTRACTED INFORMATION:")
         print(f"   ✓ Company: {final_metadata['company_name']}")
@@ -347,7 +297,7 @@ def poc_ingestion_node(state: AgentState) -> AgentState:
         print(f"   ✓ Date: {final_metadata['document_date']}")
         print(f"   ✓ Content length: {len(content)} characters")
         
-        # Return state with extracted data and RAG context
+        # Return extracted requirements and the original source evidence
         state_update = {
             "metadata": final_metadata,
             "analyzed_requirements": requirements,
@@ -355,7 +305,7 @@ def poc_ingestion_node(state: AgentState) -> AgentState:
             "current_step": "ingest",
             "poc_original_content": content,
             "production_enhancements": {},
-            "rag_context": rag_context  # Add RAG context from ingested document
+            "supporting_context": "\n\n".join(filter(None, [state.get("supporting_context"), content]))
         }
         
         return state_update
@@ -1213,7 +1163,7 @@ def analyze_objective_node(state: AgentState) -> AgentState:
             print(f"   AWS Services: {len(analyzed_requirements.get('aws_services', []))}")
             print(f"   Tech Stack: {len(analyzed_requirements.get('technical_stack', []))}")
         else:
-            print(f"✅ Using RAG-based requirements for production conversion")
+            print(f"✅ Using extracted requirements for production conversion")
         
         _report_progress(state, 45, "Requirements extracted from source document")
         return {"current_step": "analyze"}
@@ -1495,10 +1445,13 @@ def content_generation_node(state: AgentState) -> AgentState:
         aws_services_count = len(final_requirements.get('aws_services', []))
         print(f"   Requirements: {features_count} features, {aws_services_count} AWS services")
     
-    poc_writer = POCWriterAgent(config, template_type=template_type)
+    poc_writer = POCWriterAgent(
+        config,
+        template_type=template_type,
+        custom_template_markdown=state.get("custom_template_markdown"),
+        custom_template_sections=state.get("custom_template_sections"),
+    )
     
-    # Get RAG context for enhanced generation
-    rag_context = state.get('rag_context')
 
     # Get supporting context if available
     supporting_context = state.get('supporting_context')
@@ -1508,16 +1461,16 @@ def content_generation_node(state: AgentState) -> AgentState:
     poc_content = poc_writer.generate_poc(
         requirements=final_requirements,
         metadata=metadata,
-        rag_context=rag_context,
         supporting_context=supporting_context,
         selected_sow_sections=state.get('selected_sow_sections'),
         scope_architecture_plan=state.get('scope_architecture_plan'),
         refinement_plan=state.get('refinement_plan'),
+        phase_callback=lambda message: _report_progress(state, 93, message),
         progress_callback=(
             lambda completed, total, section_name: _report_progress(
                 state,
                 72 + round((completed / max(total, 1)) * 20),
-                f"Generated section {completed} of {total}: {section_name}",
+                f"Generated section {completed} of {total}: {_section_progress_label(section_name)}",
             )
         ),
     )
@@ -1533,19 +1486,23 @@ def content_generation_node(state: AgentState) -> AgentState:
             or poc_content.get('architecture_integrations')
             or ''
         )
-        if architecture_narrative:
-            try:
-                print("   🎨 Generating editable architecture diagram...")
-                diagram_assets = DiagramService(config).generate_assets(
-                    final_requirements,
-                    metadata,
-                    str(architecture_narrative),
-                )
-                poc_content[ARCHITECTURE_ASSETS_KEY] = diagram_assets
-                print(f"   ✅ {len(diagram_assets)} architecture diagram(s) generated")
-            except Exception as exc:
-                # A visual is an enhancement, not a document-generation gate.
-                print(f"   ⚠ Architecture diagram omitted without blocking the SOW: {exc}")
+        try:
+            print("   🎨 Generating editable architecture diagram...")
+            _report_progress(state, 94, 'Generating and rendering solution diagrams')
+            from app.core.authoring_context import boundary_summary
+            diagram_requirements = dict(final_requirements)
+            diagram_requirements['architecture_source_context'] = state.get('supporting_context') or state.get('objective') or ''
+            diagram_requirements['scope_boundaries'] = boundary_summary(state.get('scope_architecture_plan') or {})
+            diagram_assets = DiagramService(config).generate_assets(
+                diagram_requirements, metadata, str(architecture_narrative))
+            poc_content[ARCHITECTURE_ASSETS_KEY] = diagram_assets
+            ready_count = sum(bool(asset.get('image_base64')) for asset in diagram_assets)
+            print(f"   [DIAGRAM] {ready_count} validated image(s); recovery available in preview")
+        except Exception as exc:
+            # Keep all text and a recovery control even when planning/rendering fails.
+            print(f"   ⚠ Architecture diagram requires regeneration: {exc}")
+            from app.diagram.reliability import unavailable_asset
+            poc_content[ARCHITECTURE_ASSETS_KEY] = [unavailable_asset(str(exc))]
 
     print(f"✅ Content generation completed")
     
@@ -1554,7 +1511,7 @@ def content_generation_node(state: AgentState) -> AgentState:
 
 def pdf_build_node(state: AgentState) -> AgentState:
     """Build DOCX document using temporary files (cloud-only mode)"""
-    print(f"\n--- Step: Building Document (DOCX Primary, PDF for RAG) ---")
+    print(f"\n--- Step: Building Document (DOCX Primary) ---")
     poc_content = state['poc_content']
     metadata = state['metadata']
     mode = state.get('mode', 'POC')
@@ -1576,7 +1533,11 @@ def pdf_build_node(state: AgentState) -> AgentState:
             cleaned_content[section_key] = content
             continue
         if content:
-            cleaned_content[section_key] = _clean_final_content(str(content))
+            if section_key in {"service_agreement", "change_order", "project_plan_termination", "marketing_authorization", "terms_conditions", "about_shellkode"}:
+                cleaned_content[section_key] = str(content)
+            else:
+                from app.core.sow_editorial import strip_bullet_leadins
+                cleaned_content[section_key] = strip_bullet_leadins(_clean_final_content(str(content)))
         else:
             cleaned_content[section_key] = content
     
@@ -1632,7 +1593,6 @@ def pdf_build_node(state: AgentState) -> AgentState:
                     'mode': state.get('mode'),
                     'generation_timestamp': datetime.now().isoformat(),
                     'source_file': state.get('source_file'),
-                    'rag_context': state.get('rag_context', {}).get('retrieval_success', False)
                 }
                 
                 print(f"✅ Document build completed")
@@ -1752,7 +1712,6 @@ def pdf_build_node(state: AgentState) -> AgentState:
                 'mode': state.get('mode'),
                 'generation_timestamp': datetime.now().isoformat(),
                 'source_file': state.get('source_file'),
-                'rag_context': state.get('rag_context', {}).get('retrieval_success', False),
                 'emergency_mode': True,
                 'error': str(e)
             }

@@ -53,7 +53,6 @@ def table_definitions():
     """Return DynamoDB definitions for all application tables."""
     accounts_table = os.getenv("DYNAMODB_TABLE_ACCOUNTS", "agentic-sow-v2")
     documents_table = os.getenv("DYNAMODB_TABLE_POC_DOCUMENTS", "agentic-poc")
-    rag_table = os.getenv("DYNAMODB_TABLE_RAG_SCHEMA", "rag-schema")
     rbac_table = os.getenv("DYNAMODB_TABLE_RBAC", "agentic-sow-rbac")
 
     return [
@@ -149,36 +148,6 @@ def table_definitions():
                     "IndexName": "task-index",
                     "KeySchema": [
                         {"AttributeName": "task_id", "KeyType": "HASH"},
-                        {"AttributeName": "timestamp", "KeyType": "RANGE"},
-                    ],
-                    "Projection": {"ProjectionType": "ALL"},
-                },
-            ],
-        },
-        {
-            "TableName": rag_table,
-            "KeySchema": [
-                {"AttributeName": "document_id", "KeyType": "HASH"},
-            ],
-            "AttributeDefinitions": [
-                {"AttributeName": "document_id", "AttributeType": "S"},
-                {"AttributeName": "client_name_lower", "AttributeType": "S"},
-                {"AttributeName": "mode", "AttributeType": "S"},
-                {"AttributeName": "timestamp", "AttributeType": "S"},
-            ],
-            "GlobalSecondaryIndexes": [
-                {
-                    "IndexName": "client-project-mode-index",
-                    "KeySchema": [
-                        {"AttributeName": "client_name_lower", "KeyType": "HASH"},
-                        {"AttributeName": "mode", "KeyType": "RANGE"},
-                    ],
-                    "Projection": {"ProjectionType": "ALL"},
-                },
-                {
-                    "IndexName": "mode-index",
-                    "KeySchema": [
-                        {"AttributeName": "mode", "KeyType": "HASH"},
                         {"AttributeName": "timestamp", "KeyType": "RANGE"},
                     ],
                     "Projection": {"ProjectionType": "ALL"},

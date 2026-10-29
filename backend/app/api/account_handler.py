@@ -710,13 +710,18 @@ class AccountHandler:
 
             # 1. Find the SOW entry in agentic-sow-v2 using a query on the GSI or scan by sow_db_id.
             #    We query all SOW# items and filter — avoids full-table scan.
-            response = self.table.scan(
-                FilterExpression=Attr('SK').begins_with('SOW#') & (
+            scan_args = {
+                'FilterExpression': Attr('SK').begins_with('SOW#') & (
                     Attr('sow_db_id').eq(sow_id) | Attr('sow_id').eq(sow_id)
                 )
-            )
-
-            items = response.get('Items', [])
+            }
+            items = []
+            while True:
+                response = self.table.scan(**scan_args)
+                items.extend(response.get('Items', []))
+                if items or not response.get('LastEvaluatedKey'):
+                    break
+                scan_args['ExclusiveStartKey'] = response['LastEvaluatedKey']
             if not items:
                 print(f"⚠️  SOW {sow_id} not found in agentic-sow-v2")
                 # Still try to delete from agentic-poc and S3

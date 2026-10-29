@@ -23,7 +23,7 @@ import {
 import apiService from '../services/apiService';
 import '../styles/modern-theme.css';
 import './Accounts.css';
-import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Account {
   account_id: string;
@@ -50,15 +50,12 @@ interface Statistics {
 const Accounts: React.FC = () => {
   const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
-  const selectableBusinessUnits = isAdmin ? BUSINESS_UNITS : (user?.business_units || []);
-  const showBusinessUnit = isAdmin || selectableBusinessUnits.length > 1;
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [statistics, setStatistics] = useState<Statistics | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [segmentFilter, setSegmentFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
-  const [businessUnitFilter, setBusinessUnitFilter] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -78,7 +75,7 @@ const Accounts: React.FC = () => {
 
   useEffect(() => {
     fetchAccounts();
-  }, [segmentFilter, priorityFilter, businessUnitFilter]);
+  }, [segmentFilter, priorityFilter]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -101,11 +98,10 @@ const Accounts: React.FC = () => {
       const params: any = {};
       if (segmentFilter) params.segment = segmentFilter;
       if (priorityFilter) params.priority = priorityFilter;
-      if (showBusinessUnit && businessUnitFilter) params.business_unit = businessUnitFilter;
 
       const [accountsRes, statsRes] = await Promise.all([
         apiService.fetchAccounts(params),
-        apiService.fetchAccountStatistics(showBusinessUnit ? businessUnitFilter : undefined)
+        apiService.fetchAccountStatistics(undefined)
       ]);
 
       if (accountsRes.success) setAccounts(accountsRes.accounts || []);
@@ -370,12 +366,6 @@ const Accounts: React.FC = () => {
         </div>
 
         <div className="filter-controls">
-          {showBusinessUnit && (
-            <select value={businessUnitFilter} onChange={(e) => setBusinessUnitFilter(e.target.value)} className="filter-select">
-              <option value="">All Business Units</option>
-              {selectableBusinessUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}
-            </select>
-          )}
           <button
             className={`filter-btn ${showFilters ? 'active' : ''}`}
             onClick={() => setShowFilters(!showFilters)}
@@ -419,7 +409,6 @@ const Accounts: React.FC = () => {
           <thead>
             <tr>
               <th>Account Name</th>
-              {showBusinessUnit && <th>Business Unit</th>}
               <th>Segment</th>
               <th>Priority</th>
               <th>Projects</th>
@@ -432,7 +421,7 @@ const Accounts: React.FC = () => {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={showBusinessUnit ? 9 : 8} className="loading-cell">Loading accounts...</td>
+                <td colSpan={8} className="loading-cell">Loading accounts...</td>
               </tr>
             ) : getFilteredAccounts().length > 0 ? (
               getFilteredAccounts().map((account) => (
@@ -442,7 +431,6 @@ const Accounts: React.FC = () => {
                   className="account-row"
                 >
                   <td className="account-name-cell">{account.account_name}</td>
-                  {showBusinessUnit && <td>{account.business_unit || 'Unassigned'}</td>}
                   <td>
                     <span
                       className="segment-badge"
@@ -494,7 +482,7 @@ const Accounts: React.FC = () => {
               ))
             ) : (
               <tr>
-                <td colSpan={showBusinessUnit ? 9 : 8} className="no-data-cell">No accounts found</td>
+                <td colSpan={8} className="no-data-cell">No accounts found</td>
               </tr>
             )}
           </tbody>
@@ -527,20 +515,6 @@ const Accounts: React.FC = () => {
                 </div>
 
                 <div className="form-row">
-                  {showBusinessUnit && (
-                    <div className="form-group">
-                      <label>Business Unit *</label>
-                      <select
-                        value={formData.business_unit}
-                        onChange={(e) => setFormData({ ...formData, business_unit: e.target.value })}
-                        className="form-select"
-                        required
-                      >
-                        <option value="">Select business unit...</option>
-                        {selectableBusinessUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}
-                      </select>
-                    </div>
-                  )}
                   <div className="form-group">
                     <label>Segment</label>
                     <select

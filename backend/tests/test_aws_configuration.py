@@ -7,7 +7,6 @@ from app.api.account_handler import AccountHandler
 from app.core.config import Config
 from app.db.dynamodb_handler_optimized import (
     DynamoDBHandlerOptimized,
-    RAGSchemaHandlerOptimized,
 )
 from scripts.setup_dynamodb_table import resource_tags, table_definitions
 
@@ -18,9 +17,10 @@ class AWSConfigurationTests(unittest.TestCase):
             "AWS_REGION": "ap-south-1",
             "BEDROCK_REGION": "us-east-1",
             "BEDROCK_MODEL_ID": "test.inference-profile",
+            "BEDROCK_FAST_MODEL_ID": "test.haiku-profile",
+            "SEMANTIC_SEARCH_EMBEDDING_MODEL_ID": "test.titan-profile",
             "DYNAMODB_TABLE_ACCOUNTS": "test-accounts",
             "DYNAMODB_TABLE_POC_DOCUMENTS": "test-documents",
-            "DYNAMODB_TABLE_RAG_SCHEMA": "test-rag",
             "DYNAMODB_TABLE_RBAC": "test-rbac",
             "S3_BUCKET_NAME": "test-sow-bucket",
         }
@@ -32,26 +32,24 @@ class AWSConfigurationTests(unittest.TestCase):
         self.assertEqual(config.AWS_REGION, "ap-south-1")
         self.assertEqual(config.BEDROCK_REGION, "us-east-1")
         self.assertEqual(config.MODEL_ID, "test.inference-profile")
+        self.assertEqual(config.FAST_MODEL_ID, "test.haiku-profile")
+        self.assertEqual(
+            config.SEMANTIC_SEARCH_EMBEDDING_MODEL_ID, "test.titan-profile"
+        )
         self.assertEqual(config.DYNAMODB_TABLE_ACCOUNTS, "test-accounts")
         self.assertEqual(config.DYNAMODB_TABLE_POC_DOCUMENTS, "test-documents")
-        self.assertEqual(config.DYNAMODB_TABLE_RAG_SCHEMA, "test-rag")
         self.assertEqual(config.DYNAMODB_TABLE_RBAC, "test-rbac")
         self.assertEqual(config.S3_BUCKET_NAME, "test-sow-bucket")
 
     @patch("app.db.dynamodb_handler_optimized.boto3.resource")
-    def test_document_and_rag_handlers_use_environment(self, resource):
+    def test_document_handler_uses_environment(self, resource):
         with patch.dict(os.environ, self.environment, clear=False):
             documents = DynamoDBHandlerOptimized()
             document_call = resource.call_args
-            rag = RAGSchemaHandlerOptimized()
-            rag_call = resource.call_args
 
         self.assertEqual(documents.table_name, "test-documents")
         self.assertEqual(document_call.kwargs["region_name"], "ap-south-1")
-        self.assertEqual(rag.table_name, "test-rag")
-        self.assertEqual(rag_call.kwargs["region_name"], "ap-south-1")
         resource.return_value.Table.assert_any_call("test-documents")
-        resource.return_value.Table.assert_any_call("test-rag")
 
     @patch("app.api.account_handler.boto3.resource")
     def test_account_handler_uses_environment(self, resource):
@@ -78,15 +76,11 @@ class AWSConfigurationTests(unittest.TestCase):
             }
 
         self.assertEqual(
-            set(definitions), {"test-accounts", "test-documents", "test-rag", "test-rbac"}
+            set(definitions), {"test-accounts", "test-documents", "test-rbac"}
         )
         document_indexes = {
             index["IndexName"]
             for index in definitions["test-documents"]["GlobalSecondaryIndexes"]
-        }
-        rag_indexes = {
-            index["IndexName"]
-            for index in definitions["test-rag"]["GlobalSecondaryIndexes"]
         }
         self.assertEqual(
             document_indexes,
@@ -97,9 +91,6 @@ class AWSConfigurationTests(unittest.TestCase):
                 "mode-index",
                 "task-index",
             },
-        )
-        self.assertEqual(
-            rag_indexes, {"client-project-mode-index", "mode-index"}
         )
 
     def test_setup_supplies_organisation_required_creation_tags(self):

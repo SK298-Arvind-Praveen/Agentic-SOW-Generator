@@ -1,0 +1,11 @@
+{
+  "name": "sow-drawio-renderer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local official draw.io MCP adapter; desktop export is handled by Python",
+  "dependencies": {
+    "@drawio/mcp": "1.10.0",
+    "@modelcontextprotocol/sdk": "1.27.1"
+  }
+}

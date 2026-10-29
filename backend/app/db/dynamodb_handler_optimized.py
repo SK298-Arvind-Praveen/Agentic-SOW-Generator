@@ -35,6 +35,7 @@ import boto3
 import os
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from dotenv import load_dotenv
 from typing import List, Dict, Optional
@@ -78,6 +79,7 @@ class DynamoDBHandlerOptimized:
             response = self.table.query(
                 KeyConditionExpression='document_id = :document_id',
                 ExpressionAttributeValues={':document_id': str(document_id)},
+                ConsistentRead=True,
                 ScanIndexForward=False,
                 Limit=1,
             )
@@ -378,7 +380,7 @@ class DynamoDBHandlerOptimized:
 
     def save_document_metadata(self, metadata, s3_url, s3_result=None, drive_link=None, 
                               keep_duplicates=2, task_id=None, auto_version=True, 
-                              account_id=None, project_id=None):
+                              account_id=None, project_id=None, existing_document_id=None):
         """
         ✅ ENHANCED: Save document metadata WITH auto-versioning per project + mode
         
@@ -432,7 +434,14 @@ class DynamoDBHandlerOptimized:
                 print(f"   ✓ Drive Link: {drive_link[:50]}...")
 
             # ✅ AUTO-VERSION: Calculate next version for this project + mode
-            if auto_version:
+            existing = self.get_document_by_id(existing_document_id) if existing_document_id else None
+            if existing_document_id and (not existing or existing.get("status") != "draft"):
+                raise ValueError("The draft no longer exists or has already been completed")
+            if existing and existing.get("owner_email") != metadata.get("owner_email"):
+                raise ValueError("Draft ownership cannot be changed")
+            if existing:
+                version = existing["version"]
+            elif auto_version:
                 version = self.get_next_version(company_name, project_name, mode)
             else:
                 version = metadata.get('version', 'v1')
@@ -448,8 +457,8 @@ class DynamoDBHandlerOptimized:
             cleanup_result = None
 
             # Save new document
-            document_id = self.generate_document_id()
-            timestamp = datetime.now().isoformat()
+            document_id = existing_document_id or self.generate_document_id()
+            timestamp = existing["timestamp"] if existing else datetime.now().isoformat()
 
             item = {
                 "document_id": document_id,
@@ -470,7 +479,12 @@ class DynamoDBHandlerOptimized:
                 "business_unit": metadata.get("business_unit"),
                 "owner_email": metadata.get("owner_email"),
                 "owner_name": metadata.get("owner_name"),
+                "status": str(metadata.get("status") or "completed").lower(),
             }
+            if metadata.get("draft_preview_s3_url"):
+                item["draft_preview_s3_url"] = str(metadata["draft_preview_s3_url"])
+            if metadata.get("preview_id"):
+                item["preview_id"] = str(metadata["preview_id"])
             if metadata.get("total_tokens") is not None:
                 item["total_tokens"] = int(metadata.get("total_tokens") or 0)
             if metadata.get("token_usage"):
@@ -486,8 +500,30 @@ class DynamoDBHandlerOptimized:
             if metadata.get("refinement_instructions"):
                 item["refinement_instructions"] = str(metadata["refinement_instructions"])
             if isinstance(metadata.get("selected_sow_sections"), list):
+                item["timeline_format"] = metadata.get("timeline_format", "table")
                 item["selected_sow_sections"] = [
                     str(value) for value in metadata["selected_sow_sections"]
+                ]
+            if metadata.get("semantic_search_text"):
+                item["semantic_search_text"] = str(metadata["semantic_search_text"])[:80000]
+            if metadata.get("semantic_search_embedding"):
+                item["semantic_search_embedding"] = [
+                    Decimal(str(round(float(value), 8)))
+                    for value in metadata["semantic_search_embedding"]
+                ]
+                item["semantic_embedding_model_id"] = str(
+                    metadata.get("semantic_embedding_model_id") or ""
+                )
+                item["semantic_search_text_hash"] = str(
+                    metadata.get("semantic_search_text_hash") or ""
+                )
+                item["semantic_index_version"] = int(
+                    metadata.get("semantic_index_version") or 0
+                )
+                item["semantic_search_embeddings"] = [
+                    [Decimal(str(round(float(value), 8))) for value in vector]
+                    for vector in (metadata.get("semantic_search_embeddings") or [])
+                    if vector
                 ]
 
             # ✅ NEW: Add account_id and project_id if provided
@@ -507,7 +543,14 @@ class DynamoDBHandlerOptimized:
                 item["file_size"] = s3_result['file_size']
 
             print(f"\n💾 Saving to DynamoDB with version: {version}")
-            response = self.table.put_item(Item=item)
+            if existing:
+                response = self.table.put_item(
+                    Item=item, ConditionExpression="#state = :draft AND #stamp = :stamp",
+                    ExpressionAttributeNames={"#state": "status", "#stamp": "timestamp"},
+                    ExpressionAttributeValues={":draft": "draft", ":stamp": timestamp},
+                )
+            else:
+                response = self.table.put_item(Item=item)
 
             print(f"✅ Document saved: {document_id}")
             print(f"   📦 Version: {version}")
@@ -530,6 +573,9 @@ class DynamoDBHandlerOptimized:
                 "business_unit": metadata.get("business_unit"),
                 "owner_email": metadata.get("owner_email"),
                 "owner_name": metadata.get("owner_name"),
+                "status": item.get("status", "completed"),
+                "draft_preview_s3_url": item.get("draft_preview_s3_url"),
+                "preview_id": item.get("preview_id"),
                 "total_tokens": item.get("total_tokens"),
                 "token_usage": item.get("token_usage"),
                 "deduplication": {
@@ -970,16 +1016,77 @@ class DynamoDBHandlerOptimized:
             print(f"❌ Query failed: {e}")
             return []
 
-    def list_all_documents(self, limit=100):
+    def update_semantic_index(self, record, index_fields):
+        """Persist a reusable embedding on an existing immutable SOW version."""
+        vector = [
+            Decimal(str(round(float(value), 8)))
+            for value in (index_fields.get("semantic_search_embedding") or [])
+        ]
+        if not vector:
+            raise ValueError("Semantic index vector is empty")
+        vectors = [
+            [Decimal(str(round(float(value), 8))) for value in item]
+            for item in (index_fields.get("semantic_search_embeddings") or [])
+            if item
+        ] or [vector]
+        self.table.update_item(
+            Key={
+                "document_id": str(record["document_id"]),
+                "timestamp": str(record["timestamp"]),
+            },
+            UpdateExpression=(
+                "SET semantic_search_text = :text, "
+                "semantic_search_embedding = :embedding, "
+                "semantic_search_embeddings = :embeddings, "
+                "semantic_embedding_model_id = :model, "
+                "semantic_search_text_hash = :text_hash, "
+                "semantic_index_version = :index_version"
+            ),
+            ExpressionAttributeValues={
+                ":text": str(index_fields.get("semantic_search_text") or "")[:80000],
+                ":embedding": vector,
+                ":embeddings": vectors,
+                ":model": str(index_fields.get("semantic_embedding_model_id") or ""),
+                ":text_hash": str(index_fields.get("semantic_search_text_hash") or ""),
+                ":index_version": int(index_fields.get("semantic_index_version") or 0),
+            },
+        )
+
+    def list_all_documents(self, limit=100, include_semantic_text=False):
         """List all documents with version info"""
         try:
             print(f"\n📋 Listing documents (limit: {limit})")
-            response = self.table.scan(Limit=limit)
-            items = response.get('Items', [])
+            items = []
+            scan_kwargs = {"Limit": min(limit, 1000), "ConsistentRead": True}
+            if not include_semantic_text:
+                projected = [
+                    'document_id', 'task_id', 'customer_name', 'author_name',
+                    'project_name', 'document_date', 's3_url', 'drive_link',
+                    'timestamp', 'mode', 'version', 'business_unit', 'owner_email',
+                    'owner_name', 'total_tokens', 'token_usage', 'project_id',
+                    'account_id', 'source_documents', 'source_scope_id',
+                    'parent_document_id', 'selected_sow_sections', 'timeline_format',
+                    'status', 'draft_preview_s3_url', 'preview_id',
+                ]
+                aliases = {f"#p{index}": field for index, field in enumerate(projected)}
+                scan_kwargs["ProjectionExpression"] = ", ".join(aliases)
+                scan_kwargs["ExpressionAttributeNames"] = aliases
+            while len(items) < limit:
+                response = self.table.scan(**scan_kwargs)
+                items.extend(response.get('Items', []))
+                last_key = response.get('LastEvaluatedKey')
+                if not last_key or len(items) >= limit:
+                    break
+                scan_kwargs["ExclusiveStartKey"] = last_key
+                scan_kwargs["Limit"] = min(limit - len(items), 1000)
+            items = items[:limit]
 
             formatted_items = []
             for item in items:
-                formatted_items.append({
+                formatted_item = {
+                    'status': item.get('status', 'completed'),
+                    'draft_preview_s3_url': item.get('draft_preview_s3_url'),
+                    'preview_id': item.get('preview_id'),
                     'document_id': item.get('document_id'),
                     'task_id': item.get('task_id'),
                     'customer_name': item.get('customer_name'),
@@ -1002,7 +1109,17 @@ class DynamoDBHandlerOptimized:
                     'source_scope_id': item.get('source_scope_id'),
                     'parent_document_id': item.get('parent_document_id'),
                     'selected_sow_sections': item.get('selected_sow_sections'),
-                })
+                    'timeline_format': item.get('timeline_format', 'table'),
+                }
+                if include_semantic_text:
+                    formatted_item['semantic_search_text'] = item.get('semantic_search_text')
+                    formatted_item['refinement_instructions'] = item.get('refinement_instructions')
+                    formatted_item['semantic_search_embedding'] = item.get('semantic_search_embedding')
+                    formatted_item['semantic_search_embeddings'] = item.get('semantic_search_embeddings')
+                    formatted_item['semantic_embedding_model_id'] = item.get('semantic_embedding_model_id')
+                    formatted_item['semantic_search_text_hash'] = item.get('semantic_search_text_hash')
+                    formatted_item['semantic_index_version'] = item.get('semantic_index_version')
+                formatted_items.append(formatted_item)
 
             return sorted(
                 formatted_items,
@@ -1030,95 +1147,8 @@ class DynamoDBHandlerOptimized:
 
 
 # ============================================================
-# RAG SCHEMA HANDLER (Unchanged)
+# Document persistence helpers
 # ============================================================
-
-class RAGSchemaHandlerOptimized:
-    """Optimized handler for rag-schema table"""
-
-    def __init__(self, table_name=None, region=None):
-        self.table_name = table_name or os.getenv(
-            'DYNAMODB_TABLE_RAG_SCHEMA', 'rag-schema'
-        )
-        self.region = region or os.getenv('AWS_REGION', 'us-east-1')
-        # Explicitly use environment variables
-        self.dynamodb = boto3.resource(
-            'dynamodb',
-            region_name=self.region,
-            aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-            aws_session_token=os.getenv('AWS_SESSION_TOKEN')
-        )
-        self.table = self.dynamodb.Table(self.table_name)
-
-    def query_by_client_and_mode(self, client_name, mode, limit=10):
-        """Query by client and mode using GSI"""
-        try:
-            client_name_lower = client_name.lower().strip()
-            print(f"\n🔍 Querying RAG schema: client='{client_name}', mode='{mode}'")
-            try:
-                response = self.table.query(
-                    IndexName='client-project-mode-index',
-                    KeyConditionExpression='client_name_lower = :cn AND #mode = :m',
-                    ExpressionAttributeNames={'#mode': 'mode'},
-                    ExpressionAttributeValues={
-                        ':cn': client_name_lower,
-                        ':m': mode.upper()
-                    },
-                    Limit=limit
-                )
-                items = response.get('Items', [])
-                print(f"✓ Found {len(items)} schemas")
-                return items
-            except ClientError as e:
-                if e.response['Error']['Code'] == 'ResourceNotFoundException':
-                    print(f"⚠️  GSI not found - falling back to scan")
-                    response = self.table.scan(
-                        FilterExpression='client_name_lower = :cn AND #mode = :m',
-                        ExpressionAttributeNames={'#mode': 'mode'},
-                        ExpressionAttributeValues={
-                            ':cn': client_name_lower,
-                            ':m': mode.upper()
-                        },
-                        Limit=limit
-                    )
-                    return response.get('Items', [])
-                raise
-        except Exception as e:
-            print(f"❌ Query failed: {e}")
-            return []
-
-    def query_by_mode(self, mode, limit=100):
-        """Query all schemas by mode using GSI"""
-        try:
-            print(f"\n🔍 Querying RAG schemas by mode: '{mode}'")
-            try:
-                response = self.table.query(
-                    IndexName='mode-index',
-                    KeyConditionExpression='#mode = :m',
-                    ExpressionAttributeNames={'#mode': 'mode'},
-                    ExpressionAttributeValues={':m': mode.upper()},
-                    Limit=limit,
-                    ScanIndexForward=False
-                )
-                items = response.get('Items', [])
-                print(f"✓ Found {len(items)} schemas")
-                return items
-            except ClientError as e:
-                if e.response['Error']['Code'] == 'ResourceNotFoundException':
-                    print(f"⚠️  GSI not found - falling back to scan")
-                    response = self.table.scan(
-                        FilterExpression='#mode = :m',
-                        ExpressionAttributeNames={'#mode': 'mode'},
-                        ExpressionAttributeValues={':m': mode.upper()},
-                        Limit=limit
-                    )
-                    return response.get('Items', [])
-                raise
-        except Exception as e:
-            print(f"❌ Query failed: {e}")
-            return []
-
 
 # ============================================================
 # Convenience Functions
@@ -1127,7 +1157,7 @@ class RAGSchemaHandlerOptimized:
 def save_to_dynamodb_optimized(metadata, s3_url, s3_result=None, drive_link=None,
                                table_name=None, region=None,
                                keep_duplicates=2, task_id=None, auto_version=True,
-                               account_id=None, project_id=None):
+                               account_id=None, project_id=None, existing_document_id=None):
     """
     ✅ ENHANCED: Save function with auto-versioning per project + mode
 
@@ -1155,7 +1185,8 @@ def save_to_dynamodb_optimized(metadata, s3_url, s3_result=None, drive_link=None
             task_id=task_id,
             auto_version=auto_version,  # ✅ Pass through auto_version
             account_id=account_id,  # ✅ NEW: Pass account_id
-            project_id=project_id  # ✅ NEW: Pass project_id
+            project_id=project_id,
+            existing_document_id=existing_document_id,
         )
         return result
     except Exception as e:

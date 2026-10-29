@@ -469,6 +469,30 @@ class AccessControlTests(unittest.TestCase):
         finally:
             server.app.config["TESTING"] = previous_testing
 
+    def test_sow_deletion_is_admin_only_and_permanent(self):
+        from app.core import server
+
+        previous_testing = server.app.config.get("TESTING", False)
+        server.app.config["TESTING"] = True
+        handler = MagicMock()
+        handler.get_document_by_id.return_value = {
+            "document_id": "doc-1", "timestamp": "2026-09-22T10:00:00", "s3_url": "",
+        }
+        handler.delete_document.return_value = True
+        try:
+            with (
+                patch.object(server, "_require_admin_response", return_value=None),
+                patch.object(server, "DynamoDBHandler", return_value=handler),
+                patch.object(server.account_handler, "delete_sow", return_value=True) as unlink,
+            ):
+                response = server.app.test_client().delete("/api/sows/doc-1")
+
+            self.assertEqual(response.status_code, 200)
+            handler.delete_document.assert_called_once_with("doc-1", "2026-09-22T10:00:00")
+            unlink.assert_called_once_with("doc-1")
+        finally:
+            server.app.config["TESTING"] = previous_testing
+
 
 if __name__ == "__main__":
     unittest.main()

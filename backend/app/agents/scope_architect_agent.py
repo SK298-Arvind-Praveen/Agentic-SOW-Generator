@@ -813,6 +813,9 @@ Inventory every distinct source-required capability, workflow, integration, data
 control, operational requirement, and explicitly deferred/future item exactly once. A source row
 called a deliverable is still only a capability unit at this stage. Do not group units yet. Preserve
 source identifiers, names, quantities, qualifications, status, and disposition. Do not add generic lifecycle work.
+Preserve customer product identity; a similarly named AWS service is not the same platform.
+A current-state gap is not itself a future-phase exclusion. Check later requested enhancements
+before setting disposition, and never invent deferral because the delivery mode is POC.
 Set independent_boundary true only when the source supports a separate phase, release, deployment,
 commercial hand-off, or acceptance event; explain that evidence in boundary_basis.
 """
@@ -860,6 +863,15 @@ Return {{"discovered_capabilities":[], "deliverables":[{{"name":"outcome-oriente
 
 Classification rules:
 - Assign every in_scope capability ID exactly once. Never omit or duplicate an ID.
+- A module is a cohesive capability containing related inventory IDs, not a source heading, single feature,
+  AWS layer or individual control. A detailed inventory must not imply an equally long heading list.
+- Consolidate notification delivery, event triggers and survey/feedback handling where they form one workflow;
+  combine analytics feeds with dashboards; combine authentication, API protection and audit where ownership aligns;
+  keep language coverage within the conversational engine rather than a standalone module.
+- Separate support readiness/configuration in the build from ongoing operations in a support deliverable.
+  Never repeat the ongoing support obligation under both. Retain independent ownership/acceptance boundaries.
+- Audit module cohesion as well as deliverable cohesion before returning: combine related capability IDs
+  under the smallest natural set of meaningful headings, without a fixed count or dropping any ID.
 - The supplied inventory is authoritative. Do not copy its requirements, source evidence, actors,
   inputs, outputs, dependencies or validation details into the plan; modules reference them by ID.
 - Do not place future, optional or open capability IDs inside a delivery module; preserve them in open_boundaries.

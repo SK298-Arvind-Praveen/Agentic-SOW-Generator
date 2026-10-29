@@ -19,11 +19,13 @@ class AgentState(TypedDict):
     current_step: str
     mode: str  # 'POC', 'PROD', 'POC_TO_PROD'
     source_file: Optional[str]  # For POC_TO_PROD mode
-    rag_context: Optional[Dict[str, Any]]  # RAG data context
     is_poc_table_conversion: Optional[bool]  # Flag for POC table conversion
     supporting_documents: Optional[List[str]]  # Paths to supporting documents
     supporting_context: Optional[str]  # Extracted content from supporting documents
     selected_sow_sections: Optional[List[str]]  # User-selected optional section IDs
+    custom_template_id: Optional[str]  # Extracted draft or shared preset used by this preview
+    custom_template_markdown: Optional[str]  # Project-agnostic supplementary template contract
+    custom_template_sections: Optional[List[Dict[str, Any]]]  # Namespaced selectable sections
     progress_callback: Optional[Any]  # In-process preview progress reporter
     pricing_result: Optional[Dict[str, Any]]  # Validated AWS Calculator result and provenance
     scope_architecture_plan: Optional[Dict[str, Any]]  # Dedicated architect-approved deliverable/module plan

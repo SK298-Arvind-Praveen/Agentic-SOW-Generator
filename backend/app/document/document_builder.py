@@ -43,6 +43,8 @@ from app.diagram.service import (
     ASSET_KEY as ARCHITECTURE_ASSETS_KEY,
     LEGACY_ASSET_KEY as ARCHITECTURE_ASSET_KEY,
 )
+from app.core.sow_presentation import strip_text_diagrams
+from app.core.sow_section_preferences import section_category
 
 
 PAGE_WIDTH_IN = 8.5
@@ -53,8 +55,9 @@ TOP_MARGIN_IN = 0.66
 BOTTOM_MARGIN_IN = 0.58
 CONTENT_WIDTH_DXA = 10282
 TABLE_INDENT_DXA = 0
-FONT_NAME = "DM Sans"
-PURPLE = "5D3FD3"
+FONT_NAME = "Albert Sans"
+HEADING_FONT_NAME = "Space Grotesk"
+PURPLE = "7F00FF"
 BLUE = "1A4BD2"
 DARK_PURPLE = "3E2A91"
 INK = "434343"
@@ -258,20 +261,21 @@ def _obfuscate_embedded_font(font_data: bytes, font_key: uuid.UUID) -> bytes:
     return bytes(data)
 
 
-def _embed_dm_sans(document_path: Path, config) -> None:
-    """Embed the bundled DM Sans regular/bold faces in a generated DOCX."""
-    regular_path = Path(config.ASSETS_DIR) / "fonts" / "DMSans-Regular.ttf"
-    bold_path = Path(config.ASSETS_DIR) / "fonts" / "DMSans-Bold.ttf"
+def _embed_dm_sans(document_path: Path, config, family=FONT_NAME) -> None:
+    """Embed a bundled family (legacy helper name retained for integrations)."""
+    stem = family.replace(" ", "")
+    regular_path = Path(config.ASSETS_DIR) / "fonts" / f"{stem}-Regular.ttf"
+    bold_path = Path(config.ASSETS_DIR) / "fonts" / f"{stem}-Bold.ttf"
     if not regular_path.exists() or not bold_path.exists():
-        raise FileNotFoundError("Bundled DM Sans regular and bold font files are required")
+        raise FileNotFoundError(f"Bundled {family} regular and bold font files are required")
 
     keys = {
-        "regular": uuid.UUID("65c9e9d6-9297-5b37-a1a2-62186d121c7e"),
-        "bold": uuid.UUID("c0bd415f-6064-5ea9-8cf0-72409c43db81"),
+        "regular": uuid.uuid5(uuid.NAMESPACE_URL, family + '-Regular'),
+        "bold": uuid.uuid5(uuid.NAMESPACE_URL, family + '-Bold'),
     }
     font_entries = {
-        "word/fonts/DMSans-Regular.odttf": _obfuscate_embedded_font(regular_path.read_bytes(), keys["regular"]),
-        "word/fonts/DMSans-Bold.odttf": _obfuscate_embedded_font(bold_path.read_bytes(), keys["bold"]),
+        f"word/fonts/{stem}-Regular.odttf": _obfuscate_embedded_font(regular_path.read_bytes(), keys["regular"]),
+        f"word/fonts/{stem}-Bold.odttf": _obfuscate_embedded_font(bold_path.read_bytes(), keys["bold"]),
     }
 
     with zipfile.ZipFile(document_path, "r") as source:
@@ -279,20 +283,20 @@ def _embed_dm_sans(document_path: Path, config) -> None:
 
     font_table = parse_xml(files["word/fontTable.xml"])
     for existing in list(font_table.findall(qn("w:font"))):
-        if existing.get(qn("w:name")) == FONT_NAME:
+        if existing.get(qn("w:name")) == family:
             font_table.remove(existing)
     font = OxmlElement("w:font")
-    font.set(qn("w:name"), FONT_NAME)
+    font.set(qn("w:name"), family)
     family = OxmlElement("w:family")
     family.set(qn("w:val"), "swiss")
     pitch = OxmlElement("w:pitch")
     pitch.set(qn("w:val"), "variable")
     regular = OxmlElement("w:embedRegular")
-    regular.set(qn("r:id"), "rIdDmSansRegular")
+    regular.set(qn("r:id"), f"rId{stem}Regular")
     regular.set(qn("w:fontKey"), "{" + str(keys["regular"]).upper() + "}")
     regular.set(qn("w:subsetted"), "false")
     bold = OxmlElement("w:embedBold")
-    bold.set(qn("r:id"), "rIdDmSansBold")
+    bold.set(qn("r:id"), f"rId{stem}Bold")
     bold.set(qn("w:fontKey"), "{" + str(keys["bold"]).upper() + "}")
     bold.set(qn("w:subsetted"), "false")
     font.extend([family, pitch, regular, bold])
@@ -308,13 +312,13 @@ def _embed_dm_sans(document_path: Path, config) -> None:
         relationships = etree.Element(
             f"{{{RELATIONSHIPS_NS}}}Relationships", nsmap={None: RELATIONSHIPS_NS}
         )
-    embedded_relationship_ids = {"rIdDmSansRegular", "rIdDmSansBold"}
+    embedded_relationship_ids = {f"rId{stem}Regular", f"rId{stem}Bold"}
     for relationship in list(relationships):
         if relationship.get("Id") in embedded_relationship_ids:
             relationships.remove(relationship)
     for rel_id, target in (
-        ("rIdDmSansRegular", "fonts/DMSans-Regular.odttf"),
-        ("rIdDmSansBold", "fonts/DMSans-Bold.odttf"),
+        (f"rId{stem}Regular", f"fonts/{stem}-Regular.odttf"),
+        (f"rId{stem}Bold", f"fonts/{stem}-Bold.odttf"),
     ):
         relationship = etree.Element(f"{{{RELATIONSHIPS_NS}}}Relationship")
         relationship.set("Id", rel_id)
@@ -753,7 +757,10 @@ class SectionBuilder:
                     text, level, heading_prefix, heading_counters
                 )
                 paragraph = self.doc.add_paragraph(style=f"Heading {level}")
-                self._add_rich_runs(paragraph, text, size=15.0)
+                self._add_rich_runs(paragraph, text, size={1: 20, 2: 16, 3: 14, 4: 12}.get(level, 12))
+                if level == 1:
+                    for run in paragraph.runs:
+                        _set_font(run, name=HEADING_FONT_NAME, size=20)
                 anchor = (heading_anchor_map or {}).get(text)
                 if anchor and bookmark_callback:
                     bookmark_callback(paragraph, anchor)
@@ -765,7 +772,7 @@ class SectionBuilder:
                 paragraph = self.doc.add_paragraph()
                 self._add_rich_runs(paragraph, text)
                 self._apply_numbering(paragraph, self.bullet_num_id, level)
-                paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
                 added.append(paragraph)
             elif kind == "number":
                 level, text = payload
@@ -775,7 +782,7 @@ class SectionBuilder:
                 # Markdown here also prevents Word from continuing a hidden
                 # decimal sequence across later sections (for example at 59).
                 self._apply_numbering(paragraph, self.bullet_num_id, level)
-                paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
                 added.append(paragraph)
             elif kind == "caption":
                 paragraph = self.doc.add_paragraph(style="Caption")
@@ -852,7 +859,9 @@ class SectionBuilder:
                     yield block
                 index += 1
                 continue
-            if re.match(r"^\s*\|.+\|\s*$", raw):
+            if (re.match(r"^\s*\|.+\|\s*$", raw)
+                    and index + 1 < len(lines)
+                    and re.fullmatch(r"\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*", lines[index + 1])):
                 block = flush_prose()
                 if block:
                     yield block
@@ -904,6 +913,15 @@ class SectionBuilder:
             yield block
 
     def _add_rich_runs(self, paragraph, text: str, size: Optional[float] = None, color: Optional[str] = None):
+        links = list(re.finditer(r"\[([^\]\n]+)\]\((https?://[^\s()]+)\)", str(text)))
+        if links:
+            offset = 0
+            for link in links:
+                self._add_rich_runs(paragraph, str(text)[offset:link.start()], size=size, color=color)
+                _add_external_hyperlink(paragraph, link.group(1), link.group(2))
+                offset = link.end()
+            self._add_rich_runs(paragraph, str(text)[offset:], size=size, color=color)
+            return
         parts = re.split(r"(\*\*.+?\*\*|(?<!\*)\*[^*]+?\*(?!\*)|`.+?`)", str(text))
         for part in parts:
             if not part:
@@ -927,7 +945,7 @@ class SectionBuilder:
                 run = paragraph.add_run(segment)
                 # Keep the document type system consistent even for inline code.
                 # Backticks still distinguish the source semantically; typography
-                # remains DM Sans as required by the SOW brand standard.
+                # remains Albert Sans as required by the SOW brand standard.
                 _set_font(run, FONT_NAME, size=size, bold=bold, italic=italic, color=color)
 
     @staticmethod
@@ -1032,6 +1050,8 @@ class SectionBuilder:
         rows = self._parse_table_rows(lines)
         if not rows:
             return None
+        if self._is_gantt_rows(rows):
+            return self._build_table_rows(rows, gantt=True)
         if len(rows[0]) > 5:
             # Word cannot keep six-to-eight narrative columns readable on a
             # portrait Letter page. Preserve every value while splitting the
@@ -1044,14 +1064,33 @@ class SectionBuilder:
             return tables
         return self._build_table_rows(rows)
 
-    def _build_table_rows(self, rows: Sequence[Sequence[str]]):
+    @staticmethod
+    def _is_gantt_rows(rows):
+        return bool(rows and len(rows[0]) >= 3
+                    and rows[0][0].strip().lower().replace('.', '') in {'sno', 's no'}
+                    and rows[0][1].strip().lower() == 'activity'
+                    and all(re.fullmatch(r'(?:[WM]\d+|Timeframe)', value.strip(), re.I) for value in rows[0][2:]))
+
+    def _build_table_rows(self, rows: Sequence[Sequence[str]], gantt=False):
+        if gantt:
+            from app.core.section_formats import sequence_gantt_rows
+            rows = sequence_gantt_rows(rows)
         cols = len(rows[0])
         # A single-row Markdown table is used by the legacy signature block
         # for signer names and acceptance dates. It is a continuation/data
         # row, not a header, so do not render it as a purple header band.
         has_header = len(rows) > 1
         widths = self._column_widths(rows)
+        if len(rows[0]) == 3 and rows[0][0].strip() == 'Item' and rows[0][1].startswith('Monthly ('):
+            widths = [int(CONTENT_WIDTH_DXA * 0.45), int(CONTENT_WIDTH_DXA * 0.20)]
+            widths.append(CONTENT_WIDTH_DXA - sum(widths))
+        if gantt:
+            remaining = CONTENT_WIDTH_DXA - 500 - 2600
+            widths = [500, 2600] + [remaining // (cols - 2)] * (cols - 2)
+            widths[-1] += CONTENT_WIDTH_DXA - sum(widths)
         font_size = 11.0
+        if gantt:
+            font_size = 8.0
         table = self.doc.add_table(rows=len(rows), cols=cols)
         table.style = "SOW Table"
         table.alignment = WD_TABLE_ALIGNMENT.LEFT
@@ -1070,11 +1109,16 @@ class SectionBuilder:
                 self._set_cell_margins(cell)
                 self._set_cell_width(cell, widths[col_index])
                 fill = PURPLE if has_header and row_index == 0 else (LIGHT_FILL if row_index % 2 == 1 else "FFFFFF")
+                if gantt:
+                    fill = 'D9D9D9' if row_index == 0 else 'FFFFFF'
+                    if row_index and col_index >= 2 and value.strip() in {'■', '◆'}:
+                        fill = 'CCFFCC' if value.strip() == '■' else '4A86E8'
+                        value = ''
                 self._set_cell_shading(cell, fill)
                 paragraph = cell.paragraphs[0]
                 paragraph.paragraph_format.space_before = Pt(3)
                 paragraph.paragraph_format.space_after = Pt(3)
-                paragraph.paragraph_format.line_spacing = 1.15
+                paragraph.paragraph_format.line_spacing = 1.5
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
                 pieces = re.split(r"<br\s*/?>", value, flags=re.I)
                 for piece_index, piece in enumerate(pieces):
@@ -1084,7 +1128,7 @@ class SectionBuilder:
                         paragraph,
                         re.sub(r"^[•-]\s*", "", piece.strip()),
                         size=font_size,
-                        color="FFFFFF" if has_header and row_index == 0 else INK,
+                        color="FFFFFF" if has_header and row_index == 0 and not gantt else INK,
                     )
                 for run in paragraph.runs:
                     if has_header and row_index == 0:
@@ -1270,28 +1314,30 @@ class DocumentBuilder:
         normal.paragraph_format.space_before = Pt(0)
         _set_character_spacing(normal._element, 2)
         normal.paragraph_format.space_after = Pt(8)
-        normal.paragraph_format.line_spacing = 1.25
+        normal.paragraph_format.line_spacing = 1.5
         normal.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         normal.paragraph_format.widow_control = True
 
         tokens = {
             "Heading 1": (20.0, PURPLE, 18, 8),
-            "Heading 2": (15.0, BLUE, 12, 5),
-            "Heading 3": (15.0, DARK_PURPLE, 9, 4),
-            "Heading 4": (15.0, INK, 7, 3),
+            "Heading 2": (16.0, PURPLE, 12, 5),
+            "Heading 3": (14.0, PURPLE, 9, 4),
+            "Heading 4": (12.0, PURPLE, 7, 3),
         }
         for style_name, (size, color, before, after) in tokens.items():
             style = styles[style_name]
-            style.font.name = FONT_NAME
+            heading_font = HEADING_FONT_NAME if style_name == "Heading 1" else FONT_NAME
+            style.font.name = heading_font
             style.font.size = Pt(size)
             style.font.bold = True
             style.font.color.rgb = RGBColor.from_string(color)
             for attr in ("ascii", "hAnsi", "eastAsia", "cs"):
-                style._element.rPr.rFonts.set(qn(f"w:{attr}"), FONT_NAME)
+                style._element.rPr.rFonts.set(qn(f"w:{attr}"), heading_font)
             _set_character_spacing(style._element, 2)
             style.paragraph_format.space_before = Pt(before)
             style.paragraph_format.space_after = Pt(after)
             style.paragraph_format.keep_with_next = True
+            style.paragraph_format.line_spacing = 1.5
             style.paragraph_format.widow_control = True
             style.paragraph_format.page_break_before = False
             style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -1664,6 +1710,7 @@ class DocumentBuilder:
             entry
             for entry in self.toc_entries
             if self._resolve_section_content(entry, sections, metadata).strip()
+            or self._preserve_blank_section(entry, sections)
         ]
 
         content_section = self._add_content_section_after_cover()
@@ -1677,6 +1724,12 @@ class DocumentBuilder:
         content_section.different_first_page_header_footer = False
         content_section.header.is_linked_to_previous = False
         content_section.footer.is_linked_to_previous = False
+        for document_section in self.doc.sections:
+            for header in (document_section.header, document_section.first_page_header, document_section.even_page_header):
+                header.is_linked_to_previous = False
+                for child in list(header._element):
+                    header._element.remove(child)
+                header.add_paragraph()
         self._add_header_footer(content_section, metadata, mode)
         self._prepare_expanded_toc(sections, metadata)
         self._diagram_section_assignments = self._assign_diagram_sections(
@@ -1700,6 +1753,7 @@ class DocumentBuilder:
         props.comments = "Generated from source-grounded requirements; proposals and open clarifications are labelled."
         self.doc.save(str(output_path))
         _embed_dm_sans(output_path, self.config)
+        _embed_dm_sans(output_path, self.config, HEADING_FONT_NAME)
         try:
             _refresh_pageref_cached_results(output_path, self.config)
         except Exception as exc:
@@ -1711,91 +1765,28 @@ class DocumentBuilder:
         print(f"✓ DOCX saved: {output_path}")
 
     def _add_header_footer(self, section, metadata: Dict[str, Any], mode: str) -> None:
-        header_title = metadata.get("document_header_title")
-        if not header_title:
-            mode_label = {
-                "POC": "POC",
-                "PROD": "Production",
-                "POC_TO_PROD": "POC to Production",
-            }.get(mode, mode)
-            project = metadata.get("project_title", "Statement of Work")
-            header_title = project if "sow" in project.casefold() else f"{project} – SOW ({mode_label})"
-        logo_path = Path(self.config.ASSETS_DIR) / "ShellKode.png"
-        org = self._get_short_company_name(metadata.get("author_org", "ShellKode"))
-        year_match = re.search(r"\b(20\d{2})\b", str(metadata.get("document_date", "")))
-        year = year_match.group(1) if year_match else str(datetime.now().year)
-
-        def populate_header(header) -> None:
-            trailing_paragraph = header.paragraphs[0]
-            trailing_paragraph.paragraph_format.space_before = Pt(0)
-            trailing_paragraph.paragraph_format.space_after = Pt(0)
-            trailing_paragraph.paragraph_format.line_spacing = Pt(1)
-            header_table = header.add_table(
-                rows=1, cols=3, width=Inches(PAGE_WIDTH_IN - 2 * HORIZONTAL_MARGIN_IN)
-            )
-            header_table.alignment = WD_TABLE_ALIGNMENT.LEFT
-            header_table.autofit = False
-            header_widths = [7200, 1400, CONTENT_WIDTH_DXA - 8600]
-            SectionBuilder._set_table_geometry(header_table, header_widths)
-            self._remove_table_borders(header_table)
-            header._element.remove(header_table._tbl)
-            header._element.insert(0, header_table._tbl)
-            left_cell, spacer_cell, right_cell = header_table.rows[0].cells
-            for cell, width in zip(
-                (left_cell, spacer_cell, right_cell), header_widths
-            ):
-                SectionBuilder._set_cell_width(cell, width)
-                self._set_zero_cell_margins(cell)
-                cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-            left_paragraph = left_cell.paragraphs[0]
-            spacer_paragraph = spacer_cell.paragraphs[0]
-            right_paragraph = right_cell.paragraphs[0]
-            left_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            spacer_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            right_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            for paragraph in (left_paragraph, spacer_paragraph, right_paragraph):
-                paragraph.paragraph_format.space_before = Pt(0)
-                paragraph.paragraph_format.space_after = Pt(0)
-                paragraph.paragraph_format.line_spacing = 1.0
-            left_paragraph.paragraph_format.left_indent = Inches(CHROME_INSET_IN)
-            right_paragraph.paragraph_format.right_indent = Inches(CHROME_INSET_IN)
-            title_run = left_paragraph.add_run(str(header_title))
-            _set_font(title_run, size=6.5, bold=True, color=BLUE)
-            if logo_path.exists():
-                logo_run = right_paragraph.add_run()
-                shape = logo_run.add_picture(str(logo_path), width=Inches(0.72))
-                shape._inline.docPr.set("descr", "ShellKode")
-            else:
-                logo_text = right_paragraph.add_run(org)
-                _set_font(logo_text, size=7, bold=True, color=BLUE)
-
-        def populate_footer(footer) -> None:
-            copyright_paragraph = footer.paragraphs[0]
-            copyright_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            copyright_paragraph.paragraph_format.left_indent = Inches(CHROME_INSET_IN)
-            copyright_paragraph.paragraph_format.space_before = Pt(2)
-            copyright_paragraph.paragraph_format.space_after = Pt(0)
-            copyright_paragraph.paragraph_format.line_spacing = 1.0
-            self._set_paragraph_top_border(copyright_paragraph, BORDER)
-            copyright_run = copyright_paragraph.add_run(
-                f"Confidential Copyright © {org} {year}"
-            )
-            _set_font(copyright_run, size=5.75, color=MUTED)
-
-            page_paragraph = footer.add_paragraph()
-            page_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            page_paragraph.paragraph_format.space_before = Pt(0)
-            page_paragraph.paragraph_format.space_after = Pt(0)
-            page_paragraph.paragraph_format.line_spacing = 1.0
-            page_label = page_paragraph.add_run("Page ")
-            _set_font(page_label, size=5.75, color=MUTED)
-            _add_field(page_paragraph, "PAGE", "1", size=5.75)
-            of = page_paragraph.add_run(" of ")
-            _set_font(of, size=5.75, color=MUTED)
-            _add_field(page_paragraph, "NUMPAGES", "1", size=5.75)
-
-        populate_header(section.header)
-        populate_footer(section.footer)
+        # Remove all header variants, including inherited template content.
+        for header in (section.header, section.first_page_header, section.even_page_header):
+            header.is_linked_to_previous = False
+            for child in list(header._element):
+                header._element.remove(child)
+            header.add_paragraph()
+        for footer in (section.footer, section.first_page_footer, section.even_page_footer):
+            footer.is_linked_to_previous = False
+            for child in list(footer._element):
+                footer._element.remove(child)
+            paragraph = footer.add_paragraph()
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            paragraph.paragraph_format.space_before = Pt(4)
+            paragraph.paragraph_format.space_after = Pt(0)
+            paragraph.paragraph_format.line_spacing = 1.0
+            self._set_paragraph_top_border(paragraph, BORDER)
+            _set_font(paragraph.add_run("Shellkode Confidential - for limited purpose only"),
+                      size=8, italic=True, color=PURPLE)
+            _set_font(paragraph.add_run("    "), size=8, color=PURPLE)
+            _add_field(paragraph, "PAGE", "1", size=8)
+            for run in paragraph.runs:
+                _set_font(run, size=8, color=PURPLE)
 
     @staticmethod
     def _remove_table_borders(table) -> None:
@@ -1884,8 +1875,7 @@ class DocumentBuilder:
         title = self.doc.add_paragraph()
         title.paragraph_format.keep_with_next = True
         title.paragraph_format.space_after = Pt(8)
-        _set_font(title.add_run("Table of Contents"), size=20.0, bold=True, color=PURPLE)
-        self._set_paragraph_bottom_border(title, PURPLE)
+        _set_font(title.add_run("Table of Contents"), name=HEADING_FONT_NAME, size=20.0, bold=True, color=PURPLE)
         entries = self.expanded_toc_entries or [
             (entry, _bookmark_name(entry, index), 1)
             for index, entry in enumerate(self.toc_entries, 1)
@@ -1905,7 +1895,7 @@ class DocumentBuilder:
                 0.02 if level == 1 else 0.22 + (level - 2) * 0.18
             )
             paragraph.paragraph_format.space_after = Pt(3 if level == 1 else 2)
-            paragraph.paragraph_format.line_spacing = 1.15
+            paragraph.paragraph_format.line_spacing = 1.5
             if index == 1:
                 # The existing rows are the field's cached result, so generated
                 # files display immediately. Word and Google Docs can replace
@@ -1929,6 +1919,7 @@ class DocumentBuilder:
     def _resolve_content(self, section_name: str, sections: Dict[str, Any]) -> str:
         key = self._name_to_key(section_name)
         aliases = {
+            "project_timeline": ("timelines_and_deliverables", "timelines_deliverables", "timeline_and_deliverables"),
             "document_control": ("document_control_and_basis",),
             "document_version_control": ("document_control_and_basis",),
             "objective": ("project_overview", "project_overview_objectives"),
@@ -1939,11 +1930,14 @@ class DocumentBuilder:
             "scope_of_work": ("scope_of_work",),
             "detailed_production_scope_of_work": ("scope_of_work",),
             "architecture_overview": ("architecture_diagram", "architecture_integrations"),
+            "solution_architecture": ("architecture_diagram", "architecture_integrations"),
             "solution_architecture_aws": ("architecture_diagram", "architecture_integrations"),
             "architecture_and_integrations": ("architecture_integrations", "architecture_diagram"),
             "assumptions_and_dependencies": ("assumptions",),
             "timeline_and_deliverables": ("timelines_and_deliverables",),
             "terms_and_conditions": ("terms_conditions",),
+            "roles_and_responsibilities": ("raci_matrix",),
+            "raci_matrix": ("roles_and_responsibilities",),
         }
         if key.endswith("_project_team_effort"):
             aliases[key] = ("shellkode_implementation_cost", "implementation_cost")
@@ -1975,7 +1969,12 @@ class DocumentBuilder:
                 or sections.get("about_client")
                 or ""
             )
-        return self._resolve_content(section_name, sections)
+        content = self._resolve_content(section_name, sections)
+        if section_category(unnumbered_name) == 'project_team_effort':
+            # Also protect exports of older drafts that predate writer cleanup.
+            table = '\n'.join(line for line in content.splitlines() if line.strip().startswith('|'))
+            return table or content
+        return strip_text_diagrams(content) if section_category(unnumbered_name) == 'architecture_diagram' else content
 
     @staticmethod
     def _resolve_title(title: str, metadata: Dict[str, Any]) -> str:
@@ -1990,15 +1989,20 @@ class DocumentBuilder:
             resolved = resolved.replace(placeholder, str(value))
         return resolved
 
+    def _preserve_blank_section(self, section_name: str, sections: Dict[str, Any]) -> bool:
+        # A selected source-only section can legitimately have no targets. Keep
+        # its heading and bookmark, never manufacture metrics or missing-info prose.
+        return (section_category(section_name) == 'success_criteria'
+                and 'success_criteria' in sections)
+
     def _build_section(self, section_name: str, sections: Dict[str, Any], metadata: Dict[str, Any], position: int) -> None:
         assert self.doc is not None and self.section_builder is not None
         content = self._resolve_section_content(section_name, sections, metadata)
-        if not content:
+        if not content and not self._preserve_blank_section(section_name, sections):
             print(f"⚠ No content for {section_name!r}; omitted from body")
             return
         heading = self.doc.add_paragraph(style="Heading 1")
-        _set_font(heading.add_run(section_name), size=20.0, bold=True, color=PURPLE)
-        self._set_paragraph_bottom_border(heading, PURPLE)
+        _set_font(heading.add_run(section_name), name=HEADING_FONT_NAME, size=20.0, bold=True, color=PURPLE)
         self._add_bookmark_to_heading(heading, section_name, position + 1)
         assignments = getattr(self, "_diagram_section_assignments", None)
         if assignments is None:
@@ -2014,6 +2018,12 @@ class DocumentBuilder:
                 asset for asset in self._architecture_assets(sections)
                 if assignments.get(id(asset)) == section_name
             ]
+
+        # The architecture overview leads the section, before any narrative.
+        for asset in architecture_assets:
+            if asset.get("diagram_type", "architecture_overview") == "architecture_overview":
+                self._add_architecture_diagram(asset)
+                self._inserted_diagram_ids.add(id(asset))
 
         def insert_for_heading(heading_text: str, _level: int):
             heading_key = self._name_to_key(heading_text)
@@ -2056,9 +2066,11 @@ class DocumentBuilder:
     def _architecture_assets(sections: Dict[str, Any]) -> List[Dict[str, Any]]:
         assets = sections.get(ARCHITECTURE_ASSETS_KEY)
         if isinstance(assets, list):
-            return [asset for asset in assets if isinstance(asset, dict)]
+            return [asset for asset in assets if isinstance(asset, dict)
+                    and asset.get("diagram_type", "architecture_overview") == "architecture_overview"]
         legacy = sections.get(ARCHITECTURE_ASSET_KEY)
-        return [legacy] if isinstance(legacy, dict) else []
+        return [legacy] if (isinstance(legacy, dict) and
+                           legacy.get("diagram_type", "architecture_overview") == "architecture_overview") else []
 
     def _assign_diagram_sections(
         self,
@@ -2117,7 +2129,7 @@ class DocumentBuilder:
         return caption
 
     def _add_architecture_diagram(self, asset: Any):
-        """Insert a generated architecture image and durable edit link."""
+        """Insert only the figure; the section's authored bullets stay separate."""
         if not isinstance(asset, dict) or not asset.get("image_base64"):
             return None
         assert self.doc is not None
@@ -2126,26 +2138,19 @@ class DocumentBuilder:
             with PILImage.open(io.BytesIO(image_bytes)) as image:
                 pixel_width, pixel_height = image.size
             aspect = pixel_width / max(pixel_height, 1)
-            width = min(6.95, 4.75 * aspect)
+            max_width, max_height = 6.95, 4.75
+            if asset.get('layout_engine') == 'elk':
+                # ELK can prefer portrait orientation for a long request path.
+                # Use the real printable page rather than squeezing it into the
+                # legacy half-page image box. Reserve room for headings/caption.
+                page = self.doc.sections[-1]
+                max_width = min(max_width, (page.page_width-page.left_margin-page.right_margin)/914400)
+                max_height = max(1.0, (page.page_height-page.top_margin-page.bottom_margin)/914400 - 1.0)
+            width = min(max_width, max_height * aspect)
             height = width / max(aspect, 0.1)
-            if height > 4.75:
-                height = 4.75
+            if height > max_height:
+                height = max_height
                 width = height * aspect
-
-            explanation = str(
-                asset.get("description")
-                or (asset.get("spec") or {}).get("description")
-                or f"This diagram depicts {asset.get('title') or 'the proposed workflow'}."
-            ).strip()
-            explanation_paragraph = self.doc.add_paragraph()
-            explanation_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            explanation_paragraph.paragraph_format.space_before = Pt(7)
-            explanation_paragraph.paragraph_format.space_after = Pt(5)
-            explanation_paragraph.paragraph_format.line_spacing = 1.15
-            label = explanation_paragraph.add_run(f"{asset.get('title') or 'Diagram'}: ")
-            _set_font(label, size=11, bold=True, color=INK)
-            explanation_run = explanation_paragraph.add_run(explanation)
-            _set_font(explanation_run, size=11, color=INK)
 
             paragraph = self.doc.add_paragraph()
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -2160,16 +2165,7 @@ class DocumentBuilder:
                 "descr",
                 str(asset.get("alt_text") or "Proposed logical architecture diagram"),
             )
-
-            edit_link = str(asset.get("edit_url") or "")
-            if edit_link:
-                edit_paragraph = self.doc.add_paragraph()
-                edit_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                edit_paragraph.paragraph_format.space_before = Pt(2)
-                edit_paragraph.paragraph_format.space_after = Pt(8)
-                _add_external_hyperlink(
-                    edit_paragraph, "Edit this diagram in draw.io", edit_link
-                )
+            # Editing controls stay in the app, not the client-facing document.
             return paragraph
         except Exception as exc:
             print(f"   ⚠ Architecture image could not be embedded; continuing without it: {exc}")

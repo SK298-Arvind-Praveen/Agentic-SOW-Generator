@@ -295,7 +295,8 @@ class SupportingDocumentFlowTests(unittest.TestCase):
 
         captured = {}
 
-        def capture_async(_preview_id, initial_state, _use_fast_mode):
+        def capture_async(_preview_id, initial_state, _use_fast_mode, on_complete=None):
+            self.assertTrue(callable(on_complete))
             captured.update(initial_state)
             return None
 
@@ -306,7 +307,6 @@ class SupportingDocumentFlowTests(unittest.TestCase):
             server.app.config["UPLOAD_FOLDER"] = upload_dir
             try:
                 with (
-                    patch.object(server, "retrieve_rag_data", return_value=({}, False)) as retrieve_rag,
                     patch("app.preview.async_preview.process_preview_async", side_effect=capture_async),
                 ):
                     response = server.app.test_client().post(
@@ -342,7 +342,6 @@ class SupportingDocumentFlowTests(unittest.TestCase):
         self.assertEqual(captured["metadata"]["business_unit"], "Cloud")
         self.assertEqual(captured["metadata"]["owner_email"], "test-admin@shellkode.com")
         self.assertEqual(payload["metadata"]["business_unit"], "Cloud")
-        retrieve_rag.assert_not_called()
         self.assertIn("specific_brd.docx", captured["supporting_context"])
         self.assertIn("BRD-17", captured["supporting_context"])
         self.assertIn("maker-checker assignment", captured["supporting_context"])

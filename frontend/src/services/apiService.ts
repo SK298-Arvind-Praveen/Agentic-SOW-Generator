@@ -63,10 +63,12 @@ export interface Document {
   owner_email?: string;
   owner_name?: string;
   total_tokens?: number | string;
+  similarity_score?: number;
   project_id?: string;
   account_id?: string;
   parent_document_id?: string;
   source_scope_id?: string;
+  draft_preview_s3_url?: string;
   source_documents?: SourceDocument[];
   token_usage?: {
     total_input_tokens?: number;
@@ -87,6 +89,24 @@ export interface SourceDocument {
   previous_source_id?: string;
   extracted_characters?: number;
   reused?: boolean;
+}
+
+export interface CustomTemplateSection {
+  id: string;
+  label: string;
+  order: number;
+}
+
+export interface CustomSowTemplate {
+  template_id: string;
+  name: string;
+  author: string;
+  owner_email: string;
+  source_filename?: string;
+  sections: CustomTemplateSection[];
+  saved: boolean;
+  can_delete: boolean;
+  output_path?: string;
 }
 
 export interface DocumentsResponse {
@@ -120,12 +140,43 @@ class APIService {
     const headers = new Headers(init.headers || {});
     if (token) headers.set('Authorization', `Bearer ${token}`);
     const response = await globalThis.fetch(input, { ...init, headers });
-    if (response.status === 401 && !String(input).includes('/api/auth/login')) {
+    // A late response from an older session must not log out a new login.
+    // Network failures and service outages (503) never invalidate credentials.
+    if (response.status === 401 && token && token === localStorage.getItem('authToken')
+        && !String(input).includes('/api/auth/login')) {
       localStorage.removeItem('authToken');
       localStorage.removeItem('authUser');
       window.dispatchEvent(new Event('sow-auth-expired'));
     }
     return response;
+  }
+
+  async fetchCustomTemplates(): Promise<any> {
+    return this.makeRequest('/api/custom-templates', 'GET');
+  }
+
+  async extractCustomTemplate(file: File): Promise<{success: boolean; extraction_id?: string; status?: string; error?: string}> {
+    const data = new FormData();
+    data.append('template_file', file);
+    const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL.replace(/\/$/, '')}/api/custom-templates/extract`, {
+      method: 'POST',
+      body: data,
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Unable to extract custom template');
+    return payload;
+  }
+
+  async fetchCustomTemplateExtraction(extractionId: string): Promise<any> {
+    return this.makeRequest(`/api/custom-templates/extractions/${encodeURIComponent(extractionId)}`, 'GET');
+  }
+
+  async saveCustomTemplate(templateId: string, name: string): Promise<any> {
+    return this.makeRequest(`/api/custom-templates/${encodeURIComponent(templateId)}/save`, 'POST', { name });
+  }
+
+  async deleteCustomTemplate(templateId: string): Promise<any> {
+    return this.makeRequest(`/api/custom-templates/${encodeURIComponent(templateId)}`, 'DELETE');
   }
 
   async login(email: string, password: string): Promise<any> {
@@ -668,6 +719,19 @@ class APIService {
     }
   }
 
+  async prepareSemanticIndex(): Promise<{ success: boolean; status?: string; remaining?: number }> {
+    return this.makeRequest('/api/history/semantic-index', 'GET') as Promise<{
+      success: boolean; status?: string; remaining?: number;
+    }>;
+  }
+
+  async semanticSearchDocuments(query: string, params?: { mine?: boolean; limit?: number }): Promise<DocumentsResponse & { threshold?: number; indexing?: boolean; message?: string }> {
+    const search = new URLSearchParams({ q: query });
+    if (params?.mine) search.set('mine', 'true');
+    if (params?.limit) search.set('limit', String(params.limit));
+    return this.makeRequest(`/api/history/semantic-search?${search.toString()}`, 'GET') as Promise<DocumentsResponse & { threshold?: number; indexing?: boolean; message?: string }>;
+  }
+
   async regenerateSOW(
     documentId: string,
     instructions: string,
@@ -817,6 +881,8 @@ class APIService {
       region?: string;
       includeProposed?: boolean;
     },
+    customTemplateId?: string,
+    timelineFormat: 'table' | 'gantt' = 'table',
   ): Promise<any> {
     const apiMode = this.mapModeToAPI(mode);
 
@@ -827,8 +893,10 @@ class APIService {
         const baseUrl = API_CONFIG.BASE_URL.replace(/\/$/, '');
         const formData = new FormData();
         formData.append('mode', 'poc_to_prod');
+        formData.append('timeline_format', timelineFormat);
         formData.append('file', file);
         formData.append('selected_sow_sections', JSON.stringify(selectedSowSections || []));
+        if (customTemplateId) formData.append('custom_template_id', customTemplateId);
         if (businessUnit) formData.append('business_unit', businessUnit);
         if (pricingOptions?.region) formData.append('pricing_region', pricingOptions.region);
         formData.append('pricing_include_proposed', String(pricingOptions?.includeProposed ?? true));
@@ -870,8 +938,10 @@ class APIService {
       formData.append('additional_details', additionalDetails);
       formData.append('project_name', projectName);
       formData.append('selected_sow_sections', JSON.stringify(selectedSowSections || []));
+      if (customTemplateId) formData.append('custom_template_id', customTemplateId);
       if (businessUnit) formData.append('business_unit', businessUnit);
       if (pricingOptions?.region) formData.append('pricing_region', pricingOptions.region);
+      formData.append('timeline_format', timelineFormat);
       formData.append('pricing_include_proposed', String(pricingOptions?.includeProposed ?? true));
       formData.append('pricing_read_cost', 'true');
 
@@ -971,7 +1041,44 @@ class APIService {
     }
   }
 
+  async heartbeatPreview(previewId: string): Promise<any> {
+    return this.makeRequest(`/api/preview/${encodeURIComponent(previewId)}/heartbeat`, 'POST', {});
+  }
+
+  async savePreviewAsDraft(previewId: string): Promise<any> {
+    const endpoint = `/api/preview/${encodeURIComponent(previewId)}/draft`;
+    const deadline = Date.now() + 10 * 60 * 1000;
+    while (true) {
+      const result = await this.makeRequest(endpoint, 'POST', {}) as any;
+      if (!result.processing) return result;
+      if (Date.now() >= deadline) {
+        throw new Error('Draft save is still processing. Check SOW Records before trying again.');
+      }
+      await this.delay(2000);
+    }
+  }
+
+  async discardPreview(previewId: string): Promise<any> {
+    return this.makeRequest(`/api/preview/${encodeURIComponent(previewId)}`, 'DELETE');
+  }
+
+  async openDraftSOW(documentId: string): Promise<any> {
+    return this.makeRequest(`/api/sows/${encodeURIComponent(documentId)}/draft/open`, 'POST', {});
+  }
+
+  async deleteDraftSOW(documentId: string): Promise<any> {
+    return this.makeRequest(`/api/sows/${encodeURIComponent(documentId)}/draft`, 'DELETE');
+  }
+
   /** Save XML and the current PNG export from the embedded draw.io editor. */
+  async regenerateArchitecture(previewId: string, instructions: string): Promise<any> {
+    return this.makeRequest(`/api/preview/${encodeURIComponent(previewId)}/architecture-regeneration`, 'POST', { instructions });
+  }
+
+  async architectureRegenerationStatus(previewId: string): Promise<any> {
+    return this.makeRequest(`/api/preview/${encodeURIComponent(previewId)}/architecture-regeneration`, 'GET');
+  }
+
   async updateArchitectureDiagram(previewId: string, drawioXml: string, imageData: string, diagramIndex = 0): Promise<any> {
     return this.makeRequest(
       `/api/preview/${encodeURIComponent(previewId)}/architecture-diagram`,
@@ -1047,8 +1154,20 @@ class APIService {
     console.log('Finalize API Request:', requestData);
 
     try {
-      const response = await this.makeRequestJSON('/api/finalize', 'POST', requestData);
-      return response;
+      // Retries may reach a still-running request. A 202 is not a saved SOW.
+      const deadline = Date.now() + 10 * 60 * 1000;
+      while (Date.now() < deadline) {
+        const response: any = await this.makeRequestJSON('/api/finalize', 'POST', requestData);
+        if (response.processing || response.status === 'processing') {
+          await this.delay(2000);
+          continue;
+        }
+        if (response.success && !(response.document_id && response.s3_url)) {
+          throw new Error('Finalization did not return a downloadable document. Your preview has not been dismissed.');
+        }
+        return response;
+      }
+      throw new Error('Finalization is still running. Your draft remains available in SOW Records.');
     } catch (error) {
       return {
         success: false,
@@ -1098,7 +1217,9 @@ class APIService {
         throw new Error(`Failed to download: ${response.statusText}`);
       }
 
-      return await response.blob();
+      const blob = await response.blob();
+      if (!blob.size) throw new Error('The downloaded document is empty. No local file was written.');
+      return blob;
     } catch (error) {
       console.error('Download error:', error);
       throw error;

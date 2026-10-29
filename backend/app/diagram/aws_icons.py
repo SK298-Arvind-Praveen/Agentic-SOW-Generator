@@ -47,6 +47,18 @@ CAPABILITY_MAP = {
     "nosql": "Amazon DynamoDB",
     "foundation model": "Amazon Bedrock",
     "generative ai": "Amazon Bedrock",
+    "gen ai": "Amazon Bedrock",
+    "genai": "Amazon Bedrock",
+    "summarisation": "Amazon Bedrock",
+    "summarization": "Amazon Bedrock",
+    "sentiment": "Amazon Bedrock",
+    "attachments": "Amazon Simple Storage Service",
+    "migration": "AWS Step Functions",
+    "data migration": "AWS Glue",
+    "extract transform": "AWS Glue",
+    "integration": "AWS Lambda",
+    "api": "Amazon API Gateway",
+    "reporting": "Amazon QuickSight",
     "machine learning": "Amazon SageMaker",
     "queue": "Amazon Simple Queue Service",
     "notification": "Amazon Simple Notification Service",
@@ -71,7 +83,13 @@ SERVICE_SYNONYMS = {
     "ses": "Amazon Simple Email Service",
     "eks": "Amazon Elastic Kubernetes Service",
     "ecs": "Amazon Elastic Container Service",
+    "ecr": "Amazon Elastic Container Registry",
+    "sagemaker ai": "Amazon SageMaker AI",
     "kms": "AWS Key Management Service",
+    "iam": "AWS Identity and Access Management",
+    "internet gateway": "Amazon VPC Internet Gateway",
+    "nat gateway": "Amazon VPC NAT Gateway",
+    "vpc endpoint": "Amazon VPC Endpoints",
     "waf": "AWS WAF",
     "contact lens": "Amazon Connect",
     "connect wisdom": "Amazon Connect",
@@ -79,6 +97,14 @@ SERVICE_SYNONYMS = {
     "quick sight": "Amazon Quick",
     "quick suite": "Amazon Quick",
 }
+
+# Available design options, never claims that the BRD names these resources.
+DEPLOYMENT_OPTIONS = (
+    'Amazon VPC Endpoints', 'Amazon VPC Internet Gateway', 'Amazon VPC NAT Gateway',
+    'Elastic Load Balancing Application Load Balancer', 'AWS Secrets Manager',
+    'AWS Key Management Service', 'AWS Identity and Access Management',
+    'Amazon API Gateway',
+)
 
 
 class AwsIconRegistry:
@@ -88,6 +114,8 @@ class AwsIconRegistry:
         raw_entries = manifest.get("icons", manifest) if isinstance(manifest, dict) else manifest
         self.entries = [item for item in raw_entries if item.get("kind") in {"service", "resource"}]
         self.by_key = {item["key"]: item for item in self.entries}
+        # Boundary glyphs are renderable, but never offered as workload services.
+        self.group_by_key = {item['key']: item for item in raw_entries if item.get('kind') == 'group'}
 
     @staticmethod
     def _aliases(item: Dict[str, Any]) -> Iterable[str]:
@@ -97,7 +125,9 @@ class AwsIconRegistry:
             yield alias
 
     def match(self, query: str) -> Optional[Dict[str, Any]]:
-        needle = _norm(query)
+        # The leading service owns its icon; a parenthetical implementation
+        # detail must not turn "AWS Batch (GPU, EC2 G6)" into an EC2 icon.
+        needle = _norm(re.split(r'\s*\(', str(query), maxsplit=1)[0])
         if not needle:
             return None
         # Resolve well-known acronyms even when followed by a purpose phrase,
@@ -134,8 +164,9 @@ class AwsIconRegistry:
         return IconCandidate(item["key"], item["label"], item.get("category", "Other"),
                              item["path"], selection, evidence, 100 if selection == "explicit" else 70)
 
-    def candidates(self, requirements: Dict[str, Any], narrative: str, limit: int = 30) -> List[IconCandidate]:
+    def candidates(self, requirements: Dict[str, Any], narrative: str, limit: int = 40) -> List[IconCandidate]:
         found: Dict[str, IconCandidate] = {}
+        from app.diagram.knowledge import _positive_text
         fields = ("aws_services", "services", "technology_stack", "architecture_components")
         for field in fields:
             value = requirements.get(field)
@@ -144,14 +175,22 @@ class AwsIconRegistry:
                 if isinstance(raw, dict):
                     raw = raw.get("name") or raw.get("service") or raw.get("title") or ""
                 candidate = self.candidate(str(raw), "explicit", f"{field}: {raw}")
+                if candidate and candidate.key.startswith('aws.service.') and not (
+                    re.search(r'\b(?:amazon|aws)\b', str(raw), re.I)
+                    or any(re.search(rf'\b{re.escape(s)}\b', str(raw), re.I) for s in SERVICE_SYNONYMS)
+                ):
+                    candidate = None
+                if candidate and not _positive_text(str(raw)):
+                    candidate = None
                 if candidate:
                     found[candidate.key] = candidate
 
-        source = (json.dumps(requirements, ensure_ascii=False, default=str) + " " + str(narrative or "")).casefold()
+        source = _positive_text(requirements) + ' ' + _positive_text(narrative)
         # Named services anywhere in the extracted source count as explicit.
         for item in self.entries:
-            aliases = sorted((_norm(a) for a in self._aliases(item)), key=len, reverse=True)
-            label = next((a for a in aliases if len(a) >= 4 and re.search(rf"\b{re.escape(a)}\b", _norm(source))), None)
+            aliases = [a.casefold() for a in self._aliases(item) if
+                       not item['key'].startswith('aws.service.') or re.search(r'\b(?:amazon|aws)\b', a, re.I)]
+            label = next((a for a in aliases if len(a) >= 4 and re.search(rf"\b{re.escape(a)}\b", source)), None)
             if label and item["key"] not in found:
                 found[item["key"]] = IconCandidate(item["key"], item["label"], item.get("category", "Other"),
                                                      item["path"], "explicit", f"source names {item['label']}", 95)
@@ -166,10 +205,22 @@ class AwsIconRegistry:
                 candidate = self.candidate(service, "inferred", f"capability: {signal}")
                 if candidate and candidate.key not in found:
                     found[candidate.key] = candidate
+        for label in DEPLOYMENT_OPTIONS:
+            candidate = self.candidate(label, 'inferred', 'Optional supporting infrastructure; select only for a justified deployment need')
+            if candidate and candidate.key not in found:
+                found[candidate.key] = candidate
+        if requirements.get('architecture_evidence_policy'):
+            confirmed_keys = {c.key for name in requirements.get('confirmed_aws_services', [])
+                              if (c := self.candidate(str(name), 'explicit', 'Confirmed source evidence'))}
+            # Icon availability is not evidence of a customer's product choice.
+            found = {key: (value if key in confirmed_keys else IconCandidate(
+                value.key, value.label, value.category, value.path, 'inferred',
+                'Implementation option; not a confirmed client mandate. ' + value.evidence, 70))
+                for key, value in found.items()}
         return sorted(found.values(), key=lambda c: (-c.score, c.category, c.label))[:limit]
 
     def svg_data_uri(self, key: str) -> Optional[str]:
-        item = self.by_key.get(key)
+        item = self.by_key.get(key) or self.group_by_key.get(key)
         if not item:
             print(f"[DIAGRAM][SVG] Unknown icon key: {key}", flush=True)
             return None
@@ -181,7 +232,7 @@ class AwsIconRegistry:
         return "data:image/svg+xml;base64," + base64.b64encode(data).decode("ascii")
 
     def png(self, key: str, size: int = 64) -> Optional[Image.Image]:
-        item = self.by_key.get(key)
+        item = self.by_key.get(key) or self.group_by_key.get(key)
         if not item:
             return None
         try:

@@ -166,9 +166,10 @@ class AwsPricingTests(unittest.TestCase):
             "currency": "USD",
             "monthly_cost": "12.50",
         })
-        self.assertIn("| AWS ARR | USD 150.00 |", content)
+        self.assertIn("| AWS infrastructure | 12.50 |", content)
+        self.assertNotIn("AWS ARR", content)
         self.assertIn("calculator.aws", content)
-        self.assertLess(content.index("calculator.aws"), content.index("| Item |"))
+        self.assertGreater(content.index("calculator.aws"), content.index("| Item |"))
 
     def test_renderer_places_volume_metrics_before_cost_summary(self):
         content = render_aws_pricing_section({
@@ -178,8 +179,8 @@ class AwsPricingTests(unittest.TestCase):
             "monthly_cost": "12.50",
             "volume_metrics": [{"metric": "Monthly conversations", "value": "100,000"}],
         })
-        self.assertIn("| Metric | Estimated Volume |", content)
-        self.assertLess(content.index("Estimated Volume Metrics"), content.index("AWS Cost Summary"))
+        self.assertIn("| Monthly conversations | 100,000 |", content)
+        self.assertTrue(all(line.startswith('|') for line in content.splitlines() if line.strip()))
 
     def test_renderer_does_not_expose_unresolved_calculator_fields(self):
         content = render_aws_pricing_section({
@@ -203,22 +204,22 @@ class AwsPricingTests(unittest.TestCase):
                 {"metric": "PUT, COPY, POST, LIST requests to S3 Standard", "value": "195,000"},
             ],
         })
-        self.assertIn("Monthly interaction volume", content)
+        self.assertIn("Monthly conversation volume", content)
         self.assertNotIn("PUT, COPY, POST, LIST", content)
         self.assertNotIn("Confirmation Needed", content)
 
     def test_renderer_always_emits_canonical_volume_and_blank_cost_rows(self):
         content = render_aws_pricing_section({"status": "needs_input", "currency": "USD"})
-        self.assertIn("| Annual interaction volume (design point) |  |", content)
-        self.assertIn("| Monthly interaction volume |  |", content)
-        self.assertIn("| AWS MRR |  |", content)
-        self.assertIn("| AWS ARR |  |", content)
+        self.assertNotIn("Annual interaction volume", content)
+        self.assertNotIn("Monthly interaction volume", content)
+        self.assertIn("| AWS infrastructure |  |  |", content)
+        self.assertNotIn("AWS ARR", content)
         self.assertNotIn("not provided", content.casefold())
         self.assertNotIn("pending completion", content.casefold())
 
     def test_renderer_blocks_stale_pricing_from_looking_current(self):
         content = render_aws_pricing_section({"status": "stale", "monthly_cost": "99.00"})
-        self.assertIn("| AWS MRR |  |", content)
+        self.assertIn("| AWS infrastructure |  |  |", content)
         self.assertNotIn("99.00", content)
 
     def test_volumetric_fallback_produces_a_visible_planning_range(self):
@@ -239,7 +240,7 @@ class AwsPricingTests(unittest.TestCase):
             result["fallback_estimate"]["monthly_low"],
         )
         content = render_aws_pricing_section(result)
-        self.assertIn("AWS Pricing Calculator (workload planning estimate)", content)
+        self.assertIn("Workload planning estimate", content)
         self.assertIn("not an AWS quote", content)
 
     def test_partial_calculator_total_is_supplemented_not_presented_as_full_arr(self):
@@ -261,8 +262,8 @@ class AwsPricingTests(unittest.TestCase):
         self.assertEqual(result["calculator_monthly_cost"], 0.67)
         self.assertGreater(result["monthly_cost"], result["calculator_monthly_cost"])
         content = render_aws_pricing_section(result)
-        self.assertIn("2 of 11 services priced", content)
-        self.assertIn("AWS workload planning range", content)
+        self.assertIn("calculator-priced components", content)
+        self.assertIn("Workload planning estimate", content)
         self.assertNotIn("AWS ARR | USD 8.04", content)
 
     def test_partial_calculator_without_volumetrics_never_claims_full_arr(self):
@@ -280,7 +281,7 @@ class AwsPricingTests(unittest.TestCase):
         self.assertIsNone(result["monthly_cost"])
         content = render_aws_pricing_section(result)
         self.assertIn("AWS Pricing Calculator", content)
-        self.assertIn("| AWS ARR |  |", content)
+        self.assertNotIn("AWS ARR", content)
 
     def test_llm_fallback_is_used_for_time_based_business_volumetrics(self):
         service = AwsPricingService(
@@ -410,7 +411,7 @@ class AwsPricingTests(unittest.TestCase):
 
     def test_renderer_exposes_plain_calculator_url_on_one_line(self):
         content = render_aws_pricing_section({"status": "needs_input"})
-        self.assertIn("AWS Pricing Calculator Link:** https://calculator.aws/", content)
+        self.assertIn("| AWS infrastructure |  |  |", content)
         self.assertNotIn("](https://calculator.aws/)", content)
 
     def test_vendored_mcp_runtime_handshake(self):

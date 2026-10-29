@@ -55,6 +55,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return null;
     }
   });
+  const authenticatedEmail = user?.email;
 
   const logout = () => {
     setUser(null);
@@ -83,6 +84,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (!authenticatedEmail || !localStorage.getItem('authToken')) return;
+    // Non-blocking warm-up: the backend immediately returns and performs any
+    // one-time historical vector backfill on its daemon worker. This starts on
+    // every authenticated site load, not only when Records is opened.
+    void apiService.prepareSemanticIndex().catch(() => {
+      // Search itself reports a persistent indexing failure if warm-up could
+      // not start; application loading and navigation must remain unaffected.
+    });
+  }, [authenticatedEmail]);
 
   const login = async (email: string, password: string) => {
     try {

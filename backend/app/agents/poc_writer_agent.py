@@ -15,7 +15,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import boto3
 
 from app.core.bedrock_llm import BedrockLLM
-from app.core.document_context import combined_source_text, select_section_evidence
+from app.core.section_formats import presentation_contract
+from app.core.document_context import select_section_evidence
+from app.core.sow_editorial import (
+    editorial_category, section_editorial_contract, strip_bullet_leadins,
+)
 from app.core.sow_quality import (
     clean_markdown_preserving_structure,
     classify_complexity,
@@ -25,6 +29,7 @@ from app.core.sow_quality import (
     section_quality_issues,
     validate_generated_sections,
 )
+from app.core.sow_presentation import strip_text_diagrams
 from app.core.sow_section_preferences import (
     SECTION_LABELS,
     excluded_section_labels,
@@ -79,7 +84,13 @@ class POCWriterAgent:
     section that fails a deterministic gate, and never mutates the parsed template.
     """
 
-    def __init__(self, config, template_type: str = "POC"):
+    def __init__(
+        self,
+        config,
+        template_type: str = "POC",
+        custom_template_markdown: Optional[str] = None,
+        custom_template_sections: Optional[List[Dict[str, Any]]] = None,
+    ):
         self.config = config
         self.template_type = (template_type or "POC").upper()
         self.bedrock = boto3.client(
@@ -94,6 +105,9 @@ class POCWriterAgent:
         self.template_raw = self._load_template()
         self.global_template_contract = self._extract_global_template_contract(self.template_raw)
         self.sections = self._parse_template()
+        self._merge_custom_template(
+            custom_template_markdown or "", custom_template_sections or []
+        )
         for item in section_catalogue():
             category_id = str(item.get("id") or "")
             if not category_id:
@@ -115,6 +129,10 @@ class POCWriterAgent:
                 {"type": "GENERATED", "category_id": category_id, "_explicit": True},
                 len(self.sections),
             ))
+
+        for section in self.sections:
+            if self._section_category(section) == 'timelines_deliverables':
+                section.name = 'Project Timeline'
 
     @staticmethod
     def _section_category(section: TemplateSection) -> Optional[str]:
@@ -192,6 +210,64 @@ class POCWriterAgent:
         print(f"✓ Parsed {len(sections)} template sections")
         return sections
 
+    def _merge_custom_template(
+        self, markdown: str, section_definitions: List[Dict[str, Any]]
+    ) -> None:
+        """Merge supplementary guidance without replacing protected base content."""
+        if not markdown.strip() or not section_definitions:
+            return
+        definitions = {
+            _normalise_heading_text(item.get("label")): item
+            for item in section_definitions
+            if item.get("id") and item.get("label")
+        }
+        chunks = re.split(r"(?m)^##\s+", markdown)
+        for chunk in chunks[1:]:
+            lines = chunk.splitlines()
+            name = lines[0].strip()
+            definition = definitions.get(_normalise_heading_text(name))
+            if not definition:
+                continue
+            category_id = str(definition["id"])
+            content = "\n".join(lines[1:]).strip()
+            content = re.sub(r"(?im)^\s*\[META_[A-Z_]+(?:_[^\]]+)?\]\s*", "", content).strip()
+            base_section_id = str(definition.get("base_section_id") or "")
+            match = next((
+                item for item in self.sections
+                if (
+                    base_section_id
+                    and self._section_category(item) == base_section_id
+                ) or _normalise_heading_text(item.name) == _normalise_heading_text(name)
+            ), None)
+            if match:
+                # The base template remains authoritative. The extracted SOW
+                # contributes reusable guidance to the same rendered section.
+                match.metadata.setdefault("selection_ids", []).append(category_id)
+                protected = self._section_category(match) in {"about_shellkode", "service_agreement", "change_order", "project_plan_termination", "marketing_authorization", "terms_conditions"} or "{PROJECT_TITLE}" in match.name
+                if content and not protected:
+                    match.metadata["custom_template"] = True
+                    match.content = (
+                        "CUSTOM TEMPLATE GUIDANCE (authoritative when it conflicts with generic base guidance):\n"
+                        f"{content}\n\nBASE TEMPLATE GUIDANCE (use only where the custom template is silent):\n"
+                        f"{match.content}"
+                    ).strip()
+                    if match.section_type in {SectionType.STATIC, SectionType.STATIC_TABLE}:
+                        match.section_type = SectionType.GENERATED
+                        match.metadata["type"] = "GENERATED"
+                continue
+            self.sections.append(TemplateSection(
+                name,
+                content or f"Write a concise, client-ready {name} section.",
+                {
+                    "type": "GENERATED",
+                    "category_id": category_id,
+                    "selection_ids": [category_id],
+                    "custom_template": True,
+                    "_explicit": True,
+                },
+                len(self.sections),
+            ))
+
     @staticmethod
     def _parse_meta_marker(meta_type: str, extra: str) -> Dict[str, Any]:
         valid = {item.name for item in SectionType}
@@ -228,12 +304,12 @@ class POCWriterAgent:
         self,
         requirements: Dict[str, Any],
         metadata: Dict[str, Any],
-        rag_context: Optional[Dict[str, Any]] = None,
         supporting_context: Optional[str] = None,
         selected_sow_sections: Optional[List[str]] = None,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
         scope_architecture_plan: Optional[Dict[str, Any]] = None,
         refinement_plan: Optional[Dict[str, Any]] = None,
+        phase_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         mode = self.template_type
         selected_preferences = parse_selected_section_ids(selected_sow_sections, mode)
@@ -252,7 +328,7 @@ class POCWriterAgent:
             section for section in self.sections
             if (
                 self._section_category(section) is None
-                or self._section_category(section) in selected_set
+                or bool(self._selection_ids(section) & selected_set)
             ) and (
                 req.get("ui_required") or section.name not in {
                     "User Interaction Layer", "User Access & Interaction Layer", "UI Development"
@@ -265,6 +341,7 @@ class POCWriterAgent:
         self.selected_section_preferences = selected_preferences
         self.excluded_section_preferences = excluded_section_labels(selected_preferences, mode)
         output: Dict[str, str] = {}
+        self.solution_architecture_context = ""
         rendered: Dict[int, Tuple[str, str, bool]] = {}
         generation_jobs: List[Tuple[int, TemplateSection, str]] = []
         consistency_notes = self._consistency_notes(req, metadata, selected_set)
@@ -278,7 +355,6 @@ class POCWriterAgent:
         ):
             scope_evidence = self._context_excerpt(
                 supporting_context,
-                rag_context,
                 section_name="Scope of Work deliverables modules workflows inputs outputs",
                 requirements=req,
                 limit=max(getattr(self.config, "SECTION_EVIDENCE_MAX_CHARS", 48_000), 64_000),
@@ -305,7 +381,9 @@ class POCWriterAgent:
             else:
                 generation_jobs.append((index, section, key))
                 continue
-            rendered[index] = (key, self._clean_content(content, section.name), False)
+            # Reference clauses are literal contractual text, not LLM prose.
+            protected = self._section_category(section) in {"service_agreement", "change_order", "project_plan_termination", "marketing_authorization", "terms_conditions", "about_shellkode"}
+            rendered[index] = (key, content if protected else self._clean_content(content, section.name), False)
 
         worker_count = self._section_worker_count(len(generation_jobs))
         if generation_jobs:
@@ -319,10 +397,10 @@ class POCWriterAgent:
             print(f"  [{index}/{len(active_sections)}] {section.name}")
             source_context = self._context_excerpt(
                 supporting_context,
-                rag_context,
                 section_name=section.name,
                 requirements=req,
-                limit=getattr(self.config, "SECTION_EVIDENCE_MAX_CHARS", 48_000),
+                limit=(getattr(self.config, "SECTION_EVIDENCE_MAX_CHARS", 48_000)
+                       if self._section_category(section) == "scope_of_work" else 12000),
             )
             content = self._generate_section(
                 section, req, metadata, source_context, consistency_notes
@@ -337,20 +415,32 @@ class POCWriterAgent:
             if not cleaned.strip():
                 if self._section_category(section) == "about_client":
                     cleaned = self._about_company_fallback(metadata)
-            if not cleaned.strip():
+            if not cleaned.strip() and self._section_category(section) != 'success_criteria':
                 raise RuntimeError(
                     f"{resolved_section_name} returned no usable content; generation halted"
                 )
             return index, key, cleaned
 
+        # The authored design is a dependency, not a concurrent sibling of scope.
+        total_generation_jobs = len(generation_jobs)
+        completed = 0
+        for job in list(generation_jobs):
+            if self._section_category(job[1]) == "architecture_diagram":
+                index, key, content = generate_job(job)
+                rendered[index] = (key, content, True)
+                self.solution_architecture_context += content + "\n"
+                generation_jobs.remove(job)
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, total_generation_jobs, job[1].name)
+
         if worker_count == 1:
-            completed = 0
             for job in generation_jobs:
                 index, key, content = generate_job(job)
                 rendered[index] = (key, content, True)
                 completed += 1
                 if progress_callback:
-                    progress_callback(completed, len(generation_jobs), job[1].name)
+                    progress_callback(completed, total_generation_jobs, job[1].name)
         else:
             with ThreadPoolExecutor(
                 max_workers=worker_count,
@@ -360,7 +450,6 @@ class POCWriterAgent:
                     executor.submit(copy_context().run, generate_job, job): job
                     for job in generation_jobs
                 }
-                completed = 0
                 for future in as_completed(future_jobs):
                     job = future_jobs[future]
                     index, section, key = job
@@ -375,13 +464,13 @@ class POCWriterAgent:
                     rendered[result_index] = (result_key, content, True)
                     completed += 1
                     if progress_callback:
-                        progress_callback(completed, len(generation_jobs), section.name)
+                        progress_callback(completed, total_generation_jobs, section.name)
                     print(
-                        f"   ✓ Completed LLM section {completed}/{len(generation_jobs)}: "
+                        f"   ✓ Completed LLM section {completed}/{total_generation_jobs}: "
                         f"{section.name}"
                     )
 
-        if not generation_jobs and progress_callback:
+        if not total_generation_jobs and progress_callback:
             progress_callback(1, 1, "Static document sections")
 
         # Reassemble strictly in the user's selected order; concurrent completion
@@ -390,9 +479,26 @@ class POCWriterAgent:
             key, content, _ = rendered[index]
             output[key] = content
 
+        self.review_context = {'requirements': req, 'mode': mode, 'metadata': metadata,
+                              'scope_plan': getattr(self, 'scope_architecture_plan', {}),
+                              '_review_source_text': supporting_context or '',
+                              'instructions': requirements.get('_generation_guidance', '')}
+        if phase_callback:
+            phase_callback('Checking and correcting SOW consistency')
+        editorial_omissions = self._review_document_relevance(output, active_sections, metadata)
+        from app.core.section_formats import sequence_gantt_markdown
+        for section in active_sections:
+            if self._section_category(section) == 'project_team_effort':
+                key = self._section_key(section.name, metadata)
+                if isinstance(output.get(key), str):
+                    output[key] = self._clean_content(output[key], section.name)
+            if self._section_category(section) == 'timelines_deliverables':
+                key = self._section_key(section.name, metadata)
+                if isinstance(output.get(key), str):
+                    output[key] = sequence_gantt_markdown(output[key])
         expected_generated_keys = {
             key for key, _content, generated in rendered.values() if generated
-        }
+        } - editorial_omissions
         missing, issues = validate_generated_sections(
             output, mode, required_keys=expected_generated_keys
         )
@@ -401,9 +507,44 @@ class POCWriterAgent:
         if missing:
             details = "; ".join(f"missing {item}" for item in missing)
             raise RuntimeError(f"SOW generation quality gate failed; generation halted: {details}")
-        output["generation_quality_summary"] = self._quality_summary([], [], req)
+        output["generation_quality_summary"] = self._quality_summary([], getattr(self, '_review_issues', []), req)
         print(f"✅ Assembly complete - {len(output)} sections")
         return output
+
+    def _review_document_relevance(self, output, sections, metadata):
+        """Apply bounded, context-aware corrections instead of a whole-SOW rewrite."""
+        from app.agents.sow_reviewer_agent import SOWReviewerAgent
+        categories = {}
+        for section in sections:
+            category = editorial_category(section.name, self._section_category(section))
+            key = self._section_key(section.name, metadata)
+            if (section.section_type in {SectionType.STATIC, SectionType.STATIC_TABLE}
+                    or section.metadata.get('custom_template')
+                    or category in {'about_shellkode', 'service_agreement', 'change_order',
+                                    'project_plan_termination', 'marketing_authorization',
+                                    'terms_conditions', 'aws_pricing'}
+                    or key not in output):
+                continue
+            if category == 'success_criteria' and not output[key].strip():
+                # No source-backed targets is a deliberate blank, not an
+                # invitation for the reviewer to invent acceptance conditions.
+                continue
+            refinement = getattr(self, 'refinement_plan', None)
+            if refinement and self._section_category(section) not in set(refinement.get('affected_sections') or []):
+                continue
+            if category:
+                categories[key] = category
+        if not categories:
+            return set()
+        reviewer = SOWReviewerAgent(self.config)
+        reviewed = reviewer.review(
+            output, categories, getattr(self, 'review_context', {'metadata': metadata}))
+        audit = getattr(reviewer, 'last_review_audit', {})
+        self._review_issues = [f'Review incomplete: {key}' for key in audit.get('incomplete_sections', [])]
+        self._review_issues.extend(f'Correction rejected: {key}' for key in audit.get('rejected_sections', []))
+        self._review_issues.extend(f'Formatting requires review: {key}' for key in audit.get('remaining_format_issues', {}))
+        output.update(reviewed)
+        return set()
 
     def _order_sections_by_preference(
         self,
@@ -420,7 +561,13 @@ class POCWriterAgent:
             category = self._section_category(section)
             if category is None:
                 front_matter.append(section)
-            elif category in sections_by_category:
+            else:
+                matching = next(
+                    (item for item in selected_preferences if item in self._selection_ids(section)),
+                    None,
+                )
+                category = matching or category
+            if category in sections_by_category:
                 # A selectable area can span several template sections. Keep
                 # those sections together and retain their internal template
                 # order while moving the whole group to the requested position.
@@ -431,6 +578,14 @@ class POCWriterAgent:
             for category in selected_preferences
             for section in sections_by_category.get(category, [])
         ]
+
+    @classmethod
+    def _selection_ids(cls, section: TemplateSection) -> set[str]:
+        values = set(str(item) for item in section.metadata.get("selection_ids", []) if item)
+        category = cls._section_category(section)
+        if category:
+            values.add(category)
+        return values
 
     def _section_worker_count(self, job_count: int) -> int:
         configured = getattr(self.config, "SOW_SECTION_WORKERS", 2)
@@ -507,9 +662,16 @@ class POCWriterAgent:
             content = self._call_bedrock(
                 prompt,
                 max_tokens=self._section_token_budget(section),
-                model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+                model_id=getattr(self.config, "FAST_MODEL_ID", None) if self._section_category(section) in {
+                    "about_client", "business_benefits", "raci_matrix", "customer_responsibilities",
+                    "contacts_reporting", "project_team_effort", "timelines_deliverables"
+                } else getattr(self.config, "WRITER_MODEL_ID", None),
                 call_name=f"SOW Section - {section.name}",
             )
+        if self._section_category(section) == 'success_criteria' and content.strip() in {
+            '[NO_SOURCE_BACKED_SUCCESS_CRITERIA]', '[NO_QUANTITATIVE_TARGETS]',
+        }:
+            content = ''  # Internal transport sentinel, never client-facing content.
         resolved_name = self._replace_placeholders(section.name, metadata, requirements)
         content = self._clean_content(content, resolved_name)
         issues = self._authoring_issues(content, section)
@@ -544,36 +706,9 @@ class POCWriterAgent:
                 issues = self._authoring_issues(content, section)
                 if not issues:
                     break
-        elif not architected_scope:
-            concise_issues = self._concise_sow_issues(content)
-            if concise_issues:
-                retry_prompt = (
-                    prompt
-                    + "\n\nRewrite the draft below as a concise execution-focused SOW section. "
-                    "The deterministic style check found: "
-                    + "; ".join(concise_issues)
-                    + ". Preserve all material commitments, names, values and boundaries. Remove "
-                    "pain-point or deficiency narratives, background and repeated rationale. Use at "
-                    "most one 40-word opening paragraph, never consecutive prose paragraphs, and "
-                    "one-sentence action bullets of no more than 25 words. Return only the revised "
-                    "Markdown body.\n\nDRAFT:\n"
-                    + content[:12000]
-                )
-                try:
-                    revised = self._call_bedrock(
-                        retry_prompt,
-                        max_tokens=self._section_token_budget(section),
-                        model_id=getattr(self.config, "WRITER_MODEL_ID", None),
-                        call_name=f"SOW Section - {section.name} concise rewrite",
-                    )
-                    revised = self._clean_content(revised, resolved_name)
-                    if revised and len(self._concise_sow_issues(revised)) < len(concise_issues):
-                        content = revised
-                except Exception:
-                    pass
         if not content.strip() and about_client:
             content = self._about_company_fallback(metadata)
-        if not content.strip():
+        if not content.strip() and self._section_category(section) != 'success_criteria':
             raise RuntimeError(f"{section.name} returned empty content; generation halted")
         return content
 
@@ -582,13 +717,10 @@ class POCWriterAgent:
         """Keep optional company enrichment from aborting an otherwise valid SOW."""
         supplied = str(metadata.get("company_description") or "").strip()
         paragraphs = [item.strip() for item in re.split(r"\n\s*\n", supplied) if item.strip()]
-        if len(paragraphs) >= 2:
-            return "\n\n".join(paragraphs[:2])
+        if paragraphs:
+            return "\n\n".join(re.sub(r'^[-*]\s+', '', p) for p in paragraphs[:2])
         company = str(metadata.get("company_name") or "The customer").strip()
-        return (
-            f"{company} is the customer organisation for this delivery.\n\n"
-            f"{company}'s confirmed operations provide the organisational context for the services in scope."
-        )
+        return f"{company} is the client organisation."
 
     def _generate_scope_deliverables(
         self,
@@ -599,23 +731,21 @@ class POCWriterAgent:
     ) -> str:
         """Expand each architected deliverable independently, then assemble in plan order."""
         plan = getattr(self, "scope_architecture_plan", {}) or {}
+        from app.core.authoring_context import authoring_facts
+        generation_guidance = requirements.get('_generation_guidance') or '(none)'
+        requirements = authoring_facts(requirements)
         blocks: List[str] = []
         deliverables = plan.get("deliverables") or []
         multiple_deliverables = len(deliverables) > 1
         if multiple_deliverables:
-            rows = ["| # | Deliverable | Included Modules | Core Outcome |", "|---:|---|---|---|"]
+            rows = ["| Deliverable | Outcome |", "|---|---|"]
             for deliverable_index, deliverable in enumerate(deliverables, 1):
                 name = re.sub(
                     r"^\s*deliverable\s+\d+\s*[-:–—]\s*", "",
                     str(deliverable.get("name") or "").strip(), flags=re.I,
                 ) or f"Work Package {deliverable_index}"
-                modules = ", ".join(
-                    str(item.get("name") or "").strip()
-                    for item in (deliverable.get("modules") or [])
-                    if str(item.get("name") or "").strip()
-                )
                 outcome = str(deliverable.get("purpose") or "").strip()
-                values = [str(deliverable_index), f"Deliverable {deliverable_index} - {name}", modules, outcome]
+                values = [f"Deliverable {deliverable_index} - {name}", outcome]
                 rows.append("| " + " | ".join(value.replace("|", "\\|").replace("\n", " ") for value in values) + " |")
             blocks.append("\n".join(rows))
 
@@ -640,10 +770,14 @@ class POCWriterAgent:
             )
             prompt = f"""You are a principal solutions architect writing one deliverable within Scope of Work.
 {structure_instruction}
+{section_editorial_contract('scope_of_work')}
 
 CUSTOMER: {metadata.get('company_name', '')}
 PROJECT: {metadata.get('project_title', '')}
 MODE: {self.template_type}
+
+EXPLICIT USER REFINEMENT INSTRUCTIONS:
+{generation_guidance}
 
 DELIVERABLE BLUEPRINT:
 {json.dumps(deliverable, indent=2, default=str)}
@@ -657,6 +791,13 @@ AUTHORITATIVE REQUIREMENTS:
 SOURCE EVIDENCE:
 {source_context or '(none)'}
 
+SOLUTION DESIGN CONTEXT:
+{getattr(self, 'solution_architecture_context', '') or '(Use the shared blueprint and authoritative requirements; no separate architecture narrative selected.)'}
+Use this design to make each module's implementation consistent with the chosen runtime, storage and integration boundaries.
+It is context, not a coverage checklist: mention an AWS service only when it clarifies that module's action or interface.
+Do not add modules or bullets merely to cover services; shared infrastructure setup belongs once in the appropriate workstream.
+Source requirements and explicit scope boundaries override any unsupported proposal in this narrative.
+
 CONSISTENCY NOTES:
 {chr(10).join(prior_summaries[-4:]) or '(none)'}
 
@@ -667,13 +808,13 @@ Module writing rules:
 - Do not repeat the module heading in an opening paragraph. Include an opening sentence only when it establishes a boundary that the bullets cannot express clearly.
 - Each bullet must add a distinct scope action, business rule, integration, boundary, qualification, or acceptance-relevant outcome. Remove any bullet that merely restates another bullet in different words.
 - Every bullet must be one sentence of no more than 25 words and short enough to render in one or two lines.
-- Combine closely related actions into one bullet where separating them adds no scope clarity. For example: `- **Monitoring and alert activation:** Configure platform, integration and journey-health monitoring with severity-based notifications to agreed support channels.`
-- A bold inline lead-in is allowed only inside the same bullet as its content; it is not a separate paragraph or subsection.
+- Combine closely related actions into one bullet where separating them adds no scope clarity. For example: `- Configure platform and integration monitoring with alerts to the agreed support channels.`
+- Do not add bold summary labels before bullets. Start directly with the action and retain necessary subjects in the sentence.
 - Integrate a unique dependency, proposal status, open point, output, or validation condition into the relevant implementation bullet instead of repeating category lists at the end of every module.
 - Avoid exhaustive technology catalogues and adjectives such as comprehensive or enterprise-grade unless the evidence defines their meaning. Name an AWS service only when it represents a confirmed or clearly labelled Proposed design decision.
 - Preserve the complete source scope, but say each requirement once in the module where it naturally belongs. Do not repeat the same capability in Deliverables, module introductions, approach, outputs and validation wording.
 
-Preserve all source-specific workflows, business rules, systems, data, thresholds, roles, channels and exceptions assigned to the module. Clearly label architect-derived choices as Proposed and unresolved decisions as open clarifications. Do not invent facts or contractual commitments. Do not add unrelated lifecycle boilerplate. Use British Indian English and standard unordered Markdown bullets, not numbered lists. Tables are optional and only for genuinely comparable source requirements.
+Preserve all source-specific workflows, business rules, systems, data, thresholds, roles, channels and exceptions assigned to the module. Keep unresolved decisions in Open Clarifications rather than describing missing inputs or confirmation status in scope. Do not invent facts or contractual commitments. Do not add unrelated lifecycle boilerplate. Use British Indian English and standard unordered Markdown bullets, not numbered lists. Tables are optional and only for genuinely comparable source requirements.
 """
             # Each deliverable receives its own output allowance, preventing a
             # large multi-deliverable scope from being truncated by one call.
@@ -755,7 +896,7 @@ Preserve all source-specific workflows, business rules, systems, data, threshold
             concise_issues = self._concise_sow_issues(block)
             if block and concise_issues:
                 concise_prompt = (
-                    prompt
+                    section_editorial_contract('scope_of_work')
                     + "\n\nRewrite the draft below without changing or omitting any deliverable or "
                     "module heading. Preserve every material scope commitment, name, value and boundary. "
                     "Remove background, pain-point narratives, rationale and repetition. Beneath each "
@@ -769,7 +910,7 @@ Preserve all source-specific workflows, business rules, systems, data, threshold
                     revised = self._call_bedrock(
                         concise_prompt,
                         max_tokens=token_budget,
-                        model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+                        model_id=getattr(self.config, "EDITOR_MODEL_ID", getattr(self.config, "FAST_MODEL_ID", None)),
                         call_name=f"Scope Deliverable {deliverable_index} concise rewrite",
                     ).strip()
                     revised_key = _normalise_heading_text(revised)
@@ -1091,8 +1232,8 @@ Review rules:
             ]
             if len(paragraphs) != 2:
                 issues.append("About Client must contain exactly two brief paragraphs")
-            if re.search(r"(?m)^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|\|)", content or ""):
-                issues.append("About Client must not contain subsections, lists, or tables")
+            if re.search(r'(?m)^\s*(?:[-*+]\s|#|\|)', content or ''):
+                issues.append("About Client must not contain bullets, headings or tables")
             if re.search(
                 r"(?i)\b(?:this engagement|project scope|project objectives?|"
                 r"statement of work|requirements relevant to|specific operational context|"
@@ -1100,9 +1241,6 @@ Review rules:
                 content or "",
             ):
                 issues.append("About Client must describe only the company, not the engagement or its problem")
-        elif name.startswith(("document control", "document version control")):
-            if not any(all(label in line for label in ("version", "date", "prepared by", "status", "classification")) for line in table_lines):
-                issues.append("Document Control is missing the required five-column control table")
         elif name in {"scope of work", "detailed scope of work"}:
             deliverables = re.findall(r"(?im)^###\s+.*\bdeliverable\b.*$", content or "")
             modules = re.findall(r"(?m)^####\s+.+$", content or "")
@@ -1126,13 +1264,6 @@ Review rules:
             )
             if forbidden:
                 issues.append("Task statement, objective, inputs, requirements and outputs must be integrated into module content, not emitted as numbered headings")
-        elif name.startswith("solution architecture"):
-            for required in ("architecture and flow", "architecture decisions and controls"):
-                if required not in normalized:
-                    issues.append(f"Architecture is missing {required}")
-        elif name.startswith("open clarifications"):
-            if not any(all(label in line for label in ("module/area", "clarification")) for line in table_lines):
-                issues.append("Open Clarifications is missing the required register table")
         elif name.startswith("aws pricing"):
             if "pricing calculator" not in normalized:
                 issues.append("AWS Pricing is missing the calculator link or estimate basis")
@@ -1199,6 +1330,33 @@ Review rules:
         return issues
 
     @staticmethod
+    def _contractual_section_issues(content: str, category: str) -> List[str]:
+        """Trigger a focused rewrite when contract sections drift into commentary."""
+        if category not in {"assumptions", "out_of_scope"}:
+            return []
+        issues: List[str] = []
+        lines = [line.strip() for line in str(content or "").splitlines() if line.strip()]
+        if any(line.startswith("#") or line.startswith("|") for line in lines):
+            issues.append("must use a simple bullet list without subsections or tables")
+        if any(not re.match(r"^[-*+]\s+", line) for line in lines):
+            issues.append("must not include an opening or explanatory paragraph")
+        if re.search(
+            r"(?i)\b(?:not (?:provided|specified|confirmed|clarified|known)|"
+            r"customer (?:did not|has not|could not)|due to (?:a )?(?:lack|absence)|"
+            r"based on (?:the )?(?:lack|absence)|because (?:the )?customer|"
+            r"source|evidence|proposed|pending confirmation|subject to confirmation)\b",
+            content or "",
+        ):
+            issues.append("contains missing-input, evidence-status, or decision-rationale commentary")
+        if category == "out_of_scope" and re.search(
+            r"(?i)\b(?:anything|everything|all (?:items|features|services|work))\s+"
+            r"(?:not|outside|beyond)\b|\bother work not explicitly\b",
+            content or "",
+        ):
+            issues.append("contains a blanket exclusion instead of material project boundaries")
+        return issues
+
+    @staticmethod
     def _section_word_limit(section: TemplateSection) -> Optional[int]:
         """Return a compact but workable maximum for one generated section."""
         name = re.sub(
@@ -1241,9 +1399,15 @@ Review rules:
             )
         category = self._section_category(section)
         about_client = category == "about_client"
+        from app.diagram.knowledge import reference_context
+        architecture_references = reference_context(requirements) if category == "architecture_diagram" else ""
+        if category == "architecture_diagram":
+            from app.diagram.planning import ARCHITECTURE_PLANNING_RULES
+            architecture_references += '\n' + ARCHITECTURE_PLANNING_RULES
+        from app.core.authoring_context import authoring_facts, boundary_summary
         requirements_context = (
             {"company_name": metadata.get("company_name", "")}
-            if about_client else requirements
+            if about_client else authoring_facts(requirements)
         )
         section_source_context = supporting_context or "(none)"
         refinement_contract = "(not a regeneration request)"
@@ -1265,6 +1429,7 @@ Review rules:
                     "new requirements, assumptions, phases, commitments, or template material."
                 )
         architecture_blueprint = "(not applicable to this section)"
+        solution_design_context = "(not applicable to this section)"
         if category in {
             "scope_of_work", "architecture_diagram",
             "timelines_deliverables", "customer_dependencies", "assumptions",
@@ -1272,8 +1437,30 @@ Review rules:
             "project_team_effort",
         }:
             architecture_blueprint = json.dumps(
-                getattr(self, "scope_architecture_plan", {}) or {}, indent=2, default=str
+                (getattr(self, "scope_architecture_plan", {}) or {}) if category == "scope_of_work"
+                else boundary_summary(getattr(self, "scope_architecture_plan", {}) or {}),
+                separators=(',', ':'), default=str
             ) or "(not available; derive directly from the authoritative baseline)"
+            if category != "architecture_diagram":
+                solution_design_context = getattr(self, "solution_architecture_context", "")
+        contractual_section_contract = "(not applicable to this section)"
+        if category == "out_of_scope":
+            contractual_section_contract = """Treat Out of Scope as a short contractual boundary, not a catalogue.
+- Include only exclusions that prevent a realistic post-delivery dispute or scope misunderstanding.
+- Relevant examples may include post-acceptance model/provider/version migration, new use cases, new integrations, capacity beyond the agreed baseline, or ongoing operations; include only those applicable here.
+- A boundary may be inferred from what the agreed delivery ends at, but it must be material and must not contradict Scope of Work.
+- Use only plain one-sentence bullets. State what is excluded, never why, and never mention evidence, uncertainty, missing inputs, proposals, or confirmation status.
+- Silently remove generic boilerplate, obvious non-scope, minor details, and anything unlikely to be requested as part of this delivery."""
+        elif category == "assumptions":
+            contractual_section_contract = """Treat Assumptions as the smallest set of critical delivery baselines, not a list of unknowns.
+- Include a condition only when changing it would materially affect architecture, scope, cost, schedule, security, compliance, or acceptance.
+- State the adopted baseline directly in simple English; use only actual agreed sizing values, never example values.
+- Never say the customer did not know, specify, provide, confirm, or clarify something, and never explain why the baseline was chosen.
+- Include project-specific delivery premises: usable linked data, representative test material, approved rules, existing integration/identity access and agreed operating baselines, only where material to this project.
+- Do not invent values, environments, approval deadlines or schedules. Do not list features, repeat the access checklist, or turn minor unknowns into assumptions. A material data-quality or rule-availability condition is legitimate even when the client supplies it.
+- Keep roughly a short 6-9-bullet list when the evidence warrants it, never pad to a count. Use one brief sentence and one meaningful inline bold phrase per bullet.
+- Put only critical unanswered decisions in Open Clarifications and omit non-critical unknowns.
+- Use only plain one-sentence bullets with no opening paragraph, subsections, or table."""
         length_instruction = (
             "- No fixed word, deliverable, or module limit applies. Use the natural amount of detail "
             "needed to cover the source clearly and concisely. "
@@ -1289,7 +1476,9 @@ DOCUMENT CONTEXT
 - Mode: {self.template_type}
 
 AUTHORITATIVE REQUIREMENTS BASELINE
-{json.dumps(requirements_context, indent=2, default=str)}
+{json.dumps(requirements_context, separators=(',', ':'), default=str)}
+
+{architecture_references}
 
 USER GENERATION GUIDANCE
 {requirements.get('_generation_guidance') or '(none)'}
@@ -1313,6 +1502,12 @@ DOCUMENT CONSISTENCY NOTES
 SHARED SOLUTION-ARCHITECTURE WORK BREAKDOWN
 {architecture_blueprint}
 
+SOLUTION DESIGN CONTEXT
+{solution_design_context}
+Use only design decisions relevant to this section. This is not a checklist to reproduce.
+Do not repeat the infrastructure inventory, add service-by-service bullets, or turn design facts into assumptions.
+Keep actions consistent with the chosen design without inventing scope, sizing or commitments; authoritative requirements take precedence.
+
 USER-SELECTED DOCUMENT CUSTOMISATION
 - Topics to include: {', '.join(SECTION_LABELS.get(item, item) for item in getattr(self, 'selected_section_preferences', [])) or '(none)'}
 - Topics to exclude: {', '.join(getattr(self, 'excluded_section_preferences', [])) or '(none)'}
@@ -1327,6 +1522,17 @@ GLOBAL TEMPLATE AND REFERENCE-BENCHMARK CONTRACT
 SECTION TO WRITE: {section.name}
 TEMPLATE AUTHORING INSTRUCTIONS:
 {self._replace_placeholders(section.content, metadata, requirements)}
+
+RELEVANCE AND SECTION OWNERSHIP (takes priority over exhaustive coverage lists):
+{section_editorial_contract(editorial_category(section.name, self._section_category(section)))}
+
+MANDATORY SELECTED PRESENTATION (overrides conflicting generic/custom template guidance)
+{presentation_contract(self._section_category(section), metadata)}
+{'Before returning an empty section, check the BRD/user inputs for both numerical targets and required functional outcomes. Absence of numbers is not a reason to omit descriptive criteria. Only when neither exists, return exactly [NO_SOURCE_BACKED_SUCCESS_CRITERIA] as the entire response; this internal sentinel becomes a blank section.' if self._section_category(section) == 'success_criteria' else ''}
+Preserve explicitly requested custom-template layout; apply these relevance rules to its content without adding filler rows.
+
+CONTRACTUAL SECTION MATERIALITY RULES
+{contractual_section_contract}
 
 SECTION LENGTH BUDGET
 {length_instruction}
@@ -1362,21 +1568,25 @@ NON-NEGOTIABLE AUTHORING STANDARD
   capability. Describe a gap as confirmed only when a source states or directly demonstrates it.
 - A source-required capability must not appear in Out of Scope. A conflicting, optional or
   unconfirmed capability belongs in Open Clarifications or a clearly labelled future phase.
+- For Out of Scope and Assumptions, apply the section-specific materiality rules above instead of
+  producing a comprehensive checklist. Keep only clauses that protect or establish the delivery baseline.
 - Do not present a planning target as an agreed acceptance criterion. When a material target is unresolved,
   ask a direct question in Open Clarifications without adding a status or provenance label.
-- Be specific about capability, owner, input, output, boundary, dependency, and validation method.
+- Include only the detail this section owns; do not enumerate capability, owner, input, output,
+  dependency and validation for every point. Scope describes work; acceptance describes tests.
 - Preserve cross-section consistency for terminology, timeline, scope, services, and metrics.
 - Preserve supplied compliance and regulatory wording exactly, including regulator names,
   disclaimer language, residency constraints, qualifications, and human-review boundaries.
   Never turn an expectation, design intent, or pending confirmation into a compliance claim.
-- Carry every source-named deliverable, module, workflow, requirement identifier, business
-  rule, integration, data element, and acceptance condition into the relevant section.
-  Do not replace specific BRD language with generic cloud activities or vague summaries.
-- Prefer no opening paragraph. Where essential, use one orienting paragraph of no more than 40 words followed by the lightest useful structure. Do not
+- Preserve each distinct implementation commitment in Scope of Work; do not repeat its
+  workflow, fields, controls and tests in every other selected section. Ancillary sections
+  add only their own distinct contractual facts. Do not replace specific business rules
+  with generic cloud activities or vague summaries.
+- Except for About Client, use short bullets, with no opening or closing paragraph. Do not
   restate the project objective, customer context, or the same requirement in multiple forms.
-- Never place prose paragraphs back to back; About Client is the only two-paragraph exception.
+- About Client is the two-paragraph exception. Other generated narrative sections use short bullets. Preserve required tables.
 - Default to no subsection headings. Follow any essential opening sentence with concise action bullets. Convert labels such as Roles, Data, Dependencies, Controls,
-  Validation, or Risks into bold lead-in bullets instead of separate headings.
+  Validation, or Risks into ordinary sentences instead of separate headings or bold lead-in labels.
 - Outside Scope of Work, use at most two direct subsections and no nested subsections. In Scope of
   Work, use `### Deliverable 1 - <name>` and `#### <Module Name>` headings. Do not create headings for
   Task Statement, Objective, Inputs, Requirements, Outputs, Dependencies, or Validation; integrate
@@ -1386,7 +1596,7 @@ NON-NEGOTIABLE AUTHORING STANDARD
   least 60% of non-table content after the opening to be concise bullet points.
 - Use ### and #### for real subsection headings and standard '-' bullets only.
 - Put every bullet on its own Markdown line. Every bullet must contain one sentence and one idea,
-  normally no more than 25 words and short enough to render in one or two lines. Start with an action verb or concise bold capability label. Use the natural number of source-supported items and never add filler to meet a count. Use two leading
+  normally no more than 25 words and short enough to render in one or two lines. Start with the action or subject, never a bold capability label and colon. Use the natural number of source-supported items and never add filler to meet a count. Use two leading
   spaces for a nested bullet and never embed bullet symbols inside a prose paragraph.
 - Keep heading hierarchy complete and consistent. The DOCX renderer normalizes every
   generated heading to 1.1 / 1.2 / 4.1 / 4.1.1 form; never use a bold Normal paragraph
@@ -1400,12 +1610,12 @@ NON-NEGOTIABLE AUTHORING STANDARD
   benchmark-defined boundary and do not append generic SOW boilerplate.
 - Omit generic background, textbook explanations, marketing language, and implementation
   possibilities that do not change scope, ownership, dependency, acceptance, or a decision.
-- When Architecture Diagram is selected, write only the decisions, constraints, flows and unresolved
-  boundaries needed to interpret the generated visual. Do not duplicate the visual as a long component
+- When writing Solution Architecture, explain the end-to-end flow and how the relevant logical layers
+  and chosen services interact, followed by only material deployment, data and security decisions.
+  Do not duplicate the visual as a long component
   catalogue, and never claim that a source-supplied diagram exists when it does not.
 - The section should be complete enough for commercial and technical review, without filler or repetition.
-- For About Client only, write exactly two consecutive factual prose paragraphs as instructed by
-  the section template; this is the explicit exception to the general paragraph-and-bullets guidance.
+- For About Client, write exactly two short factual paragraphs about the company, without engagement commentary or bullets. Never invent facts to pad them.
 """
 
     def _build_prompt(
@@ -1474,12 +1684,11 @@ NON-NEGOTIABLE AUTHORING STANDARD
     @staticmethod
     def _context_excerpt(
         supporting_context: Optional[str],
-        rag_context: Optional[Dict[str, Any]],
         limit: int = 48000,
         section_name: str = "Project Overview",
         requirements: Optional[Dict[str, Any]] = None,
     ) -> str:
-        text = combined_source_text(supporting_context, rag_context)
+        text = str(supporting_context or "")
         if len(text) <= limit:
             return text
         return select_section_evidence(
@@ -1551,6 +1760,8 @@ NON-NEGOTIABLE AUTHORING STANDARD
         return bool(re.search(r"\b(generate|write|derive|using objective|instructions?|rules?)\b", content or "", re.I))
 
     def _clean_content(self, content: str, section_name: str) -> str:
+        if section_category(section_name) == 'architecture_diagram':
+            content = strip_text_diagrams(content or '')
         content = clean_markdown_preserving_structure(content or "")
         lines = content.splitlines()
         section_label = re.sub(r"^\s*\d+(?:\.\d+)*[.)]?\s*", "", section_name).strip()
@@ -1602,7 +1813,12 @@ NON-NEGOTIABLE AUTHORING STANDARD
                 )
             ]
             content = "\n\n".join(paragraphs)
-        return clean_markdown_preserving_structure(content)
+        if section_category(section_label) in {'raci_matrix', 'project_team_effort'}:
+            table = '\n'.join(line for line in content.splitlines() if line.strip().startswith('|'))
+            # Do not erase malformed legacy prose merely because no table exists.
+            if table or section_category(section_label) == 'raci_matrix':
+                content = table
+        return strip_bullet_leadins(clean_markdown_preserving_structure(content))
 
     @staticmethod
     def _remove_table_columns(content: str, blocked_headers: set[str]) -> str:
@@ -1689,13 +1905,16 @@ NON-NEGOTIABLE AUTHORING STANDARD
             "executive summary and project overview": "project_overview",
             "detailed scope of work": "scope_of_work",
             "scope of work": "scope_of_work",
+            "roles and responsibilities": "raci_matrix",
             "detailed production scope of work": "scope_of_work",
             "architecture & integrations": "architecture_integrations",
             "architecture and integrations": "architecture_integrations",
             "architecture overview": "architecture_diagram",
+            "solution architecture": "architecture_diagram",
             "solution architecture — aws": "architecture_diagram",
             "solution architecture - aws": "architecture_diagram",
             "timeline and deliverables": "timelines_and_deliverables",
+            "project timeline": "timelines_and_deliverables",
             "timelines and deliverables": "timelines_and_deliverables",
             "customer dependencies & responsibilities": "customer_dependencies_responsibilities",
             "shellkode implementation cost": "shellkode_implementation_cost",

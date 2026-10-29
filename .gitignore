@@ -51,7 +51,12 @@ yarn-error.log*
 
 # ── Runtime uploads & generated output ───────────────────────────────────────
 backend/app/core/uploads/
+backend/uploads/
+backend/output/
+output/
+backend/%SystemDrive%/
 backend/output/llm-debug/
+backend/llm-outputs/
 shared/uploads/
 shared/output/
 
@@ -73,3 +78,7 @@ Thumbs.db
 # bundle in source control so backend pricing works immediately after checkout.
 !tools/aws-pricing-calculator/dist/
 !tools/aws-pricing-calculator/dist/mcp-server.js
+backend/.diagram-mcp-venv/
+backend/output/superseded-sow-document-import-20261014/
+backend/output/reference-import-20261014/
+backend/output/diagram-reference-import-20261014/

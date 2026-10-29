@@ -15,6 +15,7 @@ import boto3
 from app.core.bedrock_llm import BedrockLLM
 from app.core.document_context import select_section_evidence
 from .mcp_client import CalculatorMcpClient, PricingCalculatorError
+from .renderer import _is_workflow_setting
 
 
 def _json_object(text: str) -> Dict[str, Any]:
@@ -47,7 +48,8 @@ def _numeric_values(value: Any) -> set[str]:
         for child in value:
             values.update(_numeric_values(child))
     elif isinstance(value, (str, int, float)) and not isinstance(value, bool):
-        for token in re.findall(r"\d+(?:\.\d+)?", str(value)):
+        numeric_text = re.sub(r'(?<=\d),(?=\d)', '', str(value))
+        for token in re.findall(r"\d+(?:\.\d+)?", numeric_text):
             try:
                 normalised = format(Decimal(token).normalize(), "f")
                 values.add("0" if normalised in {"-0", ""} else normalised)
@@ -59,6 +61,20 @@ def _numeric_values(value: Any) -> set[str]:
 def _valid_aws_region(value: Any) -> bool:
     """Accept standard commercial AWS region identifiers, not prose."""
     return bool(re.fullmatch(r"[a-z]{2}(?:-gov)?-[a-z]+-\d", str(value or "").strip()))
+
+
+def _volume_numbers(value: Any) -> set[str]:
+    """Compare equivalent written volume magnitudes without estimating usage."""
+    multipliers = {'k': 1000, 'thousand': 1000, 'lakh': 100000, 'lakhs': 100000,
+                   'million': 1000000, 'crore': 10000000, 'crores': 10000000}
+    text = re.sub(r'(?<=\d),(?=\d)', '', str(value or '')).casefold()
+    numbers = set()
+    for match in re.finditer(r'\d+(?:\.\d+)?(?:\s*(?:thousand|million|lakhs?|crores?|k)\b)?', text):
+        token = match.group()
+        number = re.match(r'\d+(?:\.\d+)?', token).group()
+        suffix = token[len(number):].strip()
+        numbers.add(format((Decimal(number) * multipliers.get(suffix, 1)).normalize(), 'f'))
+    return numbers
 
 
 def _field_contracts(fields: Any) -> Dict[str, Dict[str, Any]]:
@@ -445,7 +461,7 @@ class AwsPricingService:
         for item in metrics:
             label = str(item.get("metric") or "").casefold()
             value = str(item.get("value") or "")
-            if not any(term in label for term in ("conversation", "interaction", "ticket", "case", "email", "transaction")):
+            if not any(term in label for term in ("conversation", "interaction", "ticket", "case", "email", "transaction", "call volume", "audio volume", "audio minutes")):
                 continue
             if not ("month" in label or "annual" in label or "year" in label or "per month" in value.casefold() or "per year" in value.casefold()):
                 continue
@@ -549,6 +565,7 @@ Return:
 Rules:
 - Extract only numeric or categorical usage facts explicitly present in the source text.
 - Capture cross-service business sizing facts such as annual/monthly interactions, turns per interaction, AI-routing percentages, handover percentage, API calls, users, concurrency and retention in volume_metrics.
+- Exclude regulatory TAT, escalation/reminder deadlines, ticket reopen windows and inbox pagination sizes: these are workflow/UI rules, not workload volumes or pricing inputs.
 - evidence_quote must be a short verbatim excerpt from the source text. Never fabricate a quote.
 - A service's usage facts may combine values from separate source passages; each numeric value must still occur somewhere in the authoritative source.
 - A proposed AWS service may be listed, but it needs source-backed usage facts before pricing.
@@ -558,11 +575,11 @@ Rules:
 """
         result = self.llm.generate(
             prompt,
-            task="analysis",
+            task="fast",
             max_tokens=8000,
             temperature=0.0,
             call_name="AWS Pricing Input Plan",
-            fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+            fallback_model_id=getattr(self.config, "ANALYSIS_MODEL_ID", None),
         )
         parsed = _json_object(result.text)
         if not parsed:
@@ -698,10 +715,12 @@ Rules:
                 continue
             metric = str(item.get("metric") or "").strip()
             value = str(item.get("value") or "").strip()
+            if _is_workflow_setting(re.sub(r'[_\s]+', ' ', metric)):
+                continue
             quote = _normalise_evidence(item.get("evidence_quote"))
             if not metric or not value or not quote or quote not in source:
                 continue
-            if not _numeric_values(value).issubset(_numeric_values(quote)):
+            if not _volume_numbers(value).issubset(_volume_numbers(item.get("evidence_quote"))):
                 continue
             key = (metric.casefold(), value.casefold())
             if key not in seen:
@@ -1001,11 +1020,11 @@ rate-driving required field cannot be populated, return it in missing_inputs and
 """
         result = self.llm.generate(
             prompt,
-            task="analysis",
+            task="fast",
             max_tokens=2400,
             temperature=0.0,
             call_name=f"AWS Pricing Fields - {service['service_name']}",
-            fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
+            fallback_model_id=getattr(self.config, "ANALYSIS_MODEL_ID", None),
         )
         parsed = _json_object(result.text)
         if not parsed:

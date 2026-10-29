@@ -24,7 +24,7 @@ An intelligent document generation platform that uses multi-agent AI (AWS Bedroc
 
 SOWv2 automates the creation of professional SOW and POC documents by:
 
-1. Researching a target company via web scraping and RAG
+1. Researching a target company and analyzing user-supplied source documents
 2. Running a multi-agent LangGraph pipeline (company research, objectives, rules engine, POC writing)
 3. Generating polished `.docx` / `.pdf` output using branded templates
 4. Storing documents in AWS S3 and optionally syncing to Google Drive
@@ -39,7 +39,7 @@ SOWv2 automates the creation of professional SOW and POC documents by:
 │   React Frontend    │ ──────▶│            Flask Backend                 │
 │  (TypeScript + MUI) │  HTTP  │                                          │
 └─────────────────────┘        │  ┌─────────────┐   ┌──────────────────┐ │
-                                │  │  LangGraph  │   │   RAG Pipeline   │ │
+                                │  │  LangGraph  │   │  Source Analysis │ │
                                 │  │  Agents     │   │  (Bedrock + S3)  │ │
                                 │  └──────┬──────┘   └──────────────────┘ │
                                 │         │                                │
@@ -105,7 +105,6 @@ SOWv2/
 │   │   ├── db/              # DynamoDB handler
 │   │   ├── document/        # Document reading and building (docx/pdf)
 │   │   ├── preview/         # Async document preview generation
-│   │   ├── rag/             # RAG ingestion and retrieval
 │   │   ├── storage/         # S3 and Google Drive upload
 │   │   └── utils/           # Health checks, helpers
 │   ├── assets/              # Logo and font files for document branding
@@ -227,12 +226,13 @@ Create this file (never commit it):
 AWS_REGION=us-east-1
 BEDROCK_REGION=us-east-1
 BEDROCK_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
-BEDROCK_FAST_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
+BEDROCK_FAST_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/hbq88skix7wt
 BEDROCK_ANALYSIS_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
 BEDROCK_WRITER_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
 BEDROCK_DIAGRAM_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
 BEDROCK_EDITOR_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
 BEDROCK_FALLBACK_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
+SEMANTIC_SEARCH_EMBEDDING_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/ve7wpqurv75w
 AWS_ACCESS_KEY_ID=your_access_key
 AWS_SECRET_ACCESS_KEY=your_secret_key
 # AWS_SESSION_TOKEN=your_session_token  # only if using temporary credentials
@@ -240,7 +240,6 @@ AWS_SECRET_ACCESS_KEY=your_secret_key
 # Resource names can differ between AWS accounts/environments.
 DYNAMODB_TABLE_ACCOUNTS=agentic-sow-v2
 DYNAMODB_TABLE_POC_DOCUMENTS=agentic-poc
-DYNAMODB_TABLE_RAG_SCHEMA=rag-schema
 DYNAMODB_TABLE_RBAC=agentic-sow-rbac
 S3_BUCKET_NAME=your-globally-unique-sow-bucket
 
@@ -297,12 +296,18 @@ REACT_APP_ENV=development
 REACT_APP_DRAWIO_EMBED_URL=https://embed.diagrams.net
 ```
 
-When Architecture Diagram is selected, the backend makes one additional
+When Solution Architecture is selected, the backend makes an additional
 Bedrock call to create a small validated diagram model. It deterministically
 renders the image and draw.io XML; if that call or rendering fails, SOW content
 generation and finalisation continue without a diagram. The default editor
 requires internet access. Set both draw.io variables when using a self-hosted
 instance.
+
+Architecture images use the built-in PNG/draw.io renderer. The experimental
+MCP and Graphviz engines have been retired; neither a diagram MCP server nor
+Graphviz is required. Old `ARCHITECTURE_LAYOUT_ENGINE=mcp` or `graphviz`
+settings are ignored and can be removed. Restart the backend after updating;
+previously saved documents and drafts keep their existing diagram images.
 
 ### Google Drive (optional)
 
@@ -337,7 +342,7 @@ npm start
 - **Objective Agent** — drafts project objectives tailored to the company
 - **Rules Engine Agent** — applies configurable POC rules from `templates/poc_rules.json`
 - **POC Writer Agent** — assembles the final document narrative
-- **RAG Pipeline** — ingests uploaded reference documents and retrieves relevant context
+- **Source Analysis** — extracts requirements from uploaded reference documents; SOW Records semantic search remains independent of generation
 - **Document Generation** — produces branded `.docx` and `.pdf` files using company assets
 - **Preview System** — async preview generation with status monitoring
 - **Account Management** — tracks clients and their document history via DynamoDB
@@ -366,3 +371,42 @@ The Flask backend exposes REST endpoints at `http://localhost:5000`:
 - Rotate AWS credentials immediately if they have ever been committed to a public or shared repository
 - Use IAM roles with least-privilege for production deployments instead of static access keys
 - The `shared/uploads/` and `shared/output/` directories contain user data and generated documents — they are excluded from git
+
+## Architecture diagram layout (hybrid)
+
+The default renderer combines a grounded architecture plan, constrained model
+composition, reference-style local layout, and independent ELK candidates using
+the existing AWS icon catalogue. Install the pinned worker dependency with
+`npm ci --prefix tools/architecture-layout --omit=dev --ignore-scripts` and set
+`ARCHITECTURE_DIAGRAM_ENGINE=hybrid` in the backend environment. Docker includes this
+installation. Restart the backend after changing its configuration.
+
+See [ELK setup, offline smoke test and rollback](tools/architecture-layout/README.md).
+No external diagram API, MCP server, desktop editor, or generated Python code is
+required. One small layout-only model call arranges existing siblings; it cannot
+add services, change boundaries, or remove connections. Layout selection has a
+30-second budget and compares actual routing/readability metrics. A bounded
+vision review uses the diagram model, applies validated corrections, and checks
+the corrected image when its 60-second additional-work budget permits. Review
+failures retain the working image and are recorded, not reported as approval.
+
+PNG and editable draw.io use the same component, connector, and label geometry.
+The image has no title or explanatory prose; architecture bullets remain in the
+SOW. Only public/private subnet boundaries receive shading. Managed/serverless
+designs do not receive invented VPCs or AZs. Previous renderers remain available:
+set `ARCHITECTURE_DIAGRAM_ENGINE=elk` or `builtin` and restart to roll back.
+
+For local reproduction without saving a SOW, run from `backend`:
+`python scripts/iterate_diagram.py --inputs <captured-inputs.json> --live --output output/diagram-iterations/<run>`.
+`--live` makes billable Bedrock calls using the configured credentials. To test
+layout offline, use `python scripts/replay_hybrid_diagram.py <asset.json> --output <directory>`.
+Add `--review` only to explicitly enable a live visual review. Candidate metrics,
+selected layout, failures, and review decisions are recorded in the output and
+the existing `output/llm-outputs` review audit. A passing geometry check is not a
+guarantee of architectural correctness; client delivery still needs human review.
+
+Architecture planning also uses a local, versioned library of 20 curated AWS
+reference patterns. It supplies at most three advisory patterns to the Solution
+Architecture writer and diagram planner without changing the project requirements.
+See [library coverage, validation and limitations](backend/knowledge/architecture/README.md).
+

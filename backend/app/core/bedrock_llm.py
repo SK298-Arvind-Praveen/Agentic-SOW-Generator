@@ -169,6 +169,8 @@ class BedrockLLM:
         call_name: str = "Bedrock",
         model_id: Optional[str] = None,
         fallback_model_id: Optional[str] = None,
+        image_bytes: Optional[bytes] = None,
+        retry_on_truncation: bool = True,
     ) -> BedrockTextResult:
         primary = model_id or model_for_task(self.config, task)
         # Honour the task-specific budget. The former unconditional 32K minimum
@@ -178,10 +180,12 @@ class BedrockLLM:
         try:
             return self._generate_once(
                 primary, prompt, max_tokens=max_tokens,
-                temperature=temperature, call_name=call_name,
+                temperature=temperature, call_name=call_name, image_bytes=image_bytes,
             )
         except Exception as primary_error:
             if isinstance(primary_error, BedrockOutputTruncatedError):
+                if not retry_on_truncation:
+                    raise
                 expanded_tokens = min(
                     32768,
                     max(max_tokens * 2, max_tokens + 1024),
@@ -206,6 +210,7 @@ class BedrockLLM:
                     max_tokens=expanded_tokens,
                     temperature=temperature,
                     call_name=f"{call_name} expanded retry",
+                    image_bytes=image_bytes,
                 )
             fallback = fallback_model_id
             if fallback and fallback != primary:
@@ -213,6 +218,7 @@ class BedrockLLM:
                 return self._generate_once(
                     fallback, prompt, max_tokens=max_tokens,
                     temperature=temperature, call_name=f"{call_name} fallback",
+                    image_bytes=image_bytes,
                 )
             raise
 
@@ -224,6 +230,7 @@ class BedrockLLM:
         max_tokens: int,
         temperature: float,
         call_name: str,
+        image_bytes: Optional[bytes] = None,
     ) -> BedrockTextResult:
         # Converse is provider-neutral. A native InvokeModel fallback keeps unit
         # tests and older SDK-compatible deployments working.
@@ -238,12 +245,18 @@ class BedrockLLM:
                 "inferenceConfig": inference_config,
             }
             additional_fields = _additional_model_request_fields(model_id)
+            if image_bytes:
+                request["messages"][0]["content"].append({
+                    "image": {"format": "png", "source": {"bytes": image_bytes}}
+                })
             if additional_fields:
                 request["additionalModelRequestFields"] = additional_fields
             payload = converse(
                 **request,
             )
         else:
+            if image_bytes:
+                raise RuntimeError("Visual diagram review requires Bedrock Converse image support")
             response = self.client.invoke_model(
                 modelId=model_id,
                 body=json.dumps(_native_request(model_id, prompt, max_tokens, temperature)),

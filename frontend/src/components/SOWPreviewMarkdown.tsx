@@ -26,11 +26,11 @@ const SECTION_LABELS: Record<string, string> = {
   project_overview: 'Objective',
   current_state_and_business_context: 'Current State and Business Context',
   scope_of_work: 'Scope of Work',
-  architecture_diagram: 'Architecture Diagram',
+  architecture_diagram: 'Solution Architecture',
   customer_dependencies: 'Customer Dependencies',
   assumptions: 'Assumptions',
   out_of_scope: 'Out of Scope',
-  timelines_and_deliverables: 'Timelines and Deliverables',
+  timelines_and_deliverables: 'Project Timeline',
   aws_pricing: 'AWS Pricing',
   customer_responsibilities: 'Customer Responsibilities',
   project_team_effort: 'Project Team Effort',
@@ -210,12 +210,19 @@ export const MarkdownRenderer: React.FC<{ markdown: string; className?: string }
         rows.push(splitTableRow(lines[index++]));
       }
       const tableKey = blockIndex++;
+      const gantt = /^s\.?\s?no\.?$/i.test(header[0] || '') && header[1]?.toLowerCase() === 'activity'
+        && header.slice(2).every(cell => /^(?:[WM]\d+|Timeframe)$/i.test(cell));
       blocks.push(
         <div className="markdown-table-wrap" key={`block-${tableKey}`}>
           <table>
-            <thead><tr>{header.map((cell, cellIndex) => <th key={cellIndex}>{renderInline(cell, `th-${tableKey}-${cellIndex}`)}</th>)}</tr></thead>
+            <thead><tr>{header.map((cell, cellIndex) => <th key={cellIndex} style={gantt ? { background: '#D9D9D9', color: '#222' } : undefined}>{renderInline(cell, `th-${tableKey}-${cellIndex}`)}</th>)}</tr></thead>
             <tbody>{rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>{header.map((_, cellIndex) => <td key={cellIndex}>{renderInline(row[cellIndex] || '', `td-${tableKey}-${rowIndex}-${cellIndex}`)}</td>)}</tr>
+              <tr key={rowIndex}>{header.map((_, cellIndex) => {
+                const marker = gantt && cellIndex >= 2 && ['■', '◆'].includes(row[cellIndex]?.trim()) ? row[cellIndex].trim() : '';
+                return <td key={cellIndex} aria-label={marker ? (marker === '■' ? 'Active delivery' : 'Support') : undefined}
+                  style={marker ? { background: marker === '■' ? '#CCFFCC' : '#4A86E8' } : undefined}>
+                  {marker ? '\u00a0' : renderInline(row[cellIndex] || '', `td-${tableKey}-${rowIndex}-${cellIndex}`)}</td>;
+              })}</tr>
             ))}</tbody>
           </table>
         </div>

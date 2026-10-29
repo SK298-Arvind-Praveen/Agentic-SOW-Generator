@@ -1,0 +1,7 @@
+{
+  "name": "sow-architecture-layout",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local ELK layout worker; never executes model-generated code",
+  "dependencies": { "elkjs": "0.11.0" }
+}

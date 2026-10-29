@@ -11,16 +11,16 @@
   "document_basis": {
     "description": "Make the SOW reviewable and auditable.",
     "rules": [
-      "State purpose, intended audience, source basis, version/status, and requirements classification.",
+      "Keep document control to title, customer, version and date; keep provenance internal.",
       "For POC-to-production, distinguish POC evidence from proposed production requirements.",
-      "Carry every material source gap into an owned decision log."
+      "Ask only unanswered decisions that block scope, sizing, price or acceptance; omit routine discovery questions."
     ]
   },
   "scope_definition": {
     "description": "Define a bounded, testable work package.",
     "rules": [
       "State current state, target outcome, in-scope capabilities, exclusions, dependencies, assumptions, deliverables, and acceptance evidence.",
-      "Give functional requirements stable IDs and validation methods.",
+      "Group implementation actions into cohesive modules; do not manufacture tracking IDs or per-feature evidence rows.",
       "Do not include deliverables that conflict with Out of Scope.",
       "Use change control for additions to the approved baseline."
     ]
@@ -54,7 +54,7 @@
     "description": "Keep performance and reliability measurable and honest.",
     "rules": [
       "Capture latency, throughput, concurrency, availability, RTO, RPO, retention and capacity when provided.",
-      "If a value is absent, use a proposed test target for baseline confirmation, not an agreed SLA.",
+      "Leave absent values blank; do not invent test targets or SLAs.",
       "Specify measurement method, environment, workload and test window."
     ]
   },
@@ -63,14 +63,14 @@
     "rules": [
       "Define environments, test data, functional, integration, regression, performance, security and UAT approaches as applicable.",
       "For AI/data quality, define benchmark set, scoring method, sampling, reviewer role and evidence.",
-      "Map requirement and deliverable IDs to test methods, evidence, owner and acceptance authority.",
+      "Group acceptance checks into distinct end-to-end outcomes; describe the shared test method once.",
       "For POC-to-production, revalidate POC results under production-representative conditions."
     ]
   },
   "timeline_and_governance": {
     "description": "Make the plan executable.",
     "rules": [
-      "Cover every planning week or phase with activities, outputs, customer inputs and exit criteria.",
+      "Use a compact milestone plan with timeframe and outcome, not one phase per module.",
       "Include review cycles, decision gates, testing, documentation and handover.",
       "Label derived duration as a planning assumption and reconcile it across all sections.",
       "Assign decision, dependency and escalation owner roles."
@@ -82,13 +82,13 @@
       "Use source-backed prices and funding status only.",
       "When usage is unknown, use cost-driver ranges/basis and list variables required for a calculator baseline.",
       "Reconcile resource loading with scope and schedule.",
-      "Use To be confirmed for unsupported implementation pricing or funding."
+      "Leave unsupported implementation pricing or funding blank."
     ]
   },
   "risk_and_operations": {
     "description": "Cover delivery and run-state readiness.",
     "rules": [
-      "Maintain a risk register with cause, likelihood, impact, mitigation, contingency, owner and trigger.",
+      "Include only project-specific risks with an actionable mitigation; do not generate a risk catalogue.",
       "For production, define monitoring, incident model, runbooks, backup/recovery, patching, capacity/cost, change and service review.",
       "Distinguish included hypercare from ongoing support requiring a separate agreement."
     ]

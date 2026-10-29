@@ -6,9 +6,15 @@ import { toast } from '../utils/toast';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import apiService from '../services/apiService';
+import { downloadWithNativeSaveAs } from '../utils/downloadFile';
+import { sowDownloadFilename } from '../utils/documentPresentation';
 import SOWSectionChecklist from './SOWSectionChecklist';
+import CustomTemplateSelector from './CustomTemplateSelector';
+import { CustomSowTemplate } from '../services/apiService';
 import { hasProjectScopeSource } from './sowInputValidation';
 import DiagramEditorModal, { ArchitectureDiagramAsset } from './DiagramEditorModal';
+import ArchitectureRegenerationControls from './ArchitectureRegenerationControls';
+import { armPreviewChime, installPreviewChimeUnlock, playPreviewReadyChime } from '../utils/previewChime';
 import {
   EditableMarkdownSection,
   getEffectivePreviewContent,
@@ -19,7 +25,7 @@ import {
   serializePreviewContent,
 } from './SOWPreviewMarkdown';
 import './SOWGenerator.css';
-import { BUSINESS_UNITS, useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 
 interface SOWGeneratorData {
   generationMode: 'poc' | 'production' | 'poc-to-production';
@@ -79,8 +85,6 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
 }) => {
   const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
-  const selectableBusinessUnits = isAdmin ? BUSINESS_UNITS : (user?.business_units || []);
-  const canSelectBusinessUnit = isAdmin || selectableBusinessUnits.length > 1;
 
   // If projectId is provided, use it for project-based SOW creation
   const isProjectBased = !!projectId;
@@ -100,6 +104,12 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
   // Starts empty — the user builds up the SOW section order deliberately
   // rather than starting from an implicit "everything included" state.
   const [selectedSowSections, setSelectedSowSections] = useState<string[]>([]);
+  const [customTemplate, setCustomTemplate] = useState<CustomSowTemplate | null>(null);
+
+  const changeCustomTemplate = useCallback((template: CustomSowTemplate | null) => {
+    setSelectedSowSections(previous => previous.filter(id => !id.startsWith('custom_')));
+    setCustomTemplate(template);
+  }, []);
 
   // Track if initial auto-population has been done
   const [initialPopulationDone, setInitialPopulationDone] = useState(false);
@@ -188,6 +198,7 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
   }, [accountName, projectName, isProjectBased]);
 
   const [isGenerating, setIsGenerating] = useState(false);
+  const [timelineFormat, setTimelineFormat] = useState<'table' | 'gantt'>('table');
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewProgress, setPreviewProgress] = useState(0);
   const [targetProgress, setTargetProgress] = useState(0);
@@ -203,6 +214,9 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
   const [editableMarkdownSections, setEditableMarkdownSections] = useState<EditableMarkdownSection[]>([]);
   const [isSavingMarkdown, setIsSavingMarkdown] = useState(false);
   const [isRecalculatingPricing, setIsRecalculatingPricing] = useState(false);
+  const [isRegeneratingArchitecture, setIsRegeneratingArchitecture] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isDiscardingPreview, setIsDiscardingPreview] = useState(false);
   const [hasPreviewGenerated, setHasPreviewGenerated] = useState(false);
   // React state updates are asynchronous, so a rapid second click can arrive
   // before isGenerating is rendered. This ref closes that race immediately.
@@ -219,6 +233,8 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
   };
 
   // Auto-load preview from draft if coming from drafts modal
+  useEffect(() => installPreviewChimeUnlock(), []);
+
   useEffect(() => {
     const loadingFromDraft = localStorage.getItem('loadingFromDraft');
     const previewId = localStorage.getItem('lastPreviewId');
@@ -272,6 +288,7 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
                   setPreviewData(pollResponse);
                   setShowPreviewModal(true);
                   setHasPreviewGenerated(true);
+                  void playPreviewReadyChime(`preview:${previewId}`);
                   toast.success('Preview ready! Opening editor...', {
                     position: 'top-right',
                     autoClose: 3000,
@@ -304,6 +321,24 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
       loadDraftPreview();
     }
   }, []);
+
+  // A heartbeat distinguishes an actively reviewed preview from one abandoned
+  // by a closed tab, logout, or lost connection. The backend auto-saves only
+  // after this heartbeat has been quiet for its configured grace period.
+  useEffect(() => {
+    const previewId = previewData?.preview_id;
+    if ((!showPreviewModal && !showEditModal && !diagramEditorAsset) || !previewId || previewData?.status !== 'ready') return;
+    let active = true;
+    const beat = () => {
+      if (active) apiService.heartbeatPreview(previewId).catch(() => undefined);
+    };
+    beat();
+    const timer = window.setInterval(beat, 30000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [showPreviewModal, showEditModal, diagramEditorAsset, previewData?.preview_id, previewData?.status]);
   const [modalData, setModalData] = useState({
     sowContent: `Table of Contents
 
@@ -317,7 +352,7 @@ Testing & Acceptance Criteria                                                   
 Customer Dependencies & Responsibilities                                                           4
 Assumptions                                                                                        4
 Out of Scope                                                                                       4
-Timelines and Deliverables                                                                         4
+Project Timeline                                                                         4
 Commercials & Duration of Work                                                                     4
 Success Criteria                                                                                   5
 Day-2 Operations & Support                                                                         5
@@ -363,8 +398,8 @@ Error: Content for Assumptions missing.
 Out of Scope
 Error: Content for Out of Scope missing.
 
-Timelines and Deliverables
-Error: Content for Timelines and Deliverables missing.
+Project Timeline
+Error: Content for Project Timeline missing.
 
 Commercials & Duration of Work
 Error: Content for Commercials & Duration of Work missing.
@@ -436,6 +471,7 @@ Date                                         Date`
     });
     setFileUploadError('');
     setSelectedSowSections([]);
+    setCustomTemplate(null);
     setHasPreviewGenerated(false);
     setInitialPopulationDone(false); // Reset auto-population flag
   }, [selectedMode]);
@@ -459,7 +495,6 @@ Date                                         Date`
 
   const isFormValid = useCallback((): boolean => {
     if (selectedSowSections.length === 0) return false;
-    if (!formData.businessUnit) return false;
 
     if (formData.generationMode === 'poc-to-production') {
       // For poc-to-production mode, only require uploaded files
@@ -483,9 +518,6 @@ Date                                         Date`
   const getMissingFormFields = useCallback((): string[] => {
     const missing: string[] = [];
     if (selectedSowSections.length === 0) missing.push('at least one SOW section');
-    if (!formData.businessUnit) {
-      missing.push(canSelectBusinessUnit ? 'SOW owner/business unit' : 'business unit assignment for your profile');
-    }
     if (formData.generationMode === 'poc-to-production') {
       if (!formData.uploadedFiles?.length) missing.push('a POC document');
       return missing;
@@ -500,7 +532,7 @@ Date                                         Date`
       missing.push('a supporting document or additional details');
     }
     return missing;
-  }, [formData, canSelectBusinessUnit, selectedSowSections]);
+  }, [formData, selectedSowSections]);
 
   const showMissingFields = useCallback(() => {
     const missing = getMissingFormFields();
@@ -588,6 +620,27 @@ Date                                         Date`
     }));
   }, []);
 
+  const finalizeAndDownload = async (previewId: string) => {
+    const metadata = previewData?.metadata || previewData || {};
+    const filename = sowDownloadFilename({
+      project_name: metadata.project_title || projectName || formData.companyName,
+      mode: metadata.mode || formData.generationMode.toUpperCase(),
+      version: metadata.version,
+    });
+    const response = await apiService.finalizeSOW(previewId);
+    if (response.success) {
+      try {
+        const finalName = response.result ? sowDownloadFilename({ ...response.result, project_name: response.result?.project_name || metadata.project_title || projectName || formData.companyName }) : filename;
+        await downloadWithNativeSaveAs(
+          () => apiService.downloadDocument(response.s3_url, response.document_id), finalName,
+        );
+      } catch (error) {
+        toast.error(`SOW saved to Records, but the local download failed: ${error instanceof Error ? error.message : 'Please download from Records.'}`);
+      }
+    }
+    return response;
+  };
+
   const handleGenerateSOW = async () => {
     if (!isFormValid()) {
       showMissingFields();
@@ -611,7 +664,7 @@ Date                                         Date`
 
       try {
         console.log('Calling finalize API with preview_id:', previewId);
-        const response = await apiService.finalizeSOW(previewId);
+        const response = await finalizeAndDownload(previewId);
         console.log('Finalize API Response:', response);
 
         if (response.success) {
@@ -793,6 +846,7 @@ Date                                         Date`
     }
 
     // Clear old preview data and close modal
+    armPreviewChime();
     setPreviewData(null);
     setShowPreviewModal(false);
     setHasPreviewGenerated(false);
@@ -865,6 +919,8 @@ Date                                         Date`
           region: formData.pricingRegion,
           includeProposed: formData.pricingIncludeProposed,
         },
+        customTemplate?.template_id,
+        timelineFormat,
       );
 
       console.log('Preview API Response:', response);
@@ -898,11 +954,14 @@ Date                                         Date`
           releaseGenerationLock();
         };
 
+        let pollInFlight = false;
         const pollPreviewStatus = async () => {
-          if (pollingFinished) return;
+          if (pollingFinished || pollInFlight) return;
+          pollInFlight = true;
           try {
             console.log('Polling status for preview_id:', response.preview_id);
             const statusResponse = await apiService.checkPreviewStatus(response.preview_id);
+            if (pollingFinished) return; // Ignore responses arriving after timeout/completion.
             console.log('Status API Response:', statusResponse);
 
             const displayProgress = Number(statusResponse.progress ?? 0);
@@ -986,6 +1045,7 @@ Date                                         Date`
                 setPreviewData(statusResponse);
                 setShowPreviewModal(true);
                 setHasPreviewGenerated(true);
+                void playPreviewReadyChime(`preview:${response.preview_id}`);
               } else {
                 toast.update(currentProgressToast, {
                   render: 'Preview completed but no content is available',
@@ -998,6 +1058,7 @@ Date                                         Date`
               }
             }
           } catch (error) {
+            if (pollingFinished) return;
             console.error('Status polling error:', error);
             stopPolling();
             toast.update(currentProgressToast, {
@@ -1007,6 +1068,8 @@ Date                                         Date`
               autoClose: 5000,
               closeButton: true,
             });
+          } finally {
+            pollInFlight = false;
           }
         };
 
@@ -1076,7 +1139,7 @@ Date                                         Date`
 
     try {
       console.log('Calling finalize API with preview_id:', previewId);
-      const response = await apiService.finalizeSOW(previewId);
+      const response = await finalizeAndDownload(previewId);
       console.log('Finalize API Response:', response);
 
       if (response.success) {
@@ -1104,6 +1167,19 @@ Date                                         Date`
           }, 1500);
         }
       } else {
+        if (response.code === 'PREVIEW_SAVED_AS_DRAFT') {
+          localStorage.removeItem('lastPreviewId');
+          localStorage.removeItem('loadingFromDraft');
+          setShowPreviewModal(false);
+          setPreviewData(null);
+          setHasPreviewGenerated(false);
+          toast.update(toastId, {
+            render: 'The disconnected preview was safely saved as a draft. Open it from SOW Records to continue.',
+            type: 'info', isLoading: false, autoClose: 5000,
+          });
+          navigate('/sow-records');
+          return;
+        }
         toast.update(toastId, {
           render: `Failed to finalize: ${response.error || 'Unknown error'}`,
           type: 'error',
@@ -1120,6 +1196,54 @@ Date                                         Date`
         autoClose: 5000,
       });
     } finally {
+      releaseGenerationLock();
+    }
+  };
+
+  const handleSavePreviewAsDraft = async () => {
+    const previewId = previewData?.preview_id || localStorage.getItem('lastPreviewId');
+    if (!previewId || isSavingDraft) return;
+    if (!acquireGenerationLock()) return;
+    setIsSavingDraft(true);
+    const toastId = toast.loading('Saving draft…', { autoClose: false });
+    try {
+      const response = await apiService.savePreviewAsDraft(previewId);
+      if (!response.success) throw new Error(response.error || 'Unable to save draft');
+      localStorage.removeItem('lastPreviewId');
+      localStorage.removeItem('loadingFromDraft');
+      setShowPreviewModal(false);
+      setPreviewData(null);
+      setHasPreviewGenerated(false);
+      toast.update(toastId, { render: 'Draft saved in SOW Records', type: 'success', isLoading: false, autoClose: 3000 });
+      if (isProjectBased && onSuccess) onSuccess();
+      else navigate('/sow-records');
+    } catch (error) {
+      toast.update(toastId, { render: error instanceof Error ? error.message : 'Unable to save draft', type: 'error', isLoading: false, autoClose: 5000 });
+    } finally {
+      setIsSavingDraft(false);
+      releaseGenerationLock();
+    }
+  };
+
+  const handleDiscardPreview = async () => {
+    const previewId = previewData?.preview_id || localStorage.getItem('lastPreviewId');
+    if (!previewId || isDiscardingPreview) return;
+    if (!window.confirm('Discard this preview? Unsaved preview changes cannot be recovered.')) return;
+    if (!acquireGenerationLock()) return;
+    setIsDiscardingPreview(true);
+    try {
+      const response = await apiService.discardPreview(previewId);
+      if (!response.success) throw new Error(response.error || 'Unable to discard preview');
+      localStorage.removeItem('lastPreviewId');
+      localStorage.removeItem('loadingFromDraft');
+      setShowPreviewModal(false);
+      setPreviewData(null);
+      setHasPreviewGenerated(false);
+      toast.success('Preview discarded');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to discard preview');
+    } finally {
+      setIsDiscardingPreview(false);
       releaseGenerationLock();
     }
   };
@@ -1195,23 +1319,31 @@ Date                                         Date`
       const assets = Array.isArray(content)
         ? content as ArchitectureDiagramAsset[]
         : [content as ArchitectureDiagramAsset];
+      if (!assets.some(asset => !asset.diagram_type || asset.diagram_type === 'architecture_overview')) return null;
       return (
         <div key={section} className="preview-content-section architecture-diagram-preview">
           <div className="preview-content-section-title">
-            <h4>Architecture Diagrams</h4>
+            <h4>Solution Architecture</h4>
           </div>
-          {assets.map((asset, index) => (
+          {assets.map((asset, index) => (!asset.diagram_type || asset.diagram_type === 'architecture_overview') && (
             <div className="architecture-diagram-item" key={`${asset.diagram_type || asset.title}-${index}`}>
-              <img src={`data:image/png;base64,${asset.image_base64}`} alt={asset.alt_text || asset.title} />
-              {asset.caption && <p className="architecture-diagram-caption">Figure {index + 1}: {asset.caption}</p>}
-              <div className="architecture-diagram-actions">
-                <button className="modal-btn modal-btn-primary" onClick={() => setDiagramEditorAsset({ asset, index })}>
+              {asset.image_base64 ? <img src={`data:image/png;base64,${asset.image_base64}`} alt={asset.alt_text || asset.title} />
+                : <p role="status">The diagram did not pass validation. Regenerate it below; your SOW text is preserved.</p>}
+              {index === 0 && previewData?.preview_id && <ArchitectureRegenerationControls
+                previewId={previewData.preview_id}
+                disabled={isGenerating || isSavingDraft || isDiscardingPreview || isRecalculatingPricing || !!diagramEditorAsset}
+                onBusyChange={setIsRegeneratingArchitecture}
+                onUpdated={(response) => setPreviewData((current: any) => ({ ...current, ...response,
+                  status: 'ready', content: response.content, updated_content: response.content }))}
+              />}
+              {asset.drawio_xml && <div className="architecture-diagram-actions">
+                <button className="modal-btn modal-btn-primary" disabled={isRegeneratingArchitecture} onClick={() => setDiagramEditorAsset({ asset, index })}>
                   <Edit size={15} /> Edit Diagram
                 </button>
                 <a className="modal-btn modal-btn-secondary" href={asset.edit_url} target="_blank" rel="noreferrer">
                   Open in draw.io
                 </a>
-              </div>
+              </div>}
             </div>
           ))}
         </div>
@@ -1302,6 +1434,15 @@ Date                                         Date`
 
   const isFormComplete = isFormValid();
   const effectivePreviewContent = getEffectivePreviewContent(previewData);
+  const previewEntries = (() => {
+    if (!effectivePreviewContent || typeof effectivePreviewContent !== 'object') return [];
+    const entries = Object.entries(effectivePreviewContent as Record<string, unknown>);
+    const assets = entries.filter(([key]) => key === 'architecture_diagram_assets' || key === 'architecture_diagram_asset');
+    const body = entries.filter(([key]) => !assets.some(([assetKey]) => assetKey === key));
+    const architectureIndex = body.findIndex(([key]) => /architecture/.test(key));
+    body.splice(architectureIndex < 0 ? body.length : architectureIndex, 0, ...assets);
+    return body;
+  })();
 
   return (
     <div className="sow-generator-container">
@@ -1313,30 +1454,6 @@ Date                                         Date`
       </div>
 
       <div className="form-content">
-        <div className="section-group bu-assignment-section">
-          <div className="section-header">
-            <h2 className="section-title">Business Unit</h2>
-          </div>
-          <div className="field-group">
-            <label htmlFor="businessUnit" className="field-label">
-              SOW Owner <span className="required">*</span>
-            </label>
-            {canSelectBusinessUnit ? (
-              <select
-                id="businessUnit"
-                name="businessUnit"
-                value={formData.businessUnit || ''}
-                onChange={handleInputChange}
-                className="field-input"
-              >
-                <option value="">Select business unit...</option>
-                {selectableBusinessUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}
-              </select>
-            ) : (
-              <input className="field-input auto-populated" value={user?.business_unit || ''} readOnly />
-            )}
-          </div>
-        </div>
         {formData.generationMode === 'poc-to-production' ? (
           // POC-to-Production mode - only show file upload
           <div className="section-group">
@@ -1345,10 +1462,19 @@ Date                                         Date`
               <h2 className="section-title">Upload POC Documents</h2>
             </div>
 
+            <CustomTemplateSelector
+              value={customTemplate}
+              onChange={changeCustomTemplate}
+              disabled={isGenerating || isPreviewLoading}
+            />
+
             <SOWSectionChecklist
+              timelineFormat={timelineFormat}
+              onTimelineFormatChange={setTimelineFormat}
               mode={formData.generationMode}
               selected={selectedSowSections}
               onChange={setSelectedSowSections}
+              extractedSections={(customTemplate?.sections || []).map(section => ({ ...section, modes: ['poc', 'production', 'poc-to-production'] }))}
             />
             
             <div className="field-group full-width">
@@ -1609,10 +1735,19 @@ Date                                         Date`
                 <h2 className="section-title">Project Details</h2>
               </div>
 
+              <CustomTemplateSelector
+                value={customTemplate}
+                onChange={changeCustomTemplate}
+                disabled={isGenerating || isPreviewLoading}
+              />
+
               <SOWSectionChecklist
+                timelineFormat={timelineFormat}
+                onTimelineFormatChange={setTimelineFormat}
                 mode={formData.generationMode}
                 selected={selectedSowSections}
                 onChange={setSelectedSowSections}
+                extractedSections={(customTemplate?.sections || []).map(section => ({ ...section, modes: ['poc', 'production', 'poc-to-production'] }))}
               />
 
               {selectedSowSections.includes('aws_pricing') && (
@@ -1988,7 +2123,7 @@ Date                                         Date`
                         </div>
                       )}
                     </div>
-                    <button className="modal-btn modal-btn-secondary" onClick={handleRecalculatePricing} disabled={isRecalculatingPricing}>
+                    <button className="modal-btn modal-btn-secondary" onClick={handleRecalculatePricing} disabled={isRecalculatingPricing || isRegeneratingArchitecture}>
                       {isRecalculatingPricing ? 'Recalculating...' : 'Recalculate'}
                     </button>
                   </div>
@@ -2010,7 +2145,7 @@ Date                                         Date`
                       </div>
                     ) : (
                       <div className="preview-content-sections">
-                        {Object.entries(effectivePreviewContent as Record<string, unknown>)
+                        {previewEntries
                           .map(([section, content]) => renderPreviewSection(section, content))}
                       </div>
                     )}
@@ -2027,17 +2162,20 @@ Date                                         Date`
               )}
             </div>
             <div className="modal-footer">
-              <button className="modal-btn modal-btn-secondary" onClick={() => setShowPreviewModal(false)}>
-                Close
+              <button className="modal-btn modal-btn-secondary" onClick={handleDiscardPreview} disabled={isDiscardingPreview || isSavingDraft || isGenerating || isRegeneratingArchitecture}>
+                {isDiscardingPreview ? 'Discarding…' : 'Discard'}
               </button>
-              <button className="modal-btn modal-btn-primary" onClick={handleEditFromPreview}>
+              <button className="modal-btn modal-btn-secondary" onClick={handleSavePreviewAsDraft} disabled={isSavingDraft || isDiscardingPreview || isGenerating || isRegeneratingArchitecture}>
+                {isSavingDraft ? 'Saving draft…' : 'Save as draft'}
+              </button>
+              <button className="modal-btn modal-btn-primary" onClick={handleEditFromPreview} disabled={isSavingDraft || isDiscardingPreview || isGenerating || isRegeneratingArchitecture}>
                 <Edit size={16} style={{ marginRight: '8px' }} />
                 Edit Content
               </button>
               <button
                 className="modal-btn modal-btn-success"
                 onClick={handleFinalizeFromPreview}
-                disabled={isGenerating}
+                disabled={isGenerating || isSavingDraft || isDiscardingPreview || isRegeneratingArchitecture}
                 style={{
                   background: isGenerating ? '#94a3b8' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                   cursor: isGenerating ? 'not-allowed' : 'pointer'

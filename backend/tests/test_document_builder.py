@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from pypdf import PdfReader
 
@@ -38,6 +39,31 @@ class _Config:
 
 
 class DocumentBuilderTests(unittest.TestCase):
+    def test_narrative_and_list_paragraphs_are_justified_after_save(self):
+        document = Document()
+        builder = DocumentBuilder(SimpleNamespace())
+        builder.doc = document
+        builder._configure_styles()
+        SectionBuilder(document, SimpleNamespace()).parse_content(
+            '### Delivery\n\nA normal narrative paragraph.\n\n'
+            '- A **bulleted** delivery condition.\n'
+            '  - A nested delivery condition.\n\n'
+            '1. A numbered delivery condition.\n\n'
+            '| Item | Value |\n|---|---|\n| Service | Included |'
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'alignment.docx'
+            document.save(path)
+            saved = Document(path)
+        narrative = [p for p in saved.paragraphs if p.text.startswith('A ')]
+        self.assertEqual(len(narrative), 4)
+        self.assertTrue(all(p.alignment == WD_ALIGN_PARAGRAPH.JUSTIFY for p in narrative))
+        heading = next(p for p in saved.paragraphs if p.style.name.startswith('Heading'))
+        self.assertNotEqual(heading.alignment, WD_ALIGN_PARAGRAPH.JUSTIFY)
+        self.assertTrue(all(p.alignment == WD_ALIGN_PARAGRAPH.LEFT
+                            for table in saved.tables for row in table.rows
+                            for cell in row.cells for p in cell.paragraphs))
+
     def test_plain_external_url_is_rendered_as_clickable_hyperlink(self):
         document = Document()
         SectionBuilder(document, SimpleNamespace()).parse_content(
@@ -140,14 +166,14 @@ class DocumentBuilderTests(unittest.TestCase):
             document = Document(output)
             self.assertEqual(document.styles["Normal"].font.size.pt, 11.0)
             self.assertEqual(document.styles["Heading 1"].font.size.pt, 20.0)
-            self.assertEqual(document.styles["Heading 2"].font.size.pt, 15.0)
-            self.assertEqual(document.styles["Heading 3"].font.size.pt, 15.0)
-            self.assertEqual(document.styles["Heading 4"].font.size.pt, 15.0)
+            self.assertEqual(document.styles["Heading 2"].font.size.pt, 16.0)
+            self.assertEqual(document.styles["Heading 3"].font.size.pt, 14.0)
+            self.assertEqual(document.styles["Heading 4"].font.size.pt, 12.0)
             self.assertEqual(document.styles["Normal"].paragraph_format.alignment, 3)
             self.assertEqual(document.styles["Normal"].paragraph_format.space_after.pt, 8.0)
             self.assertAlmostEqual(
                 document.styles["Normal"].paragraph_format.line_spacing,
-                1.25,
+                1.5,
                 places=2,
             )
             text = "\n".join(paragraph.text for paragraph in document.paragraphs)
@@ -210,7 +236,7 @@ class DocumentBuilderTests(unittest.TestCase):
             ]
             self.assertTrue(subsection_headings)
             self.assertTrue(all(
-                run.font.size and run.font.size.pt == 15.0
+                run.font.size and run.font.size.pt == {"Heading 2": 16, "Heading 3": 14, "Heading 4": 12}[paragraph.style.name]
                 for paragraph in subsection_headings
                 for run in paragraph.runs
                 if run.text
@@ -242,7 +268,7 @@ class DocumentBuilderTests(unittest.TestCase):
                 [paragraph._p.pPr.numPr.ilvl.val for paragraph in bullets],
                 [0, 1, 0],
             )
-            self.assertTrue(all(paragraph.alignment == 0 for paragraph in bullets))
+            self.assertTrue(all(paragraph.alignment == WD_ALIGN_PARAGRAPH.JUSTIFY for paragraph in bullets))
 
             section = document.sections[-1]
             self.assertEqual(round(section.page_width.inches, 2), 8.5)
@@ -366,35 +392,21 @@ class DocumentBuilderTests(unittest.TestCase):
             signature_table = document.tables[-1]
             shading = signature_table.cell(0, 0)._tc.tcPr.find(qn("w:shd"))
             self.assertIsNotNone(shading)
-            self.assertEqual(shading.get(qn("w:fill")), "5D3FD3")
+            self.assertEqual(shading.get(qn("w:fill")), "7F00FF")
             self.assertEqual(signature_table.cell(1, 0).text, "Name:")
             self.assertNotIn("Bhuvanesh", "\n".join(cell.text for row in signature_table.rows for cell in row.cells))
 
             control_header = document.tables[0].cell(0, 0)._tc.tcPr.find(qn("w:shd"))
             self.assertEqual(control_header.get(qn("w:val")), "clear")
             self.assertEqual(control_header.get(qn("w:color")), "auto")
-            self.assertEqual(control_header.get(qn("w:fill")), "5D3FD3")
+            self.assertEqual(control_header.get(qn("w:fill")), "7F00FF")
 
             content_section = document.sections[-1]
             self.assertAlmostEqual(content_section.left_margin.inches, 0.68, places=2)
-            self.assertIn("Confidential Copyright © ShellKode 2026", content_section.footer.paragraphs[0].text)
-            header_table = content_section.header.tables[0]
-            left_header = header_table.cell(0, 0).paragraphs[0]
-            right_header = header_table.cell(0, 2).paragraphs[0]
-            self.assertAlmostEqual(
-                left_header.paragraph_format.left_indent.inches,
-                CHROME_INSET_IN,
-                places=2,
-            )
-            self.assertAlmostEqual(
-                right_header.paragraph_format.right_indent.inches,
-                CHROME_INSET_IN,
-                places=2,
-            )
-            self.assertTrue(left_header.text.startswith("Agentic CRM Platform"))
-            self.assertEqual(left_header.alignment, 0)
-            self.assertEqual(right_header.alignment, 2)
-            self.assertEqual(content_section.footer.paragraphs[1].alignment, 1)
+            self.assertIn("Shellkode Confidential - for limited purpose only", content_section.footer.paragraphs[0].text)
+            self.assertFalse(content_section.header.tables)
+            self.assertTrue(all(not p.text for p in content_section.header.paragraphs))
+            self.assertEqual(content_section.footer.paragraphs[0].alignment, 2)
 
             with zipfile.ZipFile(output) as package:
                 document_xml = package.read("word/document.xml").decode("utf-8")
@@ -419,13 +431,11 @@ class DocumentBuilderTests(unittest.TestCase):
             # only the TOC-to-body transition needs an explicit page break.
             self.assertEqual(document_xml.count('<w:br w:type="page"'), 1)
             self.assertNotIn('<w:pageBreakBefore w:val="0"', document_xml)
-            self.assertIn("w:drawing", header_xml)
-            self.assertIn("w:tbl", header_xml)
-            self.assertIn('w:gridCol w:w="7200"', header_xml)
-            self.assertIn('w:jc w:val="left"', header_xml)
-            self.assertIn('w:jc w:val="right"', header_xml)
+            self.assertNotIn("w:drawing", header_xml)
+            self.assertNotIn("w:tbl", header_xml)
             self.assertIn("PAGE", footer_xml)
-            self.assertIn("NUMPAGES", footer_xml)
+            self.assertNotIn("NUMPAGES", footer_xml)
+            self.assertNotIn("Copyright", footer_xml)
             expected_toc_tab = round(
                 (PAGE_WIDTH_IN - 2 * HORIZONTAL_MARGIN_IN - 0.18) * 1440
             )
@@ -437,13 +447,13 @@ class DocumentBuilderTests(unittest.TestCase):
             self.assertIn('<w:updateFields w:val="true"', settings_xml)
             self.assertNotIn("Courier", document_xml)
             for font_attribute in ("ascii", "hAnsi", "eastAsia", "cs"):
-                self.assertIn(f'w:{font_attribute}="DM Sans"', styles_xml)
-            self.assertIn('w:name="DM Sans"', font_table_xml)
+                self.assertIn(f'w:{font_attribute}="Albert Sans"', styles_xml)
+            self.assertIn('w:name="Albert Sans"', font_table_xml)
             self.assertIn("w:embedRegular", font_table_xml)
             self.assertIn("w:embedBold", font_table_xml)
             self.assertIn("/relationships/font", font_relationships_xml)
-            self.assertIn("word/fonts/DMSans-Regular.odttf", package_names)
-            self.assertIn("word/fonts/DMSans-Bold.odttf", package_names)
+            self.assertIn("word/fonts/AlbertSans-Regular.odttf", package_names)
+            self.assertIn("word/fonts/AlbertSans-Bold.odttf", package_names)
 
             # The approved template keeps its decorative background and logo as
             # native floating artwork. Text remains in editable paragraphs.

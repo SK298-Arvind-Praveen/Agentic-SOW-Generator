@@ -22,6 +22,8 @@ import tempfile
 import threading
 import uuid
 import time
+import copy
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
 from queue import Queue
@@ -58,13 +60,13 @@ from app.storage.source_documents import (
     project_source_scope,
     public_source_metadata,
 )
+from app.storage.custom_templates import CustomTemplateStore
+from app.agents.custom_template_agent import CustomTemplateAgent
 from app.db.dynamodb_handler_optimized import (
     DynamoDBHandlerOptimized,
     save_to_dynamodb_optimized as save_to_dynamodb,
     DynamoDBHandlerOptimized as DynamoDBHandler,
 )
-from app.rag.rag_diagnostic import EnhancedPOCRetriever
-from app.rag.ingest import PDFToSchemaConverter, SchemaCleaner
 from app.document.document_builder import DocumentBuilder
 from app.document.doc_reader import (
     SUPPORTED_DOCUMENT_EXTENSIONS,
@@ -77,18 +79,27 @@ from app.diagram.service import (
     update_asset as update_architecture_asset,
 )
 from app.pricing import AwsPricingService, render_aws_pricing_section
+from app.search.semantic_search import (
+    BedrockSemanticEmbedder,
+    SIMILARITY_THRESHOLD,
+    build_semantic_search_text,
+    latest_versions,
+    semantic_search_records,
+    stored_embedding,
+)
 from app.preview.preview_handler import (
     create_preview_id, store_preview_data, get_preview_data,
     update_preview_data, delete_preview_data, extract_content_structure,
     preview_lock, preview_storage, get_storage_stats_safe
 )
-from app.rag.content_editor import SmartContentEditor
+from app.agents.content_editor import SmartContentEditor
 from app.api.account_handler import AccountHandler
 from app.core.access_control import (
     BUSINESS_UNITS,
     DEFAULT_SECTION_CATALOGUE,
     Identity,
     RBACStore,
+    AuthServiceUnavailable,
     current_identity,
     filter_visible_items,
     issue_password_reset_token,
@@ -144,6 +155,106 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB max
 
 rbac_store = RBACStore()
+custom_template_extractions = {}
+custom_template_extraction_lock = threading.Lock()
+semantic_index_lock = threading.Lock()
+semantic_index_ready = threading.Event()
+semantic_index_worker_local = threading.local()
+semantic_index_state = {
+    "status": "idle", "total": 0, "indexed": 0, "remaining": 0, "errors": 0,
+}
+preview_auto_draft_threads = set()
+preview_auto_draft_lock = threading.Lock()
+
+
+def _process_custom_template_extraction(
+    extraction_id: str,
+    temp_path: Path,
+    safe_name: str,
+    owner_email: str,
+    author_name: str,
+) -> None:
+    """Run the template agent outside the request/Render timeout window."""
+    try:
+        print(
+            f"[CUSTOM TEMPLATE {extraction_id[:8]}] Started background extraction "
+            f"for {safe_name}", flush=True,
+        )
+        print(
+            f"[CUSTOM TEMPLATE {extraction_id[:8]}] Reading uploaded document", flush=True,
+        )
+        source_text = read_document(str(temp_path))
+        print(
+            f"[CUSTOM TEMPLATE {extraction_id[:8]}] Read {len(source_text):,} characters; "
+            "starting template agent", flush=True,
+        )
+        top_level_headings = CustomTemplateAgent.discover_top_level_headings(
+            str(temp_path), source_text
+        )
+        extracted = CustomTemplateAgent(Config()).extract(
+            source_text, safe_name, top_level_headings=top_level_headings
+        )
+        matched_count = sum(
+            1 for section in extracted["sections"] if section.get("base_section_id")
+        )
+        unique_count = len(extracted["sections"]) - matched_count
+        print(
+            f"[CUSTOM TEMPLATE {extraction_id[:8]}] Agent returned "
+            f"{len(extracted['sections'])} reusable heading(s): "
+            f"{matched_count} matched existing sections, {unique_count} unique",
+            flush=True,
+        )
+        for section in extracted["sections"]:
+            if section.get("base_section_id"):
+                section["id"] = str(section["base_section_id"])
+                section["hidden"] = True
+            else:
+                suffix = str(section["id"]).removeprefix("custom_")
+                section["id"] = f"custom_{extraction_id[:8]}_{suffix}"[:64].rstrip('_')
+        output_dir = Config().OUTPUT_DIR / "custom-templates"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"{extraction_id}.md"
+        output_path.write_text(extracted["markdown"], encoding="utf-8")
+        print(
+            f"[CUSTOM TEMPLATE {extraction_id[:8]}] Wrote inspectable Markdown: "
+            f"{output_path}", flush=True,
+        )
+        print(
+            f"[CUSTOM TEMPLATE {extraction_id[:8]}] Persisting sanitized template metadata",
+            flush=True,
+        )
+        template = CustomTemplateStore().create_draft(
+            template_id=extraction_id,
+            markdown=extracted["markdown"],
+            sections=extracted["sections"],
+            owner_email=owner_email,
+            author_name=author_name,
+            source_filename=safe_name,
+            output_path=str(output_path),
+        )
+        with custom_template_extraction_lock:
+            custom_template_extractions[extraction_id].update({
+                "status": "ready", "template": template, "completed_at": datetime.now().isoformat(),
+            })
+        print(
+            f"[CUSTOM TEMPLATE {extraction_id[:8]}] READY — "
+            f"{unique_count} unique custom section(s) available for drag and drop",
+            flush=True,
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).exception("Custom template extraction failed")
+        print(
+            f"[CUSTOM TEMPLATE {extraction_id[:8]}] FAILED — {exc}", flush=True,
+        )
+        with custom_template_extraction_lock:
+            custom_template_extractions[extraction_id].update({
+                "status": "failed", "error": str(exc), "completed_at": datetime.now().isoformat(),
+            })
+    finally:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _pricing_audit_record(result):
@@ -164,6 +275,17 @@ def _pricing_audit_record(result):
         "stale": bool(result.get("stale", False)),
     }
     return {key: value for key, value in record.items() if value not in {"", None}}
+
+
+@app.errorhandler(AuthServiceUnavailable)
+def authentication_service_unavailable(error):
+    # Fail closed without claiming the password/session is invalid. Clients
+    # retain their token and can retry after the identity store recovers.
+    return jsonify({
+        "success": False,
+        "code": "AUTH_SERVICE_UNAVAILABLE",
+        "error": "Sign-in service is temporarily unavailable. Please try again shortly. If this continues, contact your administrator.",
+    }), 503, {"Retry-After": "5"}
 
 
 @app.before_request
@@ -229,14 +351,13 @@ def invalid_request_value(error):
 
 
 def _business_unit_for_new_record():
-    """Resolve ownership for a new object; admins must choose a BU explicitly."""
+    """Use the existing primary assignment when no UI selection is supplied.
+
+    Explicit selections still undergo access validation. Unassigned admins
+    remain unassigned rather than silently assigning records to another team.
+    """
     business_unit = _requested_business_unit()
-    if (current_identity().is_admin or len(current_identity().business_units) > 1) and not business_unit:
-        return None, (jsonify({
-            "success": False,
-            "error": "business_unit is required when creating a record with access to multiple business units",
-        }), 400)
-    return business_unit, None
+    return business_unit or current_identity().business_unit, None
 
 
 def _ownership_metadata(business_unit=None):
@@ -296,6 +417,132 @@ def _read_s3_document(s3_url: str) -> tuple[str, str]:
         except OSError:
             pass
         raise
+
+
+def _semantic_index_metadata(content, metadata):
+    """Create and persist a vector when the SOW is written, never during search."""
+    searchable = build_semantic_search_text(content, metadata)
+    base = {"semantic_search_text": searchable}
+    try:
+        return BedrockSemanticEmbedder(Config()).index_fields(searchable)
+    except Exception as exc:
+        # Saving the completed SOW is more important than indexing it. The
+        # background backfill will retry without making the user regenerate.
+        semantic_index_ready.clear()
+        with semantic_index_lock:
+            semantic_index_state["status"] = "idle"
+        print(f"[SEMANTIC INDEX] Write-time indexing deferred: {exc}", flush=True)
+        return base
+
+
+def _backfill_semantic_record(record):
+    """Index one historical latest-version record and persist the result."""
+    embedder = getattr(semantic_index_worker_local, "embedder", None)
+    handler = getattr(semantic_index_worker_local, "handler", None)
+    if embedder is None or handler is None:
+        embedder = BedrockSemanticEmbedder(Config())
+        handler = DynamoDBHandler()
+        semantic_index_worker_local.embedder = embedder
+        semantic_index_worker_local.handler = handler
+    text = str(record.get("semantic_search_text") or "").strip()
+    try:
+        old_index_format = int(record.get("semantic_index_version") or 0) < 3
+    except (TypeError, ValueError):
+        old_index_format = True
+    temp_path = None
+    try:
+        if (not text or old_index_format) and record.get("s3_url"):
+            extracted, temp_path = _read_s3_document(str(record["s3_url"]))
+            text = build_semantic_search_text(extracted, record)
+        if not text:
+            text = build_semantic_search_text({}, record)
+        fields = embedder.index_fields(text)
+        handler.update_semantic_index(record, fields)
+        return True
+    finally:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
+def _run_semantic_index_backfill():
+    """One-time parallel migration for records created before vector indexing."""
+    errors = 0
+    try:
+        handler = DynamoDBHandler()
+        embedder = BedrockSemanticEmbedder(Config())
+        records = latest_versions(handler.list_all_documents(
+            limit=1000, include_semantic_text=True,
+        ))
+        pending = [
+            record for record in records
+            if not stored_embedding(record, embedder.model_id)
+        ]
+        with semantic_index_lock:
+            semantic_index_state.update({
+                "status": "running", "total": len(records),
+                "indexed": len(records) - len(pending), "remaining": len(pending),
+                "errors": 0,
+            })
+        if pending:
+            workers = min(max(int(os.getenv("SEMANTIC_INDEX_WORKERS", "8")), 2), 12)
+            print(
+                f"[SEMANTIC INDEX] Backfilling {len(pending)} latest SOW(s) "
+                f"with {workers} workers", flush=True,
+            )
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {
+                    pool.submit(_backfill_semantic_record, record): record
+                    for record in pending
+                }
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        errors += 1
+                        record = futures[future]
+                        print(
+                            f"[SEMANTIC INDEX] Could not index "
+                            f"{record.get('document_id')}: {exc}", flush=True,
+                        )
+                    finally:
+                        with semantic_index_lock:
+                            semantic_index_state["indexed"] += 1
+                            semantic_index_state["remaining"] = max(
+                                0, semantic_index_state["remaining"] - 1
+                            )
+                            semantic_index_state["errors"] = errors
+        with semantic_index_lock:
+            semantic_index_state["status"] = "ready" if not errors else "partial"
+        print(
+            f"[SEMANTIC INDEX] Backfill complete; latest={len(records)}; errors={errors}",
+            flush=True,
+        )
+    except Exception as exc:
+        with semantic_index_lock:
+            semantic_index_state.update({"status": "failed", "errors": errors + 1})
+        print(f"[SEMANTIC INDEX] Backfill failed: {exc}", flush=True)
+    finally:
+        semantic_index_ready.set()
+
+
+def _start_semantic_index_backfill(force=False):
+    """Start the persistent migration once without blocking a web request."""
+    with semantic_index_lock:
+        if semantic_index_state["status"] == "running":
+            return dict(semantic_index_state)
+        if semantic_index_state["status"] == "ready" and not force:
+            return dict(semantic_index_state)
+        semantic_index_state["status"] = "running"
+        semantic_index_ready.clear()
+        threading.Thread(
+            target=_run_semantic_index_backfill,
+            name="semantic-index-backfill",
+            daemon=True,
+        ).start()
+        return dict(semantic_index_state)
 
 
 @app.route('/api/auth/login', methods=['POST'])
@@ -566,6 +813,145 @@ def update_sow_section(section_id):
     rbac_store.save_sections(sections, current_identity().email)
     return jsonify({"success": True, "sections": sections})
 
+
+@app.route('/api/custom-templates', methods=['GET'])
+def list_custom_templates():
+    """List shared presets; every authenticated user may use every preset."""
+    identity = current_identity()
+    try:
+        templates = CustomTemplateStore().list_saved(identity.email, identity.is_admin)
+        return jsonify({"success": True, "templates": templates})
+    except Exception as exc:
+        logging.getLogger(__name__).exception("Could not list custom templates")
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@app.route('/api/custom-templates/extract', methods=['POST'])
+def extract_custom_template():
+    """Extract one uploaded SOW into sanitised, reusable Markdown guidance."""
+    files = [item for item in request.files.getlist('template_file') if item and item.filename]
+    if len(files) != 1:
+        return jsonify({"success": False, "error": "Upload exactly one template document"}), 400
+    upload = files[0]
+    extension = Path(upload.filename).suffix.lower()
+    if extension not in {'.doc', '.docx', '.pdf'}:
+        return jsonify({
+            "success": False,
+            "error": "Custom templates must be a DOC, DOCX, or PDF file",
+        }), 415
+    extraction_id = uuid.uuid4().hex
+    temp_path = None
+    try:
+        safe_name = secure_filename(upload.filename)
+        print(
+            f"[CUSTOM TEMPLATE {extraction_id[:8]}] Upload received: {safe_name} "
+            f"({request.content_length or 0:,} request bytes)", flush=True,
+        )
+        temp_path = Path(app.config['UPLOAD_FOLDER']) / f"template_{extraction_id}_{safe_name}"
+        upload.save(temp_path)
+        identity = current_identity()
+        with custom_template_extraction_lock:
+            custom_template_extractions[extraction_id] = {
+                "extraction_id": extraction_id,
+                "status": "processing",
+                "owner_email": identity.email,
+                "source_filename": safe_name,
+                "created_at": datetime.now().isoformat(),
+            }
+        threading.Thread(
+            target=_process_custom_template_extraction,
+            args=(extraction_id, temp_path, safe_name, identity.email, identity.name),
+            daemon=True,
+        ).start()
+        print(
+            f"[CUSTOM TEMPLATE {extraction_id[:8]}] Queued background extraction",
+            flush=True,
+        )
+        return jsonify({
+            "success": True, "extraction_id": extraction_id, "status": "processing",
+        }), 202
+    except Exception as exc:
+        if temp_path:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        logging.getLogger(__name__).exception("Custom template extraction failed")
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@app.route('/api/custom-templates/extractions/<extraction_id>', methods=['GET'])
+def custom_template_extraction_status(extraction_id):
+    with custom_template_extraction_lock:
+        extraction = dict(custom_template_extractions.get(extraction_id) or {})
+    if not extraction:
+        # A ready result remains recoverable from Dynamo after a server restart.
+        try:
+            template = CustomTemplateStore().get(extraction_id)
+        except Exception:
+            template = None
+        if template:
+            extraction = {
+                "extraction_id": extraction_id,
+                "status": "ready",
+                "owner_email": template.get("owner_email"),
+                "template": CustomTemplateStore._public(
+                    template, current_identity().email, current_identity().is_admin
+                ),
+            }
+        else:
+            return jsonify({"success": False, "error": "Template extraction not found"}), 404
+    identity = current_identity()
+    if not identity.is_admin and str(extraction.get("owner_email") or "").casefold() != identity.email.casefold():
+        return jsonify({"success": False, "error": "You do not have access to this extraction"}), 403
+    return jsonify({
+        "success": extraction.get("status") != "failed",
+        "extraction_id": extraction_id,
+        "status": extraction.get("status"),
+        "template": extraction.get("template"),
+        "error": extraction.get("error"),
+    })
+
+
+@app.route('/api/custom-templates/<template_id>/save', methods=['POST'])
+def save_custom_template(template_id):
+    try:
+        template = CustomTemplateStore().save_preset(
+            template_id,
+            (request.get_json(silent=True) or {}).get("name", ""),
+            current_identity().email,
+        )
+        return jsonify({"success": True, "template": template})
+    except LookupError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 404
+    except PermissionError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 403
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+
+
+@app.route('/api/custom-templates/<template_id>', methods=['GET', 'DELETE'])
+def custom_template_detail(template_id):
+    store = CustomTemplateStore()
+    identity = current_identity()
+    try:
+        item = store.get(template_id)
+        if not item:
+            raise LookupError("Custom template not found")
+        if request.method == 'GET':
+            return jsonify({
+                "success": True,
+                "template": store._public(item, identity.email, identity.is_admin),
+            })
+        store.delete(template_id, identity.email, identity.is_admin)
+        with custom_template_extraction_lock:
+            custom_template_extractions.pop(template_id, None)
+        return jsonify({"success": True})
+    except LookupError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 404
+    except PermissionError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 403
+
 # Folder mapping for cloud storage
 FOLDER_MAPPING = {
     "POC": "poc",
@@ -814,10 +1200,10 @@ def convert_db_document_to_task_format(document):
         
         "task": {
             "task_id": doc_copy.get('task_id', doc_copy.get('document_id')),
-            "status": "completed",
+            "status": doc_copy.get('status', 'completed'),
             "mode": doc_copy.get('mode'),
             "progress": 100,
-            "current_step": "Completed",
+            "current_step": "Draft saved" if doc_copy.get('status') == 'draft' else "Completed",
             "metadata": {
                 "company_name": doc_copy.get('customer_name', 'Unknown'),
                 "project_name": doc_copy.get('project_name', 'Unknown'),
@@ -878,6 +1264,11 @@ def merge_with_active_tasks(db_documents, mode_filter=None, limit=50):
     active_tasks = get_active_tasks_as_documents(mode_filter)
     
     # Merge both lists
+    persisted_tasks = {d.get('document', {}).get('task_id') for d in formatted_db_docs}
+    persisted_ids = {d.get('document', {}).get('document_id') for d in formatted_db_docs}
+    active_tasks = [d for d in active_tasks
+                    if d.get('task', {}).get('task_id') not in persisted_tasks
+                    and d.get('document', {}).get('document_id') not in persisted_ids]
     all_documents = formatted_db_docs + active_tasks
     
     # ✅ Sort by timestamp with safe extraction (most recent first)
@@ -914,6 +1305,321 @@ def get_s3_client():
     except Exception as e:
         print(f"Error initializing S3 client: {e}")
         return None
+
+
+def _delete_draft_record(record):
+    """Remove a persisted draft and both of its S3 artifacts."""
+    if not record:
+        return
+    handler = DynamoDBHandler()
+    for url_field in ("s3_url", "draft_preview_s3_url"):
+        location = str(record.get(url_field) or "").strip()
+        if not location:
+            continue
+        try:
+            bucket, key = parse_s3_location(location)
+            get_s3_client().delete_object(Bucket=bucket, Key=key)
+        except Exception as exc:
+            print(f"[DRAFT] Could not remove {url_field}: {exc}", flush=True)
+    handler.delete_document(
+        str(record.get("document_id") or ""), str(record.get("timestamp") or "")
+    )
+    try:
+        AccountHandler().delete_sow(str(record.get("document_id") or ""))
+    except Exception as exc:
+        print(f"[DRAFT] Could not unlink project draft: {exc}", flush=True)
+
+
+def _cleanup_replaced_draft_artifacts(record, s3_url, snapshot_url=None):
+    """Only clean old files after replacement metadata has committed."""
+    for location in (record.get("s3_url"), record.get("draft_preview_s3_url")):
+        if not location or location in {s3_url, snapshot_url}:
+            continue
+        try:
+            bucket, key = parse_s3_location(location)
+            get_s3_client().delete_object(Bucket=bucket, Key=key)
+        except Exception as exc:
+            print(f"[DRAFT] Replaced artifact cleanup deferred: {exc}", flush=True)
+
+
+def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None):
+    """Persist a ready preview as an ordinary version marked draft."""
+    existing = DynamoDBHandler().query_by_task_id(preview_id)
+    with preview_lock:
+        live = preview_storage.get(preview_id)
+        draft_id = (live or {}).get("metadata", {}).get("draft_document_id")
+    # A slow DynamoDB request must not block every status poll behind this lock.
+    if draft_id:
+        existing = DynamoDBHandler().get_document_by_id(draft_id)
+    if existing and (automatic or not live) and revision_candidate is None:
+        denied = None if automatic else _resource_denied(existing)
+        if denied:
+            return {"success": False, "error": "You do not have access to this document"}
+        if automatic and live and existing.get("status") == "draft":
+            with preview_lock:
+                live.setdefault("metadata", {}).update({
+                    "draft_document_id": existing["document_id"],
+                    "version": existing.get("version"),
+                    "draft_original_s3_url": existing.get("s3_url"),
+                    "draft_preview_s3_url": existing.get("draft_preview_s3_url"),
+                })
+                if live.get("status") in {"draft_pending", "ready"}:
+                    live.update(status="ready", progress=100, current_step="Preview ready; draft saved")
+        return {
+            "success": True,
+            "document_id": existing.get("document_id"),
+            "s3_url": existing.get("s3_url"),
+            "status": existing.get("status") or "draft",
+            "cached": True,
+        }
+
+    with preview_lock:
+        preview = preview_storage.get(preview_id)
+        if not preview:
+            return {"success": False, "error": "Preview not found"}
+        if preview.get("status") == "draft_saving":
+            return {"success": False, "processing": True, "status": "draft_saving"}
+        allowed = {"ready", "draft_pending"} if revision_candidate is None else {"architecture_regenerating"}
+        if preview.get("status") not in allowed:
+            return {"success": False, "error": "Only a completed preview can be saved as draft"}
+        if revision_candidate is not None and (
+                preview.get('edit_count', 0) != revision_candidate.get('edit_count', 1) - 1
+                or (preview.get('architecture_job') or {}).get('id') != revision_candidate.get('_architecture_job_id')):
+            return {'success': False, 'error': 'Preview changed during regeneration; revision was not applied'}
+        preview["status"] = "draft_saving"
+        preview["current_step"] = "Saving draft"
+        snapshot = copy.deepcopy(revision_candidate if revision_candidate is not None else preview)
+
+    upload_file = None
+    snapshot_location = None
+    s3_url = None
+    db_persisted = False
+    try:
+        metadata = dict(snapshot.get("metadata") or {})
+        content = snapshot.get("content") or {}
+        mode = str(snapshot.get("mode") or "POC")
+        token_usage = snapshot.get("token_usage") or {}
+        total_tokens = int(snapshot.get("total_tokens") or token_usage.get("total_tokens") or 0)
+        old_draft_id = str(metadata.get("draft_document_id") or "").strip()
+
+        final_state = {
+            "metadata": metadata, "mode": mode, "poc_content": content,
+            "validated_requirements": {}, "analyzed_requirements": {},
+            "source_file": None,
+            "output_path": None, "json_path": None, "errors": [], "current_step": "build",
+        }
+        from app.core.nodes import pdf_build_node
+        final_state = pdf_build_node(final_state)
+        if final_state.get("errors"):
+            raise RuntimeError(f"Draft document build failed: {final_state['errors']}")
+        upload_file = final_state.get("output_path")
+        if not upload_file or not Path(upload_file).exists():
+            raise RuntimeError("Draft document build produced no file")
+
+        # Drafts need durable S3 storage, not publication to the final Drive folder.
+        drive_result = None
+        s3_result = upload_to_s3(upload_file, mode=FOLDER_MAPPING.get(mode, mode))
+        if not s3_result:
+            raise RuntimeError("Draft could not be uploaded to S3")
+        s3_url = s3_result.get("https_url") or s3_result.get("s3_url") or s3_result.get("url")
+        if not s3_url:
+            raise RuntimeError("Draft upload returned no S3 location")
+
+        s3_client = get_s3_client()
+        bucket = str(s3_result.get("bucket") or parse_s3_location(s3_url)[0])
+        snapshot_key = f"draft-previews/{preview_id}-{uuid.uuid4().hex}.json"
+        durable_snapshot = {
+            "preview_id": preview_id, "mode": mode, "metadata": metadata,
+            "content": content, "final_state": snapshot.get("final_state") or {},
+            "token_usage": token_usage, "total_tokens": total_tokens,
+            "edit_count": snapshot.get('edit_count', 0),
+            "architecture_changes": snapshot.get('architecture_changes', []),
+            "saved_at": datetime.now().isoformat(),
+        }
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=snapshot_key,
+            Body=json.dumps(durable_snapshot, default=str).encode("utf-8"),
+            ContentType="application/json",
+        )
+        snapshot_location = f"s3://{bucket}/{snapshot_key}"
+        drive_link = (drive_result or {}).get("link") or (drive_result or {}).get("url")
+        db_result = save_to_dynamodb(
+            metadata={
+                "company_name": metadata.get("company_name"),
+                "author_name": metadata.get("author_name"),
+                "project_name": metadata.get("project_title"),
+                "document_date": metadata.get("document_date"),
+                "mode": mode,
+                "business_unit": metadata.get("business_unit"),
+                "owner_email": metadata.get("owner_email"),
+                "owner_name": metadata.get("owner_name"),
+                "total_tokens": total_tokens,
+                "token_usage": token_usage,
+                "status": "draft",
+                "draft_preview_s3_url": snapshot_location,
+                "preview_id": preview_id,
+                "aws_pricing": _pricing_audit_record(
+                    (snapshot.get("final_state") or {}).get("pricing_result")
+                ),
+                "source_documents": metadata.get("source_documents", []),
+                "source_scope_id": metadata.get("source_scope_id"),
+                "parent_document_id": metadata.get("parent_document_id"),
+                "refinement_instructions": metadata.get("refinement_instructions"),
+                "selected_sow_sections": metadata.get("selected_sow_sections", []),
+                "timeline_format": metadata.get("timeline_format", "table"),
+                **_semantic_index_metadata(content, metadata),
+            },
+            s3_url=s3_url,
+            s3_result=s3_result,
+            drive_link=drive_link,
+            table_name=os.getenv("DYNAMODB_TABLE_POC_DOCUMENTS", "agentic-poc"),
+            region=os.getenv("AWS_REGION", "us-east-1"),
+            task_id=preview_id,
+            account_id=metadata.get("account_id"),
+            project_id=metadata.get("project_id"),
+            existing_document_id=(existing or {}).get("document_id"),
+        )
+        if not db_result or not db_result.get("success") or not db_result.get("document_id"):
+            raise RuntimeError((db_result or {}).get("error") or "Draft metadata could not be saved")
+        db_persisted = True
+        if existing:
+            _cleanup_replaced_draft_artifacts(existing, s3_url, snapshot_location)
+
+        document_id = db_result["document_id"]
+        with preview_lock:
+            live = preview_storage.get(preview_id)
+            if live:
+                live.setdefault("metadata", {}).update({
+                    "draft_document_id": document_id,
+                    "version": db_result.get("version"),
+                    "draft_original_s3_url": s3_url,
+                    "draft_preview_s3_url": snapshot_location,
+                })
+        if metadata.get("project_id"):
+            try:
+                AccountHandler().link_sow_to_project(metadata["project_id"], document_id, {
+                "mode": mode, "customer_name": metadata.get("company_name"),
+                "project_name": metadata.get("project_title"),
+                "author_name": metadata.get("author_name"), "drive_link": drive_link,
+                "s3_url": s3_url, "sow_db_id": document_id,
+                "document_date": metadata.get("document_date"),
+                "created_at": datetime.now().isoformat(), "status": "draft",
+                "business_unit": metadata.get("business_unit"),
+                "owner_email": metadata.get("owner_email"),
+                "owner_name": metadata.get("owner_name"), "total_tokens": total_tokens,
+                })
+            except Exception as exc:
+                # The authoritative draft has committed. A secondary dashboard
+                # link must not report failure or leave the live preview stale.
+                print(f'[DRAFT] Project link refresh deferred: {exc}', flush=True)
+
+        if old_draft_id and old_draft_id != document_id:
+            try:
+                old_record = DynamoDBHandler().get_document_by_id(old_draft_id)
+                if old_record and str(old_record.get("status") or "").lower() == "draft":
+                    _delete_draft_record(old_record)
+            except Exception as exc:
+                print(f'[DRAFT] Superseded draft cleanup deferred: {exc}', flush=True)
+
+        if automatic:
+            with preview_lock:
+                live = preview_storage.get(preview_id)
+                if live:
+                    if revision_candidate is not None:
+                        live.setdefault('metadata', {}).update(revision_candidate.get('metadata') or {})
+                        for field in ('content', 'final_state', 'edit_count', 'token_usage', 'total_tokens', 'architecture_changes'):
+                            if field in revision_candidate:
+                                live[field] = revision_candidate[field]
+                        live['last_modified'] = datetime.now().isoformat()
+                    live.setdefault("metadata", {}).update({
+                        "draft_document_id": document_id,
+                        "version": db_result.get('version'),
+                        "draft_original_s3_url": s3_url,
+                        "draft_preview_s3_url": snapshot_location,
+                    })
+                    live.update(status="ready", progress=100, current_step="Preview ready; draft saved", draft_error=None)
+                    if isinstance(live.get('final_state'), dict):
+                        live['final_state']['metadata'] = copy.deepcopy(live['metadata'])
+                    live["autosaved_draft"] = True
+            return {"success": True, "document_id": document_id, "status": "draft", "automatic": True}
+        delete_preview_data(preview_id)
+        from app.core.nodes import clear_token_usage
+        clear_token_usage(preview_id)
+        # Draft previews need not have a task entry. Durable record lookup is
+        # the recovery path after deletion or a server restart.
+        if get_task(preview_id):
+            update_task(preview_id, status=TaskStatus.COMPLETED, progress=100,
+                        current_step="Saved as draft", completed_at=datetime.now().isoformat(),
+                        result={"document_id": document_id, "s3_url": s3_url,
+                                "drive_link": drive_link, "is_draft": True})
+        print(
+            f"[DRAFT] {'Automatically s' if automatic else 'S'}aved {preview_id} "
+            f"as document {document_id}", flush=True,
+        )
+        return {
+            "success": True, "document_id": document_id, "s3_url": s3_url,
+            "drive_link": drive_link, "status": "draft", "automatic": automatic,
+        }
+    except Exception as exc:
+        # Avoid leaving unreferenced S3 objects if persistence failed before a
+        # DynamoDB record was committed. Once committed, retries use task-id
+        # idempotency and the files must remain intact.
+        if not db_persisted:
+            for location in (snapshot_location, s3_url):
+                if not location:
+                    continue
+                try:
+                    bucket, key = parse_s3_location(location)
+                    get_s3_client().delete_object(Bucket=bucket, Key=key)
+                except Exception as cleanup_exc:
+                    print(f"[DRAFT] Orphan cleanup skipped: {cleanup_exc}", flush=True)
+        with preview_lock:
+            if preview_id in preview_storage:
+                preview_storage[preview_id]["status"] = "ready"
+                preview_storage[preview_id]["progress"] = 100
+                preview_storage[preview_id]["current_step"] = "Preview generation complete"
+                preview_storage[preview_id]["draft_error"] = str(exc)
+                preview_storage[preview_id]["last_activity_at"] = time.time()
+        print(f"[DRAFT] Could not save {preview_id}: {exc}", flush=True)
+        return {"success": False, "error": str(exc)}
+    finally:
+        if upload_file:
+            try:
+                Path(upload_file).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _schedule_preview_auto_draft(preview_id):
+    """Retry durable autosave independently of browser activity or login state."""
+    with preview_auto_draft_lock:
+        if preview_id in preview_auto_draft_threads:
+            return
+        preview_auto_draft_threads.add(preview_id)
+
+    def monitor():
+        try:
+            while True:
+                time.sleep(15)
+                with preview_lock:
+                    preview = preview_storage.get(preview_id)
+                    if not preview:
+                        return
+                    status = str(preview.get("status") or "")
+                    if status == "failed":
+                        return
+                    if not preview.get("auto_draft_enabled", True):
+                        return
+                if status in {"ready", "draft_pending"}:
+                    result = _save_preview_as_draft(preview_id, automatic=True)
+                    if result.get("success"):
+                        return
+        finally:
+            with preview_auto_draft_lock:
+                preview_auto_draft_threads.discard(preview_id)
+
+    threading.Thread(target=monitor, name=f"auto-draft-{preview_id[-8:]}", daemon=True).start()
 
 # ============================================================================
 # DOCUMENT PROCESSING HELPERS (PDF OUTPUT)
@@ -1103,195 +1809,7 @@ def extract_metadata_from_document(file_path: str) -> dict:
         return None
 
 
-def retrieve_rag_data(company_name: str, project_title: str, mode: str) -> tuple:
-    """Retrieve mode-specific RAG data"""
-    try:
-        print(f"\n🔍 Retrieving {mode} RAG Data...")
-
-        retriever = EnhancedPOCRetriever()
-        retrieved_data = retriever.retrieve_by_three_params(
-            company_name=company_name,
-            project_title=project_title,
-            mode=mode,
-            use_fuzzy=True
-        )
-
-        if retrieved_data:
-            print(f"✅ {mode} RAG Data Retrieved!")
-            rag_context = {
-                "rag_data": retrieved_data,
-                "retrieval_success": True,
-                "schema_type": "POC" if mode == "POC" else "PROD"
-            }
-            return rag_context, True
-        else:
-            print(f"⚠️  No {mode} RAG data found")
-            rag_context = {
-                "rag_data": None,
-                "retrieval_success": False,
-                "schema_type": mode
-            }
-            return rag_context, False
-    except Exception as e:
-        print(f"❌ Error retrieving RAG data: {e}")
-        return {"rag_data": None, "retrieval_success": False, "schema_type": mode, "error": str(e)}, False
-
-
-def convert_docx_to_pdf_for_rag(docx_path):
-    """Convert DOCX to PDF for RAG processing"""
-    try:
-        import tempfile
-        from pathlib import Path
-        
-        # Create temporary PDF file
-        pdf_path = tempfile.mktemp(suffix='.pdf', prefix='rag_')
-        
-        # For RAG, we need to convert DOCX back to PDF
-        # We'll use python-docx to read and reportlab to create PDF
-        from docx import Document
-        from reportlab.pdfgen import canvas
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import getSampleStyleSheet
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-        
-        print(f"    → Converting DOCX to PDF for RAG processing...")
-        
-        # Read DOCX content
-        doc = Document(docx_path)
-        
-        # Create PDF
-        pdf_doc = SimpleDocTemplate(pdf_path, pagesize=A4)
-        styles = getSampleStyleSheet()
-        story = []
-        
-        # Convert DOCX paragraphs to PDF
-        for paragraph in doc.paragraphs:
-            if paragraph.text.strip():
-                # Determine style based on paragraph
-                if paragraph.style.name.startswith('Heading'):
-                    style = styles['Heading1']
-                else:
-                    style = styles['Normal']
-                
-                # Add paragraph to story
-                p = Paragraph(paragraph.text, style)
-                story.append(p)
-                story.append(Spacer(1, 6))
-        
-        # Convert tables
-        for table in doc.tables:
-            # Simple table conversion - just extract text
-            for row in table.rows:
-                row_text = " | ".join([cell.text for cell in row.cells])
-                if row_text.strip():
-                    p = Paragraph(row_text, styles['Normal'])
-                    story.append(p)
-                    story.append(Spacer(1, 3))
-        
-        # Build PDF
-        pdf_doc.build(story)
-        
-        print(f"    ✓ DOCX converted to PDF for RAG: {Path(pdf_path).name}")
-        return pdf_path
-        
-    except Exception as e:
-        print(f"    ❌ DOCX to PDF conversion failed: {e}")
-        return None
-
-
-def ingest_to_rag_schema(file_path: str, company_name: str, project_title: str, mode: str):
-    """Ingest PDF or DOCX to RAG schema with improved DOCX handling"""
-    try:
-        print(f"\n📥 Ingesting document to {mode} RAG Schema...")
-        print(f"   File: {Path(file_path).name}")
-        print(f"   Company: {company_name}")
-        print(f"   Project: {project_title}")
-
-        if not os.path.exists(file_path):
-            print(f"❌ File not found: {file_path}")
-            return {"success": False, "error": "File not found"}
-
-        file_ext = Path(file_path).suffix.lower()
-        print(f"   File type: {file_ext}")
-
-        # Accept both PDF and DOCX
-        if file_ext not in ['.pdf', '.docx', '.doc']:
-            print(f"❌ Unsupported file type: {file_ext}")
-            return {"success": False, "error": "Only PDF and DOCX files supported"}
-
-        # Convert DOCX to temporary PDF if needed
-        # Since DocumentBuilder now outputs PDF directly, no conversion needed
-        pdf_path = file_path
-        temp_pdf_path = None
-
-        if file_ext in ['.docx', '.doc']:
-            print(f"   ⚠️  DOCX file detected - DocumentBuilder now outputs PDF directly")
-            print(f"   → This should not happen in normal operation")
-            # For legacy DOCX files, we could add conversion here if needed
-            # For now, we'll skip RAG ingestion for DOCX files
-            return {
-                "success": False,
-                "error": "DOCX files not supported - system outputs PDF directly",
-                "message": "Document saved successfully but RAG schema ingestion skipped"
-            }
-
-        # Process the PDF (original or converted)
-        try:
-            print(f"\n   🔄 Converting PDF to RAG schema...")
-            converter = PDFToSchemaConverter()
-            schema = converter.convert_pdf_to_schema(pdf_path, mode=mode)
-
-            print(f"   🧹 Cleaning schema...")
-            cleaner = SchemaCleaner()
-            cleaned_schema = cleaner.clean_schema(schema, mode)
-            cleaned_schema = cleaner.clean_mode_specific_fields(cleaned_schema, mode)
-
-            # Override with provided company/project info
-            if "organization" in cleaned_schema:
-                cleaned_schema["organization"]["client_name"] = company_name
-                cleaned_schema["organization"]["project_title"] = project_title
-
-            print(f"   💾 Saving to DynamoDB (rag-schema table)...")
-            document_id = converter.schema_manager.save_to_dynamodb(cleaned_schema, mode)
-
-            # Count use cases
-            if mode == "POC":
-                use_case_count = len(cleaned_schema.get("use_cases", []))
-            else:
-                use_case_count = len(cleaned_schema.get("production_use_cases", []))
-
-            result = {
-                "success": True,
-                "document_id": document_id,
-                "mode": mode,
-                "schema_type": "POC" if mode == "POC" else "PROD",
-                "client_name": company_name,
-                "project_title": project_title,
-                "use_case_count": use_case_count,
-                "timestamp": datetime.now().isoformat()
-            }
-
-            print(f"\n✅ RAG INGESTION SUCCESSFUL!")
-            print(f"   Document ID: {document_id}")
-            print(f"   Mode: {mode}")
-            print(f"   Use Cases: {use_case_count}")
-
-            return result
-
-        finally:
-            # Clean up temporary PDF if created
-            # No temporary PDF cleanup needed since we output PDF directly
-            pass
-
-    except Exception as e:
-        print(f"\n❌ RAG INGESTION FAILED!")
-        print(f"   Error: {e}")
-        import traceback
-        traceback.print_exc()
-        return {"success": False, "error": str(e)}
-
-
-def save_document_info(pdf_path, docx_path, metadata, mode, folders, drive_result=None, s3_result=None, rag_result=None):
+def save_document_info(pdf_path, docx_path, metadata, mode, folders, drive_result=None, s3_result=None):
     """Save document information to manifest"""
     try:
         info = {
@@ -1365,6 +1883,8 @@ def process_document_generation(task_id, task_data):
             "timezone": "IST",
             "project_title": project_name or "To be extracted from document",
             "selected_sow_sections": task_data.get("selected_sow_sections", []),
+            "custom_template_id": task_data.get("custom_template_id"),
+            "custom_template_name": task_data.get("custom_template_name"),
             "business_unit": task_data.get("business_unit"),
             "owner_email": task_data.get("owner_email"),
             "owner_name": task_data.get("owner_name"),
@@ -1403,24 +1923,6 @@ def process_document_generation(task_id, task_data):
                 print(f"      Project: {project_name}")
                 print(f"      Author: {author_name}")
 
-        update_task(task_id, progress=20, current_step=f"Retrieving {mode} RAG data")
-
-        # Retrieve RAG data (skip for POC_TO_PROD as it will be created from ingested document)
-        rag_context = None
-        rag_retrieval_success = False
-        
-        if mode != "POC_TO_PROD":
-            print(f"\n[TASK] Retrieving {mode} RAG Data")
-            rag_context, rag_retrieval_success = retrieve_rag_data(
-                company_name=metadata["company_name"],
-                project_title=metadata["project_title"],
-                mode=mode
-            )
-        else:
-            print(f"\n[TASK] Skipping RAG retrieval for POC_TO_PROD - will use ingested document data")
-            rag_context = None
-            rag_retrieval_success = False
-
         update_task(task_id, progress=30, current_step=f"Generating {mode} document")
 
         # Process supporting documents if provided
@@ -1453,7 +1955,6 @@ def process_document_generation(task_id, task_data):
             "objective": objective or "",
             "mode": mode,
             "source_file": source_file,
-            "rag_context": rag_context,
             "analyzed_requirements": None,
             "validated_requirements": None,
             "poc_content": None,
@@ -1464,6 +1965,9 @@ def process_document_generation(task_id, task_data):
             "supporting_documents": supporting_files,
             "supporting_context": supporting_context,
             "selected_sow_sections": task_data.get("selected_sow_sections"),
+            "custom_template_id": task_data.get("custom_template_id"),
+            "custom_template_markdown": task_data.get("custom_template_markdown"),
+            "custom_template_sections": task_data.get("custom_template_sections") or [],
         }
 
         app_graph = create_graph()
@@ -1514,25 +2018,6 @@ def process_document_generation(task_id, task_data):
         if upload_errors:
             raise Exception(f"Cloud upload failed: {', '.join(upload_errors)}")
 
-        update_task(task_id, progress=85, current_step="Ingesting to RAG schema")
-
-        # RAG schema ingestion
-        print(f"\n[TASK] RAG Schema Ingestion")
-        rag_result = None
-
-        if upload_file:
-            try:
-                # Use the extracted/updated company and project names
-                rag_result = ingest_to_rag_schema(
-                    file_path=upload_file,
-                    company_name=metadata["company_name"],
-                    project_title=metadata["project_title"],
-                    mode=mode
-                )
-            except Exception as e:
-                print(f"❌ RAG ingestion exception: {e}")
-                rag_result = {"success": False, "error": str(e)}
-
         update_task(task_id, progress=90, current_step="Saving to DynamoDB")
 
         # DynamoDB storage
@@ -1562,6 +2047,9 @@ def process_document_generation(task_id, task_data):
                             "owner_name": metadata.get("owner_name"),
                             "total_tokens": total_tokens,
                             "token_usage": token_usage,
+                            **_semantic_index_metadata(
+                                final_state.get("poc_content") or {}, metadata
+                            ),
                         },
                         s3_url=s3_url,
                         s3_result=s3_result,
@@ -1579,7 +2067,6 @@ def process_document_generation(task_id, task_data):
         storage_success = {
             "google_drive": drive_result is not None,
             "s3": s3_result is not None,
-            "rag_schema": rag_result is not None and rag_result.get("success", False)
         }
         
         # ✅ AUTO-CLEANUP: Delete temporary files after successful cloud upload
@@ -1611,9 +2098,7 @@ def process_document_generation(task_id, task_data):
             "s3_result": s3_result,
             "drive_result": drive_result,
             "db_result": db_result,
-            "rag_result": rag_result,
             "document_id": db_result.get("document_id") if db_result else None,
-            "rag_document_id": rag_result.get("document_id") if rag_result else None,
             "total_tokens": total_tokens,
             "token_usage": token_usage,
         }
@@ -1695,6 +2180,27 @@ def generate_document():
                 "error": "Invalid or missing mode (POC, PROD, or POC_TO_PROD)"
             }), 400
 
+        custom_template_id = request.form.get('custom_template_id', '').strip()
+        custom_template = None
+        if custom_template_id:
+            try:
+                custom_template = CustomTemplateStore().get(custom_template_id)
+            except Exception as exc:
+                return jsonify({"success": False, "error": f"Could not load custom template: {exc}"}), 500
+            if not custom_template:
+                return jsonify({"success": False, "error": "Custom template not found"}), 404
+            if int(custom_template.get("schema_version") or 0) < CustomTemplateStore.SCHEMA_VERSION:
+                return jsonify({
+                    "success": False,
+                    "error": "This preset uses the previous extraction format. Re-upload the source SOW to create a format-only template.",
+                }), 409
+            identity = current_identity()
+            if (
+                not bool(custom_template.get("saved"))
+                and str(custom_template.get("owner_email") or "").casefold() != identity.email.casefold()
+            ):
+                return jsonify({"success": False, "error": "This template extraction belongs to another user"}), 403
+
         declared_supporting_count = request.form.get('supporting_doc_count', '').strip()
         if declared_supporting_count:
             try:
@@ -1727,6 +2233,21 @@ def generate_document():
             )
         except ValueError as exc:
             return jsonify({"success": False, "error": str(exc)}), 400
+        selected_custom_ids = {item for item in selected_sow_sections if item.startswith("custom_")}
+        valid_custom_ids = {
+            str(item.get("id")) for item in (custom_template or {}).get("sections", [])
+        }
+        if selected_custom_ids and not custom_template:
+            return jsonify({
+                "success": False,
+                "error": "Custom extracted sections require a selected custom template",
+            }), 400
+        unknown_custom = sorted(selected_custom_ids - valid_custom_ids)
+        if unknown_custom:
+            return jsonify({
+                "success": False,
+                "error": f"Unknown custom template section(s): {', '.join(unknown_custom)}",
+            }), 400
 
         # Validate required fields based on mode
         if mode == "POC_TO_PROD":
@@ -1860,6 +2381,10 @@ def generate_document():
             'uploaded_file_path': uploaded_file_path,
             'supporting_files': supporting_files,  # List of supporting document paths
             'selected_sow_sections': selected_sow_sections,
+            'custom_template_id': custom_template_id or None,
+            'custom_template_name': str((custom_template or {}).get('name') or 'Uploaded custom template'),
+            'custom_template_markdown': (custom_template or {}).get('markdown'),
+            'custom_template_sections': (custom_template or {}).get('sections') or [],
             **ownership,
         }
 
@@ -2024,6 +2549,7 @@ def proxy_download():
             lookup = handler.table.query(
                 KeyConditionExpression='document_id = :document_id',
                 ExpressionAttributeValues={':document_id': document_id},
+                ConsistentRead=True,
             ).get('Items', [])
             lookup = [item for item in lookup if item.get('s3_url') == s3_url]
         else:
@@ -2059,6 +2585,9 @@ def proxy_download():
             content = body.read()
         finally:
             body.close()
+
+        if not content or len(content) != int(s3_response.get('ContentLength', len(content))):
+            raise RuntimeError("Document download was empty or incomplete; no file was returned")
 
         content_type = s3_response.get('ContentType', 'application/octet-stream')
         if 'officedocument' in content_type or s3_url.endswith('.docx'):
@@ -2199,6 +2728,138 @@ def get_history():
             "documents": [],
             "count": 0
         }), 500
+
+
+@app.route('/api/history/semantic-index', methods=['GET'])
+def prepare_semantic_index():
+    """Warm the reusable vector index as soon as the records page opens."""
+    state = _start_semantic_index_backfill()
+    return jsonify({"success": True, **state}), 200
+
+
+@app.route('/api/history/semantic-search', methods=['GET'])
+def semantic_search_history():
+    """Rank only the latest accessible version of each SOW by semantic similarity."""
+    query = str(request.args.get('q') or '').strip()
+    if not query:
+        return jsonify({"success": False, "error": "Search query is required"}), 400
+    if len(query) > 500:
+        return jsonify({"success": False, "error": "Search query must be 500 characters or fewer"}), 400
+    try:
+        limit = request.args.get('limit', 1000, type=int)
+        limit = min(max(limit, 1), 1000)
+        records = DynamoDBHandler().list_all_documents(
+            limit=limit, include_semantic_text=True
+        )
+        if request.args.get('mine', '').lower() in {'1', 'true', 'yes'}:
+            email = current_identity().email.casefold().strip()
+            records = [
+                item for item in records
+                if str(item.get('owner_email') or '').casefold().strip() == email
+            ]
+        else:
+            records = _visible_documents(records)
+
+        # Search never downloads documents. Vectors are created when a SOW is
+        # saved and old records are migrated once by the persistent backfill.
+        records = latest_versions(records)
+        embedder = BedrockSemanticEmbedder(Config())
+        indexed_count = sum(
+            1 for item in records if stored_embedding(item, embedder.model_id)
+        )
+        print(
+            f"[SEMANTIC SEARCH][DEBUG] query={query!r}; latest_records={len(records)}; "
+            f"ready_vectors={indexed_count}; model={embedder.model_id}",
+            flush=True,
+        )
+        missing = [
+            item for item in records
+            if not stored_embedding(item, embedder.model_id)
+        ]
+        if missing:
+            print(
+                f"[SEMANTIC SEARCH][DEBUG] {len(missing)} record(s) need index v3; "
+                "starting/resuming persistent backfill",
+                flush=True,
+            )
+            _start_semantic_index_backfill(force=True)
+            # A records-page warm-up normally finishes before the user types.
+            # This short bounded wait also covers a near-complete migration.
+            semantic_index_ready.wait(timeout=0.5)
+            records = DynamoDBHandler().list_all_documents(
+                limit=limit, include_semantic_text=True
+            )
+            if request.args.get('mine', '').lower() in {'1', 'true', 'yes'}:
+                email = current_identity().email.casefold().strip()
+                records = [
+                    item for item in records
+                    if str(item.get('owner_email') or '').casefold().strip() == email
+                ]
+            else:
+                records = _visible_documents(records)
+            records = latest_versions(records)
+            missing = [
+                item for item in records
+                if not stored_embedding(item, embedder.model_id)
+            ]
+            if missing:
+                with semantic_index_lock:
+                    state = dict(semantic_index_state)
+                return jsonify({
+                    "success": True,
+                    "indexing": True,
+                    "documents": [],
+                    "count": 0,
+                    "threshold": round(SIMILARITY_THRESHOLD * 100, 2),
+                    "message": "Preparing semantic search for existing SOWs",
+                    "index": state,
+                }), 200
+
+        diagnostics = []
+        results = semantic_search_records(
+            records, query, embedder.embed, threshold=SIMILARITY_THRESHOLD,
+            model_id=embedder.model_id,
+            diagnostics=diagnostics,
+        )
+        for row in sorted(
+            diagnostics, key=lambda item: float(item.get("final_score") or 0), reverse=True
+        )[:15]:
+            print(
+                f"[SEMANTIC SEARCH][SCORE] project={row.get('project_name')!r}; "
+                f"version={row.get('version')}; raw_cosine={row.get('raw_semantic_score'):.2f}%; "
+                f"semantic={row.get('semantic_score'):.2f}%; chunks={row.get('chunks')}; "
+                f"lexical={row.get('lexical_score'):.2f}%; final={row.get('final_score'):.2f}%; "
+                f"reason={row.get('reason')}; chars={row.get('indexed_chars')}; "
+                f"displayed={row.get('matched')}",
+                flush=True,
+            )
+        for item in results:
+            item.pop('semantic_search_text', None)
+            item.pop('semantic_search_embedding', None)
+            item.pop('semantic_search_embeddings', None)
+            item.pop('semantic_embedding_model_id', None)
+            item.pop('semantic_search_text_hash', None)
+            item.pop('semantic_index_version', None)
+            item.pop('refinement_instructions', None)
+        print(
+            f"[SEMANTIC SEARCH] query_chars={len(query)}; accessible={len(records)}; "
+            f"matches={len(results)}; threshold={SIMILARITY_THRESHOLD:.0%}",
+            flush=True,
+        )
+        return jsonify({
+            "success": True,
+            "documents": results,
+            "count": len(results),
+            "threshold": round(SIMILARITY_THRESHOLD * 100, 2),
+        }), 200
+    except Exception as exc:
+        logging.getLogger(__name__).exception("Semantic SOW search failed")
+        return jsonify({
+            "success": False,
+            "error": "Semantic search is temporarily unavailable",
+            "details": str(exc),
+            "documents": [],
+        }), 503
 
 
 @app.route('/api/recent-pocs', methods=['GET'])
@@ -2781,6 +3442,11 @@ def regenerate_document_preview(document_id):
             flush=True,
         )
         metadata["selected_sow_sections"] = selected_sections
+        from app.core.section_formats import timeline_format
+        try:
+            metadata['timeline_format'] = timeline_format(request.form.get('timeline_format') or record.get('timeline_format'))
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
 
         scope_id = str(record.get("source_scope_id") or project_source_scope(record))
         metadata["source_scope_id"] = scope_id
@@ -2820,7 +3486,6 @@ def regenerate_document_preview(document_id):
             "additional_details": instructions,
             "mode": mode,
             "source_file": None,
-            "rag_context": {},
             "analyzed_requirements": None,
             "validated_requirements": None,
             "poc_content": None,
@@ -2847,7 +3512,6 @@ def regenerate_document_preview(document_id):
                 "status": "initializing",
                 "progress": 0,
                 "current_step": "Preparing SOW refinement...",
-                "rag_context": {},
                 "source_diagnostics": {
                     "refinement": True,
                     "parent_document_id": document_id,
@@ -2857,7 +3521,8 @@ def regenerate_document_preview(document_id):
                 },
             })
         from app.preview.async_preview import process_preview_async
-        process_preview_async(preview_id, initial_state, True)
+        process_preview_async(preview_id, initial_state, True, on_complete=_save_preview_as_draft)
+        _schedule_preview_auto_draft(preview_id)
         return jsonify({
             "success": True,
             "preview_id": preview_id,
@@ -2905,6 +3570,27 @@ def generate_preview():
                 "error": "Invalid or missing mode (POC, PROD, or POC_TO_PROD)"
             }), 400
 
+        custom_template_id = request.form.get('custom_template_id', '').strip()
+        custom_template = None
+        if custom_template_id:
+            try:
+                custom_template = CustomTemplateStore().get(custom_template_id)
+            except Exception as exc:
+                return jsonify({"success": False, "error": f"Could not load custom template: {exc}"}), 500
+            if not custom_template:
+                return jsonify({"success": False, "error": "Custom template not found"}), 404
+            if int(custom_template.get("schema_version") or 0) < CustomTemplateStore.SCHEMA_VERSION:
+                return jsonify({
+                    "success": False,
+                    "error": "This preset uses the previous extraction format. Re-upload the source SOW to create a format-only template.",
+                }), 409
+            identity = current_identity()
+            if (
+                not bool(custom_template.get("saved"))
+                and str(custom_template.get("owner_email") or "").casefold() != identity.email.casefold()
+            ):
+                return jsonify({"success": False, "error": "This template extraction belongs to another user"}), 403
+
         declared_supporting_count = request.form.get('supporting_doc_count', '').strip()
         if declared_supporting_count:
             try:
@@ -2937,6 +3623,21 @@ def generate_preview():
             )
         except ValueError as exc:
             return jsonify({"success": False, "error": str(exc)}), 400
+        selected_custom_ids = {item for item in selected_sow_sections if item.startswith("custom_")}
+        valid_custom_ids = {
+            str(item.get("id")) for item in (custom_template or {}).get("sections", [])
+        }
+        if selected_custom_ids and not custom_template:
+            return jsonify({
+                "success": False,
+                "error": "Custom extracted sections require a selected custom template",
+            }), 400
+        unknown_custom = sorted(selected_custom_ids - valid_custom_ids)
+        if unknown_custom:
+            return jsonify({
+                "success": False,
+                "error": f"Unknown custom template section(s): {', '.join(unknown_custom)}",
+            }), 400
         
         # Always use async mode now - remove async parameter check
         use_fast_mode = request.form.get('fast_mode', 'true').lower() == 'true'
@@ -3066,6 +3767,11 @@ def generate_preview():
         
         # Prepare metadata
         pricing_region = request.form.get('pricing_region', '').strip().lower()
+        from app.core.section_formats import timeline_format
+        try:
+            selected_timeline_format = timeline_format(request.form.get('timeline_format'))
+        except ValueError as exc:
+            return jsonify({'success': False, 'error': str(exc)}), 400
         if pricing_region and not re.fullmatch(r'[a-z]{2}(?:-gov)?-[a-z]+-\d', pricing_region):
             return jsonify({
                 "success": False,
@@ -3083,7 +3789,10 @@ def generate_preview():
             "timezone": "IST",
             "project_title": project_name,
             "selected_sow_sections": selected_sow_sections,
+            "custom_template_id": custom_template_id,
+            "custom_template_name": str((custom_template or {}).get("name") or "Uploaded custom template"),
             "pricing_region": pricing_region,
+            "timeline_format": selected_timeline_format,
             "pricing_include_proposed": request.form.get(
                 'pricing_include_proposed', 'true'
             ).strip().lower() not in {'0', 'false', 'no', 'off'},
@@ -3110,14 +3819,6 @@ def generate_preview():
         print(f"      Project: {project_name}")
         print(f"      Mode: ASYNC | {'FAST' if use_fast_mode else 'STANDARD'}")
         
-        # Any uploaded requirements document is the primary evidence source.
-        # Typed details remain an instruction overlay and must not cause stale
-        # project RAG to compete with or override the uploaded corpus.
-        if has_supporting_source:
-            rag_context, rag_success = {}, False
-            print("   🔒 Uploaded-document priority mode: skipping external/project RAG")
-        else:
-            rag_context, rag_success = retrieve_rag_data(company_name, project_name, mode)
 
         # Extract supporting documents if provided (POC / PROD modes)
         supporting_files = []
@@ -3187,16 +3888,16 @@ def generate_preview():
         # diffs. Failure here does not discard an otherwise valid generation;
         # the preview records a warning so the user is not misled about reuse.
         if supporting_uploads and not app.config.get("TESTING"):
+            metadata['source_documents'] = []
             try:
                 source_store = SourceDocumentStore()
                 source_scope_id = project_source_scope(metadata)
                 metadata["source_scope_id"] = source_scope_id
-                for path, original_name in supporting_uploads:
-                    source_store.ingest(source_scope_id, path, original_name)
-                metadata["source_documents"] = [
-                    public_source_metadata(item)
-                    for item in source_store.list_documents(source_scope_id)
-                ]
+                # A project's archive is not the current generation's evidence.
+                # Record only the documents uploaded for this request.
+                metadata["source_documents"] = [public_source_metadata(
+                    source_store.ingest(source_scope_id, path, original_name))
+                    for path, original_name in supporting_uploads]
                 print(
                     f"[SOURCE] Stored {len(supporting_uploads)} supporting document(s) "
                     f"under project scope {source_scope_id[:8]}",
@@ -3213,7 +3914,6 @@ def generate_preview():
             "additional_details": objective,
             "mode": mode,
             "source_file": source_file,  # For POC_TO_PROD
-            "rag_context": rag_context,
             "analyzed_requirements": None,
             "validated_requirements": None,
             "poc_content": None,
@@ -3224,6 +3924,9 @@ def generate_preview():
             "supporting_documents": supporting_files,
             "supporting_context": supporting_context,
             "selected_sow_sections": selected_sow_sections,
+            "custom_template_id": custom_template_id or None,
+            "custom_template_markdown": (custom_template or {}).get("markdown"),
+            "custom_template_sections": (custom_template or {}).get("sections") or [],
             "pricing_result": None,
             "scope_generation_seconds": None,
             "preview_started_at": preview_started_at,
@@ -3249,7 +3952,6 @@ def generate_preview():
                 preview_storage[preview_id]["status"] = "initializing"
                 preview_storage[preview_id]["progress"] = 0
                 preview_storage[preview_id]["current_step"] = "Initializing preview generation..."
-                preview_storage[preview_id]["rag_context"] = rag_context
                 preview_storage[preview_id]["source_diagnostics"] = {
                     "document_only": document_only_request,
                     "documents_received": supporting_docs_received,
@@ -3258,7 +3960,8 @@ def generate_preview():
                 }
         
         # Start async processing (supporting_context already extracted — files not needed by thread)
-        process_preview_async(preview_id, initial_state, use_fast_mode)
+        process_preview_async(preview_id, initial_state, use_fast_mode, on_complete=_save_preview_as_draft)
+        _schedule_preview_auto_draft(preview_id)
 
         # Safe to clean up temp supporting files now — content already extracted into supporting_context
         for fp in supporting_files:
@@ -3442,11 +4145,11 @@ def get_section_description(title: str, mode: str) -> str:
         'About Shellkode': 'Company information and capabilities',
         'Project Overview': 'High-level project description and goals',
         'Scope of Work': 'Detailed project deliverables and tasks',
-        'Architecture Diagram': 'System architecture visualization',
+        'Solution Architecture': 'Solution design, component interactions and architecture diagram',
         'Customer Dependencies': 'Requirements and dependencies from customer',
         'Assumptions': 'Project assumptions and constraints',
         'Out Of Scope': 'Items explicitly excluded from project',
-        'Timelines and Deliverables': 'Project schedule and milestone delivery',
+        'Project Timeline': 'Project schedule in the selected table or Gantt format',
         'AWS Pricing': 'AWS service costs and pricing estimates',
         'Customer Responsibilities': 'Customer obligations and responsibilities',
         'Duration of Work': 'Project timeline and duration',
@@ -3512,6 +4215,11 @@ def get_preview_status_api(preview_id):
             if denied:
                 return denied
             status = preview_data.get("status", "initializing")
+            # Regeneration retains a fully usable previous preview. Reopening it
+            # must show that preview and attach to the job, not the initial spinner.
+            if (preview_data.get('architecture_job') or {}).get('status') == 'running':
+                status = 'ready'
+            preview_data["last_activity_at"] = time.time()
             metadata = preview_data.get("metadata", {})
             
             # ✅ ENHANCED: Ensure all metadata fields have values (no N/A)
@@ -3541,6 +4249,7 @@ def get_preview_status_api(preview_id):
                 "is_complete": status == "ready",
                 "has_error": status == "failed",
                 "source_diagnostics": preview_data.get("source_diagnostics", {}),
+                "architecture_job": preview_data.get('architecture_job'),
                 # ✅ Add metadata fields at top level for easier frontend access
                 "company_name": metadata_response["company_name"],
                 "project_title": metadata_response["project_title"],
@@ -3577,6 +4286,260 @@ def get_preview_status_api(preview_id):
             "success": False,
             "error": str(e)
         }), 500
+
+
+@app.route('/api/preview/<preview_id>/heartbeat', methods=['POST'])
+def heartbeat_preview(preview_id):
+    """Keep a completed preview active while a reviewer has its modal open."""
+    with preview_lock:
+        preview = preview_storage.get(preview_id)
+        if not preview:
+            return jsonify({"success": False, "error": "Preview not found"}), 404
+        denied = _preview_denied(preview)
+        if denied:
+            return denied
+        preview["last_activity_at"] = time.time()
+    return jsonify({"success": True}), 200
+
+
+@app.route('/api/preview/<preview_id>/draft', methods=['POST'])
+def save_preview_draft(preview_id):
+    """Persist a completed preview as a durable SOW-record draft."""
+    with preview_lock:
+        preview = preview_storage.get(preview_id)
+        if preview:
+            denied = _preview_denied(preview)
+            if denied:
+                return denied
+    result = _save_preview_as_draft(preview_id, automatic=False)
+    if result.get("processing"):
+        return jsonify(result), 202
+    return jsonify(result), (200 if result.get("success") else 409)
+
+
+@app.route('/api/preview/<preview_id>', methods=['DELETE'])
+def discard_preview(preview_id):
+    """Discard an active preview. A reopened durable draft remains untouched."""
+    with preview_lock:
+        preview = preview_storage.get(preview_id)
+        if not preview:
+            return jsonify({"success": True, "discarded": False}), 200
+        denied = _preview_denied(preview)
+        if denied:
+            return denied
+        if preview.get("status") in {"draft_saving", "document_finalizing"}:
+            return jsonify({"success": False, "error": "A save is in progress; wait before discarding"}), 409
+        auto_draft_id = preview.get("metadata", {}).get("draft_document_id") if preview.get("autosaved_draft") else None
+        if auto_draft_id:
+            preview["status"] = "draft_saving"
+        else:
+            del preview_storage[preview_id]
+    if auto_draft_id:
+        try:
+            record = DynamoDBHandler().get_document_by_id(auto_draft_id)
+            if record and record.get("status") == "draft":
+                _delete_draft_record(record)
+            delete_preview_data(preview_id)
+        except Exception:
+            with preview_lock:
+                if preview_id in preview_storage:
+                    preview_storage[preview_id]["status"] = "ready"
+            return jsonify({"success": False, "error": "Could not discard the saved draft; please retry"}), 500
+    from app.core.nodes import clear_token_usage
+    clear_token_usage(preview_id)
+    return jsonify({"success": True, "discarded": True}), 200
+
+
+@app.route('/api/sows/<document_id>/draft/open', methods=['POST'])
+def open_saved_draft(document_id):
+    """Restore a durable draft snapshot to the ordinary preview editor."""
+    record = DynamoDBHandler().get_document_by_id(document_id)
+    if not record or str(record.get("status") or "").lower() != "draft":
+        return jsonify({"success": False, "error": "Draft not found"}), 404
+    denied = _resource_denied(record)
+    if denied:
+        return denied
+    with preview_lock:
+        for active_id, active in preview_storage.items():
+            if active.get("metadata", {}).get("draft_document_id") == document_id and (
+                    active.get("status") == "ready" or (active.get('architecture_job') or {}).get('status') == 'running'):
+                return jsonify({"success": True, "preview_id": active_id}), 200
+    location = str(record.get("draft_preview_s3_url") or "").strip()
+    if not location:
+        return jsonify({"success": False, "error": "Draft preview data is unavailable"}), 409
+    try:
+        bucket, key = parse_s3_location(location)
+        body = get_s3_client().get_object(Bucket=bucket, Key=key)["Body"].read()
+        snapshot = json.loads(body.decode("utf-8"))
+        metadata = dict(snapshot.get("metadata") or {})
+        metadata.update({
+            "draft_document_id": document_id,
+            "version": record.get("version"),
+            "draft_original_s3_url": record.get("s3_url"),
+            "draft_preview_s3_url": location,
+            "business_unit": record.get("business_unit"),
+            "owner_email": record.get("owner_email"),
+            "owner_name": record.get("owner_name"),
+        })
+        preview_id = create_preview_id()
+        store_preview_data(preview_id, snapshot.get("content") or {}, metadata,
+                           snapshot.get("mode") or record.get("mode") or "POC")
+        with preview_lock:
+            preview_storage[preview_id].update({
+                "status": "ready", "progress": 100,
+                "current_step": "Draft ready for review",
+                "final_state": snapshot.get("final_state") or {},
+                "token_usage": snapshot.get("token_usage") or {},
+                "total_tokens": int(snapshot.get("total_tokens") or 0),
+                "edit_count": int(snapshot.get('edit_count') or 0),
+                "architecture_changes": snapshot.get('architecture_changes', []),
+                "ready_at": time.time(), "last_activity_at": time.time(),
+                # The persisted record already protects this preview from loss.
+                "auto_draft_enabled": False,
+            })
+        return jsonify({"success": True, "preview_id": preview_id}), 200
+    except Exception as exc:
+        print(f"[DRAFT] Could not open {document_id}: {exc}", flush=True)
+        return jsonify({"success": False, "error": "Unable to open this draft"}), 500
+
+
+@app.route('/api/sows/<document_id>/draft', methods=['DELETE'])
+def delete_saved_draft(document_id):
+    """Allow a draft owner (or administrator) to permanently delete a draft."""
+    record = DynamoDBHandler().get_document_by_id(document_id)
+    if not record or str(record.get("status") or "").lower() != "draft":
+        return jsonify({"success": False, "error": "Draft not found"}), 404
+    identity = current_identity()
+    owner = str(record.get("owner_email") or "").strip().lower()
+    if not identity.is_admin and owner != identity.email.strip().lower():
+        return jsonify({"success": False, "error": "Only the draft owner or an administrator can delete it"}), 403
+    _delete_draft_record(record)
+    return jsonify({"success": True, "message": "Draft permanently deleted"}), 200
+
+
+@app.before_request
+def protect_architecture_revision():
+    """Block competing writes, including older edit/finalize endpoints, while revising."""
+    if request.method not in {'POST', 'PUT', 'PATCH', 'DELETE'}:
+        return None
+    if request.endpoint in {'regenerate_preview_architecture', 'heartbeat_preview'}:
+        return None
+    data = request.get_json(silent=True) if request.is_json else {}
+    if not isinstance(data, dict):
+        data = {}
+    preview_id = (request.view_args or {}).get('preview_id') or (data or {}).get('preview_id')
+    document_id = (request.view_args or {}).get('document_id')
+    if not preview_id and document_id and request.method == 'DELETE':
+        with preview_lock:
+            preview_id = next((pid for pid, item in preview_storage.items()
+                               if item.get('metadata', {}).get('draft_document_id') == document_id
+                               and (item.get('architecture_job') or {}).get('status') == 'running'), None)
+    if preview_id:
+        with preview_lock:
+            preview = preview_storage.get(preview_id)
+            if preview and (preview.get('architecture_job') or {}).get('status') == 'running':
+                denied = _preview_denied(preview)
+                if denied:
+                    return denied
+                return jsonify(success=False, error='Architecture regeneration is in progress. Wait before editing or saving.'), 409
+
+
+def _run_architecture_revision(preview_id, job_id, snapshot, instructions):
+    from app.preview.architecture_regeneration import regenerate
+    from app.core.nodes import bind_token_usage, unbind_token_usage, get_token_usage, clear_token_usage
+    token = bind_token_usage(job_id)
+    def combined_usage():
+        usage = dict(snapshot.get('token_usage') or {})
+        usage.setdefault('total_tokens', int(snapshot.get('total_tokens') or 0))
+        extra = get_token_usage(job_id)
+        for key in ('total_input_tokens', 'total_output_tokens', 'total_tokens', 'api_calls'):
+            usage[key] = int(usage.get(key) or 0) + int(extra.get(key) or 0)
+        models = dict(usage.get('models') or {})
+        for key, count in (extra.get('models') or {}).items():
+            models[key] = models.get(key, 0) + count
+        usage['models'] = models
+        return usage
+    def progress(message):
+        print(f'[DIAGRAM][REGENERATE] job={job_id}; {message}', flush=True)
+        with preview_lock:
+            live = preview_storage.get(preview_id)
+            if live and (live.get('architecture_job') or {}).get('id') == job_id:
+                live['architecture_job']['message'] = message
+    try:
+        candidate = regenerate(snapshot, instructions, Config(), progress)
+        candidate['_architecture_job_id'] = job_id
+        candidate['token_usage'] = combined_usage()
+        candidate['total_tokens'] = int(candidate['token_usage'].get('total_tokens') or 0)
+        progress('Saving the updated recoverable draft')
+        # Persist both image and text before reporting success. Existing draft ID
+        # is reused, so regeneration does not create a new completed SOW/version.
+        result = _save_preview_as_draft(preview_id, automatic=True, revision_candidate=candidate)
+        if not result.get('success'):
+            raise RuntimeError('The revision could not be saved. The previous preview is unchanged.')
+        with preview_lock:
+            live = preview_storage.get(preview_id)
+            if live and (live.get('architecture_job') or {}).get('id') == job_id:
+                live['architecture_job'].update(status='completed', message='Diagram and SOW updated',
+                                                changes=candidate.get('architecture_changes', []))
+    except Exception as exc:
+        print(f'[DIAGRAM][REGENERATE] job={job_id}; failed={exc}', flush=True)
+        with preview_lock:
+            live = preview_storage.get(preview_id)
+            if live and (live.get('architecture_job') or {}).get('id') == job_id:
+                live.update(status='ready', progress=100)
+                live['token_usage'] = combined_usage()
+                live['total_tokens'] = live['token_usage']['total_tokens']
+                live['architecture_job'].update(status='failed', error=str(exc)[:1000],
+                                                message='Previous preview retained')
+    finally:
+        unbind_token_usage(token)
+        clear_token_usage(job_id)
+
+
+@app.route('/api/preview/<preview_id>/architecture-regeneration', methods=['POST', 'GET'])
+def regenerate_preview_architecture(preview_id):
+    data = (request.get_json(silent=True) or {}) if request.method == 'POST' else {}
+    if not isinstance(data, dict):
+        return jsonify(success=False, error='Expected a JSON object'), 400
+    instructions = data.get('instructions', '')
+    if not isinstance(instructions, str) or len(instructions) > 4000:
+        return jsonify(success=False, error='Instructions must be text of at most 4000 characters'), 400
+    with preview_lock:
+        live = preview_storage.get(preview_id)
+        if not live:
+            return jsonify(success=False, error='Preview not found'), 404
+        denied = _preview_denied(live)
+        if denied:
+            return denied
+        job = live.get('architecture_job') or {}
+        if request.method == 'GET':
+            payload = {'success': True, 'job': job, 'preview_id': preview_id}
+            if job.get('status') == 'completed':
+                payload.update(content=live.get('content'), metadata=live.get('metadata'),
+                               pricing_result=(live.get('final_state') or {}).get('pricing_result'))
+            return jsonify(payload), 200
+        if job.get('status') == 'running':
+            return jsonify(success=True, job=job, preview_id=preview_id), 202
+        if live.get('status') != 'ready':
+            return jsonify(success=False, error='Preview is not ready'), 409
+        state = live.get('final_state') or {}
+        if not (state.get('supporting_context') or state.get('objective')):
+            return jsonify(success=False, error='Original BRD context is unavailable for this preview. Generate a new preview.'), 409
+        snapshot = copy.deepcopy(live)
+        job_id = uuid.uuid4().hex
+        live['architecture_job'] = {'id': job_id, 'status': 'running', 'message': 'Starting architecture regeneration',
+                                    'started_at': datetime.now().isoformat()}
+        live['status'] = 'architecture_regenerating'
+        job = dict(live['architecture_job'])
+    try:
+        threading.Thread(target=_run_architecture_revision,
+                         args=(preview_id, job_id, snapshot, instructions.strip()), daemon=True).start()
+    except Exception:
+        with preview_lock:
+            live['status'] = 'ready'
+            live['architecture_job'].update(status='failed', error='Unable to start regeneration')
+        return jsonify(success=False, error='Unable to start regeneration'), 503
+    return jsonify(success=True, job=job, preview_id=preview_id), 202
 
 
 @app.route('/api/preview/<preview_id>/architecture-diagram', methods=['PUT'])
@@ -3655,12 +4618,14 @@ def recalculate_preview_aws_pricing(preview_id):
         denied = _preview_denied(preview_data)
         if denied:
             return denied
+
         if preview_data.get("status") != "ready":
             return jsonify({"success": False, "error": "Preview is not ready"}), 409
         final_state = dict(preview_data.get("final_state") or {})
-        metadata = dict(final_state.get("metadata") or preview_data.get("metadata") or {})
+        metadata = {**(final_state.get("metadata") or {}), **(preview_data.get("metadata") or {})}
         requirements = dict(final_state.get("validated_requirements") or {})
         supporting_context = str(final_state.get("supporting_context") or "")
+        expected_edit_count = preview_data.get('edit_count', 0)
     requested_region = str(data.get("pricing_region") or metadata.get("pricing_region") or "").strip().lower()
     if requested_region and not re.fullmatch(r'[a-z]{2}(?:-gov)?-[a-z]+-\d', requested_region):
         return jsonify({"success": False, "error": "Invalid AWS region code"}), 400
@@ -3683,6 +4648,8 @@ def recalculate_preview_aws_pricing(preview_id):
         if not preview_data:
             return jsonify({"success": False, "error": "Preview expired during recalculation"}), 404
         content = preview_data.get("content") or {}
+        if preview_data.get('status') != 'ready' or preview_data.get('edit_count', 0) != expected_edit_count:
+            return jsonify(success=False, error='Preview changed during pricing recalculation; retry when ready'), 409
         content["aws_pricing"] = rendered
         preview_data["content"] = content
         preview_data["metadata"].update(metadata)
@@ -3732,6 +4699,7 @@ def update_preview_content(preview_id):
         denied = _preview_denied(preview_data)
         if denied:
             return denied
+
         if preview_data.get("status") != "ready":
             return jsonify({"success": False, "error": "Preview is not ready"}), 409
 
@@ -4050,7 +5018,9 @@ def edit_preview():
         
         # Retrieve preview data
         print(f"   🔍 Retrieving preview data for: {preview_id}")
-        preview_data = get_preview_data(preview_id)
+        with preview_lock:
+            preview_data = copy.deepcopy(preview_storage.get(preview_id))
+        expected_edit_count = (preview_data or {}).get('edit_count', 0)
         
         if not preview_data:
             print(f"   ❌ Preview not found: {preview_id}")
@@ -4148,14 +5118,14 @@ def edit_preview():
         # Step 2: Update preview data in memory
         print(f"   💾 Updating preview data in storage...")
         try:
-            update_success = update_preview_data(preview_id, updated_content)
+            update_success = update_preview_data(preview_id, updated_content, expected_edit_count=expected_edit_count)
             
             if not update_success:
                 print(f"   ❌ Failed to update preview data in storage")
                 return jsonify({
                     "success": False,
-                    "error": "Failed to update preview data"
-                }), 500
+                    "error": "The preview changed while editing. Reload it and retry your edit."
+                }), 409
             
             print(f"   ✅ Preview data updated in storage")
             from app.core.nodes import get_token_usage
@@ -4282,6 +5252,26 @@ def finalize_document():
         
         # ✅ IDEMPOTENCY CHECK: If task already exists and is completed, return cached result
         task_id = preview_id
+        with preview_lock:
+            has_preview = preview_id in preview_storage
+        if not has_preview:
+            saved = DynamoDBHandler().query_by_task_id(preview_id)
+            if saved:
+                denied = _resource_denied(saved)
+                if denied:
+                    return denied
+                if str(saved.get("status") or "").lower() == "draft":
+                    return jsonify({
+                        "success": False, "code": "PREVIEW_SAVED_AS_DRAFT",
+                        "document_id": saved.get("document_id"),
+                        "error": "This preview was saved as a draft. Open it from SOW Records to continue.",
+                    }), 200
+                return jsonify({
+                    "success": True, "cached": True,
+                    "document_id": saved.get("document_id"),
+                    "s3_url": saved.get("s3_url"), "drive_link": saved.get("drive_link"),
+                    "result": saved,
+                }), 200
         existing_task = get_task(task_id)
         if existing_task:
             denied = _resource_denied(existing_task.get("metadata"))
@@ -4291,6 +5281,13 @@ def finalize_document():
         if existing_task and existing_task.get('status') == TaskStatus.COMPLETED:
             print(f"   ⚡ Task already completed, returning cached result")
             result = existing_task.get('result', {})
+            if result.get("is_draft"):
+                return jsonify({
+                    "success": False,
+                    "code": "PREVIEW_SAVED_AS_DRAFT",
+                    "document_id": result.get("document_id"),
+                    "error": "This preview was automatically saved as a draft after the review session disconnected.",
+                }), 200
             return jsonify({
                 "success": True,
                 "task_id": task_id,
@@ -4320,7 +5317,7 @@ def finalize_document():
         
         if not preview_data:
             # ✅ FALLBACK: If preview not found but task exists, return task result
-            if existing_task:
+            if existing_task and existing_task.get('status') == TaskStatus.COMPLETED and existing_task.get('result', {}).get('s3_url'):
                 print(f"   ⚠️  Preview expired but task exists, returning task result")
                 result = existing_task.get('result', {})
                 return jsonify({
@@ -4347,6 +5344,10 @@ def finalize_document():
         metadata = preview_data.get("metadata")
         content = preview_data.get("content")
 
+        architecture_assets = (content or {}).get('architecture_diagram_assets') or []
+        if any(isinstance(asset, dict) and asset.get('status') == 'unavailable' for asset in architecture_assets):
+            return jsonify(success=False, code='ARCHITECTURE_REGENERATION_REQUIRED',
+                           error='The architecture diagram did not pass validation. Regenerate it before finalizing; you can still save this preview as a draft.'), 409
         pricing_result = (preview_data.get("final_state") or {}).get("pricing_result") or {}
         if pricing_result.get("status") == "stale":
             return jsonify({
@@ -4354,6 +5355,19 @@ def finalize_document():
                 "error": "AWS pricing is stale after content edits. Recalculate pricing before finalizing.",
                 "code": "AWS_PRICING_STALE",
             }), 409
+
+        # Claim the preview only after all non-mutating preflight checks. This
+        # prevents the abandonment monitor from saving the same content while
+        # finalisation is running, without wedging a preview on validation errors.
+        with preview_lock:
+            live_preview = preview_storage.get(preview_id)
+            if not live_preview:
+                return jsonify({"success": False, "error": "Preview is no longer available"}), 404
+            if live_preview.get("status") == "draft_saving":
+                return jsonify({"success": False, "error": "Draft save is already in progress"}), 409
+            if live_preview.get("status") != "ready":
+                return jsonify({"success": False, "error": "Preview is not ready to finalize"}), 409
+            live_preview["status"] = "document_finalizing"
 
         from app.core.nodes import get_token_usage
         live_token_usage = get_token_usage(preview_id)
@@ -4391,7 +5405,6 @@ def finalize_document():
             "validated_requirements": {},  # Empty dict for preview workflow
             "analyzed_requirements": {},  # Empty dict for preview workflow
             "source_file": None,
-            "rag_context": preview_data.get("rag_context", {}),
             "output_path": None,
             "json_path": None,
             "errors": [],
@@ -4478,6 +5491,9 @@ def finalize_document():
                         "parent_document_id": metadata.get("parent_document_id"),
                         "refinement_instructions": metadata.get("refinement_instructions"),
                         "selected_sow_sections": metadata.get("selected_sow_sections", []),
+                        "timeline_format": metadata.get("timeline_format", "table"),
+                        "status": "completed",
+                        **_semantic_index_metadata(content, metadata),
                     },
                     s3_url=s3_url,
                     s3_result=s3_result,
@@ -4486,7 +5502,8 @@ def finalize_document():
                     region=os.getenv('AWS_REGION', 'us-east-1'),
                     task_id=task_id,
                     account_id=account_id,  # ✅ NEW: Pass account_id
-                    project_id=project_id  # ✅ NEW: Pass project_id
+                    project_id=project_id,
+                    existing_document_id=metadata.get("draft_document_id"),
                 )
                 
                 # ✅ NEW: Link SOW to project if project_id exists in preview metadata
@@ -4496,6 +5513,7 @@ def finalize_document():
                         if sow_id:
                             sow_data = {
                                 'mode': mode,
+                                'status': 'completed',
                                 'customer_name': metadata["company_name"],
                                 'project_name': metadata["project_title"],
                                 'author_name': metadata["author_name"],
@@ -4523,58 +5541,20 @@ def finalize_document():
                         print(f"   ⚠️  Failed to link SOW to project: {link_error}")
                         # Don't fail the entire operation if linking fails
         
-        update_task(task_id, progress=90, current_step="Ingesting to RAG")
-        
-        # RAG ingestion - Convert DOCX to PDF first
-        rag_result = None
-        
-        if upload_file and str(upload_file).endswith('.docx'):
-            try:
-                print(f"   🔄 Converting DOCX to PDF for RAG processing...")
-                
-                # Convert DOCX to PDF for RAG ingestion
-                pdf_for_rag = convert_docx_to_pdf_for_rag(upload_file)
-                
-                if pdf_for_rag:
-                    print(f"   ✓ DOCX converted to PDF for RAG: {Path(pdf_for_rag).name}")
-                    
-                    rag_result = ingest_to_rag_schema(
-                        file_path=pdf_for_rag,
-                        company_name=metadata["company_name"],
-                        project_title=metadata["project_title"],
-                        mode=mode
-                    )
-                    
-                    # Clean up the temporary PDF
-                    try:
-                        os.remove(pdf_for_rag)
-                        print(f"   ✓ Cleaned up temporary PDF for RAG")
-                    except:
-                        pass
-                else:
-                    raise Exception("DOCX to PDF conversion failed")
-                    
-            except Exception as e:
-                print(f"   ⚠️  RAG ingestion failed: {e}")
-                rag_result = {"success": False, "error": str(e)}
-        elif upload_file:
-            # Fallback for PDF files (legacy)
-            try:
-                rag_result = ingest_to_rag_schema(
-                    file_path=upload_file,
-                    company_name=metadata["company_name"],
-                    project_title=metadata["project_title"],
-                    mode=mode
-                )
-            except Exception as e:
-                print(f"   ⚠️  RAG ingestion failed: {e}")
-                rag_result = {"success": False, "error": str(e)}
+        if not s3_result or not db_result or not db_result.get("success") or not db_result.get("document_id"):
+            raise RuntimeError("Final document was not persisted; the preview remains available for retry")
+        if metadata.get("draft_document_id"):
+            _cleanup_replaced_draft_artifacts({
+                "s3_url": metadata.get("draft_original_s3_url"),
+                "draft_preview_s3_url": metadata.get("draft_preview_s3_url"),
+            }, s3_url)
+
         
         # No local file saving - skip save_document_info
         print(f"   ✅ Skipping local file saving - cloud-only mode")
         
         # ✅ AUTO-CLEANUP: Delete temporary files after successful cloud upload
-        if drive_result and s3_result and upload_file:
+        if s3_result and upload_file:
             try:
                 if os.path.exists(upload_file):
                     os.remove(upload_file)
@@ -4588,6 +5568,15 @@ def finalize_document():
             except Exception as e:
                 print(f"   ⚠️  Could not clean up temporary files: {e}")
         
+        # A reopened draft is replaced only after the finalized record is
+        # safely persisted. On any earlier failure the original draft remains.
+        old_draft_id = str(metadata.get("draft_document_id") or "").strip()
+        new_document_id = db_result.get("document_id") if db_result else None
+        if old_draft_id and new_document_id and old_draft_id != new_document_id:
+            old_record = DynamoDBHandler().get_document_by_id(old_draft_id)
+            if old_record and str(old_record.get("status") or "").lower() == "draft":
+                _delete_draft_record(old_record)
+
         # Delete preview from memory
         delete_preview_data(preview_id)
         from app.core.nodes import clear_token_usage
@@ -4602,9 +5591,11 @@ def finalize_document():
             "s3_url": s3_result.get('https_url') if s3_result else None,
             "drive_link": drive_result.get('link') if drive_result else None,
             "document_id": db_result.get("document_id") if db_result else None,
-            "rag_document_id": rag_result.get("document_id") if rag_result else None,
             "total_tokens": total_tokens,
             "token_usage": token_usage,
+            "version": db_result.get("version"),
+            "project_name": metadata.get("project_title"),
+            "timestamp": db_result.get("timestamp"),
         }
         
         update_task(
@@ -4634,6 +5625,13 @@ def finalize_document():
     except Exception as e:
         import traceback
         traceback.print_exc()
+
+        with preview_lock:
+            if 'preview_id' in locals() and preview_id in preview_storage:
+                if preview_storage[preview_id].get("status") == "document_finalizing":
+                    preview_storage[preview_id]["status"] = "ready"
+                    preview_storage[preview_id]["current_step"] = "Preview ready; finalization can be retried"
+                    preview_storage[preview_id]["last_activity_at"] = time.time()
         
         # Update task as failed
         if 'task_id' in locals():
@@ -5468,7 +6466,6 @@ def create_sow_for_project(project_id):
                     "current_step": "Starting",
                     "mode": mode,
                     "source_file": None,
-                    "rag_context": None,
                     "is_poc_table_conversion": False,
                     "supporting_documents": None,
                     "supporting_context": None
@@ -5607,40 +6604,38 @@ def create_sow_for_project(project_id):
 
 @app.route('/api/sows/<sow_id>', methods=['DELETE'])
 def delete_sow(sow_id):
-    """
-    Delete a SOW document (soft delete)
-    This marks the SOW as deleted in the agentic-sow-v2 table
-    """
+    """Permanently delete a generated SOW. Administrators only."""
     try:
-        from boto3.dynamodb.conditions import Attr
-        linked = account_handler.table.scan(
-            FilterExpression=Attr('SK').begins_with('SOW#') & (
-                Attr('sow_db_id').eq(sow_id) | Attr('sow_id').eq(sow_id)
-            ),
-            Limit=10,
-        ).get('Items', [])
-        if not linked:
-            linked = DynamoDBHandler().table.scan(
-                FilterExpression='document_id = :id',
-                ExpressionAttributeValues={':id': sow_id},
-                Limit=10,
-            ).get('Items', [])
-        if not linked:
-            return jsonify({"success": False, "error": "SOW not found"}), 404
-        if not any(item_is_visible(item, current_identity()) for item in linked):
-            return jsonify({"success": False, "error": "You do not have access to this SOW"}), 403
-        # Delete from agentic-sow-v2 (linked SOWs table)
-        success = account_handler.delete_sow(sow_id)
+        denied = _require_admin_response()
+        if denied:
+            return denied
 
-        if not success:
-            return jsonify({
-                "success": False,
-                "error": "SOW not found or deletion failed"
-            }), 404
+        handler = DynamoDBHandler()
+        record = handler.get_document_by_id(sow_id)
+        if not record:
+            return jsonify({"success": False, "error": "SOW not found"}), 404
+
+        for url_field in ('s3_url', 'draft_preview_s3_url'):
+            s3_url = str(record.get(url_field) or '').strip()
+            if s3_url:
+                bucket, key = parse_s3_location(s3_url)
+                get_s3_client().delete_object(Bucket=bucket, Key=key)
+                print(f"[SOW DELETE] Removed {url_field} s3://{bucket}/{key}", flush=True)
+
+        if not handler.delete_document(sow_id, str(record.get('timestamp') or '')):
+            return jsonify({"success": False, "error": "SOW metadata deletion failed"}), 500
+
+        # Remove any project/account link and repair its counters. This helper
+        # is tolerant of records generated outside the Accounts workflow.
+        account_handler.delete_sow(sow_id)
+        print(
+            f"[SOW DELETE] Admin {current_identity().email} permanently deleted {sow_id}",
+            flush=True,
+        )
 
         return jsonify({
             "success": True,
-            "message": "SOW deleted successfully"
+            "message": "SOW permanently deleted"
         })
     except Exception as e:
         print(f"❌ Error deleting SOW: {e}")
@@ -5852,7 +6847,6 @@ if __name__ == '__main__':
     print("   • Google Drive (Optional - with link in ALL history APIs)")
     print("   • AWS S3 (Primary)")
     print("   • DynamoDB History (agentic-poc)")
-    print("   • RAG Schema (rag-schema)")
     print("\n" + "="*70)
     print("📋 API ENDPOINTS:")
     print("="*70)

@@ -35,24 +35,28 @@ class PocBenchmarkContractTests(unittest.TestCase):
                 "{PROJECT_TITLE}",
                 "Table_of_contents",
                 "Document Version Control",
+                "Service Agreement",
                 "About ShellKode",
                 "About {COMPANY_NAME}",
-                "1. Objective",
-                "2. Current State",
-                "3. Scope of Work",
-                "4. Solution Architecture — AWS",
-                "5. Open Clarifications",
-                "6. Out of Scope",
+                "Objective",
+                "Business Benefits",
+                "Solution Architecture",
+                "Scope of Work",
+                "Open Clarifications",
+                "Out of Scope",
                 "Customer Dependencies",
-                "7. Assumptions",
-                "8. Timeline and Deliverables",
-                "9. Success Criteria",
-                "10. AWS Pricing",
+                "Assumptions",
+                "Project Timeline",
+                "Success Criteria",
+                "AWS Pricing",
                 "Customer Responsibilities",
-                "11. {AUTHOR_ORG_SHORT} Project Team Effort",
+                "{AUTHOR_ORG_SHORT} Project Team Effort",
+                "Roles and Responsibilities",
+                "Change Order",
                 "Project Plan Termination",
                 "Contacts and Reporting",
-                "Terms and Conditions",
+                "Marketing Authorization",
+                "Terms & Conditions",
                 "Acceptance and Signatories to Statement of Work",
             ],
         )
@@ -63,16 +67,14 @@ class PocBenchmarkContractTests(unittest.TestCase):
             "Risks and Mitigations",
             "Duration of Work",
             "Deliverable Acceptance",
-            "Change Order",
-            "Marketing Authorization",
         ):
             self.assertNotIn(f"## {heading}", self.template)
 
     def test_objective_section_does_not_repeat_objectives_subheading(self):
         self.assertNotIn("### 1.1 Objectives", self.template)
-        objective_start = self.template.index("## 1. Objective")
+        objective_start = self.template.index("## Objective")
         objective_end = self.template.index("[META_TABLE]", objective_start)
-        self.assertIn("do not add an `Objectives` subsection", self.template[objective_start:objective_end])
+        self.assertIn("Do not enumerate modules", self.template[objective_start:objective_end])
 
     def test_signatory_names_and_titles_are_blank(self):
         self.assertIn('"Client" verifies that the terms of this Statement of Work/Proposal', self.template)
@@ -100,36 +102,32 @@ class PocBenchmarkContractTests(unittest.TestCase):
         )
         self.assertIsNotNone(contract)
         body = contract.group(1)
-        self.assertGreater(len(body.split()), 700)
         for required_rule in (
-            "Evidence and inference policy",
-            "Cross-section consistency rules",
-            "Regulatory, compliance, AI, and human-review fidelity",
-            "Reference-derived visual contract",
-            "Heading hierarchy and numbering",
-            "DM Sans",
-            "#5D3FD3",
-            "#1A4BD2",
-            "Page X of Y",
+            "one primary home",
+            "retaining distinct obligations",
+            "human review",
+            "not automatically relevant",
+            "never convert a question into an assumption",
+            "arbitrary page limits",
             "British Indian English",
         ):
             self.assertIn(required_rule, body)
 
     def test_core_sections_retain_strict_local_authoring_rules(self):
         for section_title, required_text in (
-            ("## Document Version Control", "REQUIRED STRUCTURE"),
-            ("## 1. Objective", "BOUNDARIES"),
-            ("## 2. Current State", "REQUIRED COVERAGE"),
-            ("## 3. Scope of Work", "DOCUMENT-WIDE COMPLETENESS CHECK"),
-            ("## 4. Solution Architecture — AWS", "ARCHITECTURE EVIDENCE RULE"),
-            ("## 5. Open Clarifications", "INCLUSION RULES"),
-            ("## 6. Out of Scope", "CONDITIONAL COVERAGE"),
-            ("## 7. Assumptions", "DISTINCTION RULES"),
-            ("## 8. Timeline and Deliverables", "REQUIRED OUTPUT"),
-            ("## 9. Success Criteria", "METRIC RULES"),
-            ("## 10. AWS Pricing", "PROHIBITIONS"),
-            ("## 11. {AUTHOR_ORG_SHORT} Project Team Effort", "WHEN STAFFING IS NOT SUPPLIED"),
+            ("## Document Version Control", "compact table"),
+            ("## 1. Objective", "end result"),
+            ("## 3. Scope of Work", "Preserve distinct business rules"),
+            ("## Solution Architecture", "Name relevant AWS services in context"),
+            ("## 5. Open Clarifications", "Do not carry every upstream unknown"),
+            ("## 6. Out of Scope", "Never infer an exclusion"),
+            ("## 7. Assumptions", "material project-specific delivery premises"),
+            ("## 8. Project Timeline", "GANTT FORMAT:"),
+            ("## 9. Success Criteria", "quantifiable success targets"),
+            ("## 10. AWS Pricing", "Use tables only"),
+            ("## 11. {AUTHOR_ORG_SHORT} Project Team Effort", "Leave unavailable numeric cells blank"),
         ):
+            section_title = re.sub(r"^(## )\d+\. ", r"\1", section_title)
             start = self.template.index(section_title)
             next_section = self.template.find("\n[META_", start + len(section_title))
             block = self.template[start: next_section if next_section >= 0 else None]
@@ -185,7 +183,7 @@ class PocBenchmarkContractTests(unittest.TestCase):
             },
         )
         self.assertIn("GLOBAL TEMPLATE AND REFERENCE-BENCHMARK CONTRACT", prompt)
-        self.assertIn("Reference-derived visual contract", prompt)
+        self.assertIn("RELEVANCE AND SECTION OWNERSHIP", prompt)
         self.assertIn("British Indian English", prompt)
 
         about_client = TemplateSection(
@@ -368,6 +366,41 @@ class PocBenchmarkContractTests(unittest.TestCase):
         self.assertIn("Source Assumption", prompt)
         self.assertIn("Conflicts between uploaded sources are Open", prompt)
         self.assertIn("must not appear in Out of Scope", prompt)
+        self.assertIn("short contractual boundary, not a catalogue", prompt)
+        self.assertIn("post-acceptance model/provider/version migration", prompt)
+
+    def test_assumptions_prompt_uses_material_baselines_without_missing_input_rationale(self):
+        agent = POCWriterAgent.__new__(POCWriterAgent)
+        agent.template_type = "POC"
+        agent.global_template_contract = "Evidence contract"
+        agent.selected_section_preferences = ["assumptions"]
+        agent.excluded_section_preferences = []
+        agent.scope_architecture_plan = {}
+        section = TemplateSection(
+            "7. Assumptions", "Write critical assumptions.",
+            {"type": "GENERATED", "category_id": "assumptions"}, 0,
+        )
+        prompt = agent._build_individual_prompt(
+            section,
+            {"project_overview": "Customer support platform"},
+            {"company_name": "Example", "project_title": "Chatbot", "author_org": "ShellKode"},
+        )
+        self.assertIn("smallest set of critical delivery baselines", prompt)
+        self.assertIn("use only actual agreed sizing values", prompt)
+        self.assertNotIn("120 vCPUs", prompt)
+        self.assertIn("never explain why the baseline was chosen", prompt)
+
+    def test_contract_section_validator_rejects_missing_input_commentary_and_blanket_exclusions(self):
+        assumption_issues = POCWriterAgent._contractual_section_issues(
+            "The customer did not provide load figures, so 120 vCPUs were assumed.",
+            "assumptions",
+        )
+        exclusion_issues = POCWriterAgent._contractual_section_issues(
+            "- Everything beyond the items explicitly listed is out of scope.",
+            "out_of_scope",
+        )
+        self.assertTrue(any("missing-input" in issue for issue in assumption_issues))
+        self.assertTrue(any("blanket exclusion" in issue for issue in exclusion_issues))
 
     def test_scope_prompt_receives_shared_architect_blueprint(self):
         agent = POCWriterAgent.__new__(POCWriterAgent)
@@ -410,9 +443,14 @@ class PocBenchmarkContractTests(unittest.TestCase):
             return "### Deliverable 2 - Email\n#### Email Assignment\n- Configure email assignment."
 
         agent._call_bedrock = fake_call
-        content = agent._generate_scope_deliverables({}, {}, "Source", [])
+        content = agent._generate_scope_deliverables(
+            {'_generation_guidance': 'Keep email as a separate delivery.',
+             'supporting_context': 'DUPLICATED_RAW_ATTACHMENT'}, {}, "Source", [])
         self.assertEqual(len(prompts), 2)
-        self.assertIn("| # | Deliverable | Included Modules | Core Outcome |", content)
+        self.assertTrue(all('Keep email as a separate delivery.' in prompt for prompt in prompts))
+        self.assertTrue(all('DUPLICATED_RAW_ATTACHMENT' not in prompt for prompt in prompts))
+        self.assertIn("| Deliverable | Outcome |", content)
+        self.assertNotIn("Included Modules", content)
         self.assertIn("#### Case Lifecycle", content)
         self.assertIn("#### Email Assignment", content)
         self.assertLess(content.index("Deliverable 1 - Ticketing"), content.index("Deliverable 2 - Email"))

@@ -155,6 +155,9 @@ class S3Uploader:
         
         try:
             # Normalize mode to lowercase
+            local_size = file_path.stat().st_size
+            if local_size <= 0:
+                raise ValueError("Cannot publish an empty document")
             mode = mode.lower().strip()
             
             # Generate S3 key
@@ -176,6 +179,9 @@ class S3Uploader:
                 s3_key,
                 ExtraArgs={'ContentType': content_type}
             )
+            remote_size = self.s3_client.head_object(Bucket=S3_BUCKET_NAME, Key=s3_key)['ContentLength']
+            if remote_size != local_size:
+                raise ValueError("Uploaded document size does not match the completed local document")
             
             # Generate URLs
             s3_url = f"s3://{S3_BUCKET_NAME}/{s3_key}"

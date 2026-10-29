@@ -94,10 +94,11 @@ def get_preview_data(preview_id: str) -> Optional[Dict[str, Any]]:
     with preview_lock:
         return preview_storage.get(preview_id)
 
-def update_preview_data(preview_id: str, updated_content: Dict[str, Any]):
+def update_preview_data(preview_id: str, updated_content: Dict[str, Any], expected_edit_count=None):
     """Update preview content after edits"""
     with preview_lock:
-        if preview_id in preview_storage:
+        if (preview_id in preview_storage and preview_storage[preview_id].get('status') == 'ready'
+                and (expected_edit_count is None or preview_storage[preview_id].get('edit_count', 0) == expected_edit_count)):
             # Debug: Log what we're updating
             old_content = preview_storage[preview_id]["content"]
             old_section_count = len(old_content)

@@ -1,0 +1,12 @@
+.sow-delete-overlay { position: fixed; inset: 0; z-index: 2400; display: grid; place-items: center; padding: 20px; background: rgba(15, 23, 42, 0.58); }
+.sow-delete-dialog { position: relative; width: min(460px, 100%); border-radius: 16px; background: #fff; padding: 28px; box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28); }
+.sow-delete-dialog h2 { margin: 12px 0 10px; color: #172033; font-size: 1.35rem; }
+.sow-delete-dialog p { margin: 7px 0; color: #56647a; line-height: 1.5; }
+.sow-delete-warning { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 50%; color: #c92537; background: #fff0f2; }
+.sow-delete-irreversible { color: #a51f31 !important; font-weight: 650; }
+.sow-delete-close { position: absolute; top: 16px; right: 16px; border: 0; background: transparent; color: #64748b; cursor: pointer; }
+.sow-delete-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.sow-delete-actions button { display: inline-flex; align-items: center; gap: 7px; border-radius: 9px; padding: 10px 15px; font-weight: 650; cursor: pointer; }
+.sow-delete-cancel { border: 1px solid #cbd5e1; background: #fff; color: #334155; }
+.sow-delete-confirm { border: 1px solid #b91c2c; background: #c92537; color: #fff; }
+.sow-delete-actions button:disabled, .sow-delete-close:disabled { opacity: 0.6; cursor: not-allowed; }

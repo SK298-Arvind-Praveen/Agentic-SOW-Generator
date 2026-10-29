@@ -76,6 +76,13 @@ class _AdaptiveTruncatedClient:
 
 
 class BedrockLLMTests(unittest.TestCase):
+    def test_visual_input_survives_expanded_output_retry(self):
+        client = _AdaptiveTruncatedClient()
+        BedrockLLM(_Config(), client).generate('Review diagram', image_bytes=b'png-fixture', max_tokens=2048)
+        self.assertEqual(len(client.calls), 2)
+        for call in client.calls:
+            self.assertEqual(call['messages'][0]['content'][1]['image']['source']['bytes'], b'png-fixture')
+
     def test_task_routes_are_explicit(self):
         self.assertEqual(model_for_task(_Config(), "fast"), "fast")
         self.assertEqual(model_for_task(_Config(), "analysis"), "analysis")
@@ -148,6 +155,14 @@ class BedrockLLMTests(unittest.TestCase):
             [2048, 4096],
         )
         self.assertIn("Aggressively deduplicate", client.calls[1]["messages"][0]["content"][0]["text"])
+
+    def test_optional_review_can_disable_expanded_retry(self):
+        client = _TruncatedClient()
+        with self.assertRaises(BedrockOutputTruncatedError):
+            BedrockLLM(_Config(), client).generate(
+                "review", max_tokens=2200, retry_on_truncation=False,
+            )
+        self.assertEqual(len(client.calls), 1)
 
 
 if __name__ == "__main__":

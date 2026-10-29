@@ -49,23 +49,28 @@ USER_ROLES = ("ADMIN", *BU_ROLE_BY_NAME.values(), "USER")
 
 DEFAULT_SECTION_CATALOGUE = [
     {"id": "document_version_control", "label": "Document Version Control"},
+    {"id": "service_agreement", "label": "Service Agreement"},
     {"id": "about_shellkode", "label": "About Shellkode"},
     {"id": "about_client", "label": "About Client"},
     {"id": "project_overview", "label": "Objective"},
+    {"id": "business_benefits", "label": "Business Benefits"},
+    {"id": "architecture_diagram", "label": "Solution Architecture"},
     {"id": "scope_of_work", "label": "Scope of Work"},
-    {"id": "architecture_diagram", "label": "Architecture Diagram"},
     {"id": "customer_dependencies", "label": "Customer Dependencies"},
     {"id": "assumptions", "label": "Assumptions"},
     {"id": "out_of_scope", "label": "Out of Scope"},
-    {"id": "timelines_deliverables", "label": "Timelines and Deliverables"},
+    {"id": "timelines_deliverables", "label": "Project Timeline"},
     {"id": "aws_pricing", "label": "AWS Pricing"},
     {"id": "customer_responsibilities", "label": "Customer Responsibilities"},
     {"id": "project_team_effort", "label": "Project Team Effort"},
     {"id": "open_clarifications", "label": "Open Clarifications"},
     {"id": "success_criteria", "label": "Success Criteria"},
+    {"id": "raci_matrix", "label": "Roles and Responsibilities"},
+    {"id": "change_order", "label": "Change Order"},
     {"id": "project_plan_termination", "label": "Project Plan Termination"},
     {"id": "contacts_reporting", "label": "Contacts and Reporting"},
-    {"id": "terms_conditions", "label": "Terms and Conditions"},
+    {"id": "marketing_authorization", "label": "Marketing Authorization"},
+    {"id": "terms_conditions", "label": "Terms & Conditions"},
     {"id": "acceptance_signatories", "label": "Acceptance and Signatories"},
 ]
 for _section in DEFAULT_SECTION_CATALOGUE:
@@ -141,6 +146,10 @@ class Identity:
         return asdict(self)
 
 
+class AuthServiceUnavailable(RuntimeError):
+    """The identity store could not be read; this is not invalid credentials."""
+
+
 class RBACStore:
     def __init__(self) -> None:
         region = os.getenv("AWS_REGION", "us-east-1")
@@ -157,12 +166,16 @@ class RBACStore:
     def get_user(self, email: str) -> Optional[Dict[str, Any]]:
         email = email.casefold().strip()
         try:
-            response = self.table.get_item(Key={"PK": f"USER#{email}", "SK": "PROFILE"})
+            response = self.table.get_item(
+                Key={"PK": f"USER#{email}", "SK": "PROFILE"}, ConsistentRead=True,
+            )
             return response.get("Item")
         except (BotoCoreError, ClientError) as exc:
-            if not isinstance(exc, ClientError) or exc.response.get("Error", {}).get("Code") != "ResourceNotFoundException":
-                logger.warning("RBAC user lookup failed: %s", exc)
-            return None
+            code = (exc.response.get("Error", {}).get("Code", "ClientError")
+                    if isinstance(exc, ClientError) else type(exc).__name__)
+            # Do not log credentials, tokens, password hashes or the user item.
+            logger.error("[AUTH] Identity store unavailable: %s; check AWS credentials, permissions and connectivity", code)
+            raise AuthServiceUnavailable("Authentication service temporarily unavailable") from exc
 
     def authenticate(self, email: str, password: str) -> Optional[Identity]:
         email = email.casefold().strip()
@@ -624,13 +637,23 @@ class RBACStore:
                 # Retire the former standalone Deliverables section even when
                 # an older DynamoDB catalogue still contains it. Deliverables
                 # are now represented inside Scope of Work.
-                return [
+                retained = [
                     section for section in sections
                     if str(section.get("id") or "").casefold() not in {
                         "deliverables", "scope_at_a_glance", "deliverable_scope_at_a_glance"
                     }
                     and str(section.get("label") or "").strip().casefold() != "deliverables"
                 ]
+                # Upgrade existing catalogues without writing to DynamoDB or
+                # losing administrator-created custom sections.
+                saved = {item["id"]: item for item in retained}
+                builtins = {item["id"] for item in DEFAULT_SECTION_CATALOGUE}
+                introduced = {"service_agreement", "business_benefits", "raci_matrix", "change_order", "marketing_authorization"}
+                return [
+                    {**item, **saved.get(item["id"], {}), "label": item["label"]}
+                    for item in DEFAULT_SECTION_CATALOGUE
+                    if item["id"] in saved or item["id"] in introduced
+                ] + [item for item in retained if item["id"] not in builtins]
         except (BotoCoreError, ClientError) as exc:
             if not isinstance(exc, ClientError) or exc.response.get("Error", {}).get("Code") != "ResourceNotFoundException":
                 logger.warning("Section catalogue lookup failed: %s", exc)

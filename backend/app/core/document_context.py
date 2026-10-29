@@ -151,16 +151,3 @@ def select_section_evidence(
             break
     chosen.sort(key=lambda item: item[0])
     return "\n\n".join(block for _, block in chosen)[:max_chars].strip()
-
-
-def combined_source_text(
-    supporting_context: Optional[str],
-    rag_context: Optional[Dict[str, Any]],
-) -> str:
-    sources: List[str] = []
-    if supporting_context:
-        sources.append(str(supporting_context))
-    rag_data = (rag_context or {}).get("rag_data", {}) if isinstance(rag_context, dict) else {}
-    if isinstance(rag_data, dict) and rag_data.get("extracted_content"):
-        sources.append(str(rag_data["extracted_content"]))
-    return "\n\n".join(sources)

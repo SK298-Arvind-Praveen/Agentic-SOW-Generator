@@ -9,11 +9,13 @@ from typing import Any, Iterable, List, Optional, Set
 
 OPTIONAL_SECTION_IDS = (
     "document_version_control",
+    "service_agreement",
     "about_shellkode",
     "about_client",
     "project_overview",
-    "scope_of_work",
+    "business_benefits",
     "architecture_diagram",
+    "scope_of_work",
     "customer_dependencies",
     "assumptions",
     "out_of_scope",
@@ -23,23 +25,31 @@ OPTIONAL_SECTION_IDS = (
     "project_team_effort",
     "open_clarifications",
     "success_criteria",
+    "raci_matrix",
+    "change_order",
     "project_plan_termination",
     "contacts_reporting",
+    "marketing_authorization",
     "terms_conditions",
     "acceptance_signatories",
 )
 
 SECTION_LABELS = {
+    "service_agreement": "Service Agreement",
+    "business_benefits": "Business Benefits",
+    "raci_matrix": "Roles and Responsibilities",
+    "change_order": "Change Order",
+    "marketing_authorization": "Marketing Authorization",
     "document_version_control": "Document Version Control",
     "about_shellkode": "About Shellkode",
     "about_client": "About Client",
     "project_overview": "Objective",
     "scope_of_work": "Scope of Work",
-    "architecture_diagram": "Architecture Diagram",
+    "architecture_diagram": "Solution Architecture",
     "customer_dependencies": "Customer Dependencies",
     "assumptions": "Assumptions",
     "out_of_scope": "Out of Scope",
-    "timelines_deliverables": "Timelines and Deliverables",
+    "timelines_deliverables": "Project Timeline",
     "aws_pricing": "AWS Pricing",
     "customer_responsibilities": "Customer Responsibilities",
     "project_team_effort": "Project Team Effort",
@@ -47,7 +57,7 @@ SECTION_LABELS = {
     "success_criteria": "Success Criteria",
     "project_plan_termination": "Project Plan Termination",
     "contacts_reporting": "Contacts and Reporting",
-    "terms_conditions": "Terms and Conditions",
+    "terms_conditions": "Terms & Conditions",
     "acceptance_signatories": "Acceptance and Signatories",
 }
 
@@ -86,7 +96,8 @@ def available_section_ids(mode: str) -> Set[str]:
 def section_catalogue() -> List[dict]:
     try:
         from app.core.access_control import RBACStore
-        return RBACStore().list_sections()
+        return [{**item, 'label': 'Project Timeline'} if item.get('id') == 'timelines_deliverables' else item
+                for item in RBACStore().list_sections()]
     except Exception:
         return [{"id": item, "label": SECTION_LABELS[item], "prompt": "", "custom": False}
                 for item in OPTIONAL_SECTION_IDS]
@@ -128,6 +139,10 @@ def parse_selected_section_ids(raw_value: Any, mode: str) -> List[str]:
         if (canonical in available or re.fullmatch(r"[a-z0-9_]{1,64}", canonical)) and canonical not in seen:
             selected.append(canonical)
             seen.add(canonical)
+    if "architecture_diagram" in selected and "scope_of_work" in selected:
+        if selected.index("architecture_diagram") > selected.index("scope_of_work"):
+            selected.remove("architecture_diagram")
+            selected.insert(selected.index("scope_of_work"), "architecture_diagram")
     return selected
 
 
@@ -142,6 +157,22 @@ def section_category(title: str) -> Optional[str]:
     """Return an optional category, or ``None`` for an always-included section."""
     raw = str(title or "")
     normalised = _normalise_title(raw)
+    if normalised.startswith("current state"):
+        # Legacy/custom templates may have this section, but choosing Objective
+        # must never implicitly select it. It requires its own explicit choice.
+        return "current_state"
+    for label, category in (("service agreement", "service_agreement"),
+                            ("business benefits", "business_benefits"),
+                            ("raci matrix", "raci_matrix"),
+                            ("roles and responsibilities", "raci_matrix"),
+                            ("change order", "change_order"),
+                            ("change management", "change_order"),
+                            ("marketing authorization", "marketing_authorization"),
+                            ("market authorization", "marketing_authorization")):
+        if normalised == label:
+            return category
+    if normalised in {"terms conditions", "terms and conditions"}:
+        return "terms_conditions"
 
     if "{PROJECT_TITLE}" in raw or normalised in {"table of contents", "table_of_contents"}:
         return None
@@ -244,7 +275,7 @@ def infer_selected_section_ids(document_text: str, mode: str = "POC") -> List[st
         if not numbering and not (
             normalised.startswith("about ")
             or normalised in {_normalise_title(value) for value in SECTION_LABELS.values()}
-            or normalised in {"solution architecture aws", "timeline and deliverables"}
+            or normalised in {"solution architecture aws", "timeline and deliverables", "timelines and deliverables"}
         ):
             continue
         category = section_category(title)
