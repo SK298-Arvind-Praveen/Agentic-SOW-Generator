@@ -8,6 +8,7 @@ export interface EditableMarkdownSection {
 }
 
 const NON_BODY_KEYS = new Set([
+  'conceptual_flow_asset',
   'cover_page',
   'toc_structure',
   'table_of_contents',

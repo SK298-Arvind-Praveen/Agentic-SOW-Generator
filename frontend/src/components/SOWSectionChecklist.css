@@ -342,3 +342,7 @@
   .checklist-two-panel { flex-direction: column; }
   .catalogue-editor { grid-template-columns: 1fr; }
 }
+
+.standard-sow-sections { columns: 2; padding-left: 24px; margin: 0; }
+.standard-sow-sections li { break-inside: avoid; padding: 6px 12px 6px 0; }
+@media (max-width: 640px) { .standard-sow-sections { columns: 1; } }

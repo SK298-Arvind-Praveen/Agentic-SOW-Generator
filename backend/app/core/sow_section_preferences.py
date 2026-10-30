@@ -8,12 +8,12 @@ from typing import Any, Iterable, List, Optional, Set
 
 
 OPTIONAL_SECTION_IDS = (
-    "document_version_control",
     "service_agreement",
     "about_shellkode",
     "about_client",
     "project_overview",
     "business_benefits",
+    "conceptual_flow_diagram",
     "architecture_diagram",
     "scope_of_work",
     "customer_dependencies",
@@ -35,6 +35,7 @@ OPTIONAL_SECTION_IDS = (
 )
 
 SECTION_LABELS = {
+    "conceptual_flow_diagram": "Conceptual Flow Diagram",
     "service_agreement": "Service Agreement",
     "business_benefits": "Business Benefits",
     "raci_matrix": "Roles and Responsibilities",
@@ -107,7 +108,7 @@ def parse_selected_section_ids(raw_value: Any, mode: str) -> List[str]:
     """Parse a request value while preserving legacy all-sections behaviour."""
     available = available_section_ids(mode)
     if raw_value is None or raw_value == "":
-        return [item for item in OPTIONAL_SECTION_IDS if item in available]
+        return [item for item in OPTIONAL_SECTION_IDS if item in available and item != 'conceptual_flow_diagram']
 
     value = raw_value
     if isinstance(raw_value, str):
@@ -171,6 +172,8 @@ def section_category(title: str) -> Optional[str]:
                             ("market authorization", "marketing_authorization")):
         if normalised == label:
             return category
+    if normalised == 'conceptual flow diagram':
+        return 'conceptual_flow_diagram'
     if normalised in {"terms conditions", "terms and conditions"}:
         return "terms_conditions"
 

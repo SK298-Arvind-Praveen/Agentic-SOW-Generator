@@ -1504,6 +1504,21 @@ def content_generation_node(state: AgentState) -> AgentState:
             from app.diagram.reliability import unavailable_asset
             poc_content[ARCHITECTURE_ASSETS_KEY] = [unavailable_asset(str(exc))]
 
+    if selected_sections and 'conceptual_flow_diagram' in selected_sections:
+        from app.diagram.conceptual_drawio import generate as generate_conceptual
+        _report_progress(state, 95, 'Generating conceptual flow diagram')
+        service = DiagramService(config)
+        try:
+            poc_content['conceptual_flow_asset'] = generate_conceptual(
+                service.llm, config, final_requirements,
+                state.get('supporting_context') or state.get('objective') or '',
+                state.get('scope_architecture_plan') or {})
+            poc_content['conceptual_flow_asset']['following_sections'] = selected_sections[
+                selected_sections.index('conceptual_flow_diagram') + 1:]
+        except Exception as exc:
+            print(f'[CONCEPTUAL FLOW] generation failed: {exc}', flush=True)
+            poc_content['conceptual_flow_asset'] = {
+                'image_base64': '', 'error': 'Conceptual flow generation failed. Generate a new preview to retry.'}
     print(f"✅ Content generation completed")
     
     return {"poc_content": poc_content, "current_step": "generate"}
@@ -1528,7 +1543,7 @@ def pdf_build_node(state: AgentState) -> AgentState:
         if (
             section_key == ARCHITECTURE_ASSETS_KEY and isinstance(content, list)
         ) or (
-            section_key == ARCHITECTURE_ASSET_KEY and isinstance(content, dict)
+            section_key in {ARCHITECTURE_ASSET_KEY, 'conceptual_flow_asset'} and isinstance(content, dict)
         ):
             cleaned_content[section_key] = content
             continue

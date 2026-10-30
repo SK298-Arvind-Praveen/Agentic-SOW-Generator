@@ -1249,6 +1249,7 @@ class DocumentBuilder:
     """Build a branded, accessible, navigable DOCX from section Markdown."""
 
     RESERVED_KEYS = {
+        'conceptual_flow_asset',
         "cover_page", "toc_structure", "table_of_contents", "tableofcontents",
         "table_contents", "generation_quality_summary", ARCHITECTURE_ASSET_KEY,
         ARCHITECTURE_ASSETS_KEY,
@@ -1301,6 +1302,15 @@ class DocumentBuilder:
                 entries.append(plain)
         if not entries:
             entries = [key.replace("_", " ").title() for key, value in sections.items() if key not in self.RESERVED_KEYS and value]
+        if sections.get('conceptual_flow_asset', {}).get('image_base64'):
+            entries = [e for e in entries if 'conceptual flow' not in e.lower()]
+            index = next((i for i,e in enumerate(entries) if 'architecture' in e.lower()), len(entries))
+            following = sections['conceptual_flow_asset'].get('following_sections')
+            if following is not None:
+                index = next((i for category in following for i,e in enumerate(entries)
+                              if section_category(e) == category), len(entries))
+            entries.insert(index, 'Conceptual Flow Diagram')
+            entries = [f'{i}. ' + re.sub(r'^\s*\d+[.)]\s*', '', e) for i,e in enumerate(entries, 1)]
         self.toc_entries = entries
 
     def _configure_styles(self) -> None:
@@ -1990,6 +2000,8 @@ class DocumentBuilder:
         return resolved
 
     def _preserve_blank_section(self, section_name: str, sections: Dict[str, Any]) -> bool:
+        if 'conceptual_flow' in self._name_to_key(section_name):
+            return bool(sections.get('conceptual_flow_asset', {}).get('image_base64'))
         # A selected source-only section can legitimately have no targets. Keep
         # its heading and bookmark, never manufacture metrics or missing-info prose.
         return (section_category(section_name) == 'success_criteria'
@@ -1997,6 +2009,14 @@ class DocumentBuilder:
 
     def _build_section(self, section_name: str, sections: Dict[str, Any], metadata: Dict[str, Any], position: int) -> None:
         assert self.doc is not None and self.section_builder is not None
+        if 'conceptual_flow' in self._name_to_key(section_name):
+            asset = sections.get('conceptual_flow_asset')
+            if asset and asset.get('image_base64'):
+                heading = self.doc.add_paragraph(style='Heading 1')
+                _set_font(heading.add_run(section_name), name=HEADING_FONT_NAME, size=20.0, bold=True, color=PURPLE)
+                self._add_bookmark_to_heading(heading, section_name, position + 1)
+                self._add_architecture_diagram(asset)
+            return
         content = self._resolve_section_content(section_name, sections, metadata)
         if not content and not self._preserve_blank_section(section_name, sections):
             print(f"⚠ No content for {section_name!r}; omitted from body")
@@ -2139,6 +2159,8 @@ class DocumentBuilder:
                 pixel_width, pixel_height = image.size
             aspect = pixel_width / max(pixel_height, 1)
             max_width, max_height = 6.95, 4.75
+            if asset.get('diagram_type') == 'conceptual_flow':
+                max_height = 8.6
             if asset.get('layout_engine') == 'elk':
                 # ELK can prefer portrait orientation for a long request path.
                 # Use the real printable page rather than squeezing it into the

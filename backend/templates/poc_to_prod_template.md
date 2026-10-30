@@ -39,7 +39,6 @@ Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
 [META_STATIC_TABLE]
 ## Table_of_contents
 
-1. Document Version Control
 2. Service Agreement
 3. About ShellKode
 4. About {COMPANY_NAME}
@@ -75,11 +74,6 @@ Prepared by {AUTHOR_NAME}, {AUTHOR_ORG}
 34. Acceptance and Signatories to Statement of Work
 
 [META_GENERATED]
-## Document Version Control
-
-Use a compact table of document title, customer, version and date. Leave unavailable values blank. Do not add an audience statement, engagement summary, source register, revision-basis narrative or planning-horizon commentary.
-
-[META_STATIC]
 ## Service Agreement
 
 This document describes the proposal for engagement to be executed by and between SHELLCODE Private Limited, having its registered office at 10/17, 3rd street Neelikonampalayam, Coimbatore, TamilNadu, India - 641033, hereinafter referred to as “ShellKode” and {COMPANY_NAME}, having its registered office at [address], hereinafter referred to as the “Client”.  This proposal applies to the services described herein and is effective from  (“Effective Date”) and ends by (“Expiration Date”). This proposal is the complete and exclusive agreement between the parties regarding the subject matter of this Agreement and replaces any prior, oral, or written communications, representations, understandings, warranties, promises, covenants, commitments, or agreements between the Parties concerning the subject matter of this Agreement.

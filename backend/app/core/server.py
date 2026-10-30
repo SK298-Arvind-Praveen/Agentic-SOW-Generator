@@ -4563,7 +4563,11 @@ def update_preview_architecture_diagram(preview_id):
             if not isinstance(content, dict):
                 return jsonify({"success": False, "error": "Preview has no structured content"}), 409
             assets = content.get(ARCHITECTURE_ASSETS_KEY)
-            if isinstance(assets, list):
+            if diagram_index == -1:
+                existing = content.get('conceptual_flow_asset')
+                if not isinstance(existing, dict):
+                    return jsonify(success=False, error='Conceptual flow not found'), 404
+            elif isinstance(assets, list):
                 try:
                     diagram_index = int(diagram_index)
                 except (TypeError, ValueError):
@@ -4580,7 +4584,9 @@ def update_preview_architecture_diagram(preview_id):
                 image_data,
                 existing,
             )
-            if isinstance(assets, list):
+            if diagram_index == -1:
+                content['conceptual_flow_asset'] = asset
+            elif isinstance(assets, list):
                 assets[diagram_index] = asset
                 content[ARCHITECTURE_ASSETS_KEY] = assets
             else:
@@ -4596,6 +4602,7 @@ def update_preview_architecture_diagram(preview_id):
 
 
 DIRECT_MARKDOWN_EDIT_RESERVED_KEYS = {
+    'conceptual_flow_asset',
     "cover_page",
     "toc_structure",
     "table_of_contents",

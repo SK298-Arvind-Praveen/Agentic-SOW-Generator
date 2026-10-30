@@ -8,7 +8,7 @@ import 'react-datepicker/dist/react-datepicker.css';
 import apiService from '../services/apiService';
 import { downloadWithNativeSaveAs } from '../utils/downloadFile';
 import { sowDownloadFilename } from '../utils/documentPresentation';
-import SOWSectionChecklist from './SOWSectionChecklist';
+import SOWSectionChecklist, { availableSowSectionIds } from './SOWSectionChecklist';
 import CustomTemplateSelector from './CustomTemplateSelector';
 import { CustomSowTemplate } from '../services/apiService';
 import { hasProjectScopeSource } from './sowInputValidation';
@@ -101,9 +101,8 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
     pricingRegion: '',
     pricingIncludeProposed: true,
   });
-  // Starts empty — the user builds up the SOW section order deliberately
-  // rather than starting from an implicit "everything included" state.
-  const [selectedSowSections, setSelectedSowSections] = useState<string[]>([]);
+  // Include standard sections by default; users may exclude individual sections.
+  const [selectedSowSections, setSelectedSowSections] = useState<string[]>(availableSowSectionIds(formData.generationMode));
   const [customTemplate, setCustomTemplate] = useState<CustomSowTemplate | null>(null);
 
   const changeCustomTemplate = useCallback((template: CustomSowTemplate | null) => {
@@ -470,7 +469,7 @@ Date                                         Date`
       pricingIncludeProposed: true,
     });
     setFileUploadError('');
-    setSelectedSowSections([]);
+    setSelectedSowSections(availableSowSectionIds(formData.generationMode));
     setCustomTemplate(null);
     setHasPreviewGenerated(false);
     setInitialPopulationDone(false); // Reset auto-population flag
@@ -1308,6 +1307,18 @@ Date                                         Date`
   };
 
   const renderPreviewSection = (section: string, content: unknown) => {
+    if (section === 'conceptual_flow_asset') {
+      const asset = content as ArchitectureDiagramAsset & { error?: string };
+      return <div key={section} className="preview-content-section architecture-diagram-preview">
+        <h4>Conceptual Flow Diagram</h4>
+        {asset.image_base64 ? <img src={`data:image/png;base64,${asset.image_base64}`} alt="Conceptual flow diagram" />
+          : <p role="alert">{asset.error || 'Conceptual flow diagram could not be generated.'}</p>}
+        {asset.drawio_xml && <button type="button" className="modal-btn modal-btn-primary"
+          onClick={() => setDiagramEditorAsset({ asset, index: -1 })}>
+          <Edit size={15} /> Edit Diagram
+        </button>}
+      </div>;
+    }
     if (!isPreviewBodyKey(section) && !section.startsWith('architecture_diagram_asset')) {
       return null;
     }
@@ -1437,10 +1448,22 @@ Date                                         Date`
   const previewEntries = (() => {
     if (!effectivePreviewContent || typeof effectivePreviewContent !== 'object') return [];
     const entries = Object.entries(effectivePreviewContent as Record<string, unknown>);
-    const assets = entries.filter(([key]) => key === 'architecture_diagram_assets' || key === 'architecture_diagram_asset');
+    const assets = entries.filter(([key]) => key === 'architecture_diagram_assets' || key === 'architecture_diagram_asset' || key === 'conceptual_flow_asset');
+    assets.sort(([a], [b]) => (a === 'conceptual_flow_asset' ? -1 : b === 'conceptual_flow_asset' ? 1 : 0));
     const body = entries.filter(([key]) => !assets.some(([assetKey]) => assetKey === key));
     const architectureIndex = body.findIndex(([key]) => /architecture/.test(key));
     body.splice(architectureIndex < 0 ? body.length : architectureIndex, 0, ...assets);
+    const flowIndex = body.findIndex(([key]) => key === 'conceptual_flow_asset');
+    if (flowIndex >= 0) {
+      const flow = body[flowIndex];
+      const following = (flow[1] as { following_sections?: string[] }).following_sections;
+      if (following) {
+        body.splice(flowIndex, 1);
+        const target = following.map(id => body.findIndex(([key]) => key === id ||
+          (id === 'architecture_diagram' && key === 'architecture_diagram_assets'))).find(index => index >= 0);
+        body.splice(target ?? body.length, 0, flow);
+      }
+    }
     return body;
   })();
 
@@ -2209,6 +2232,7 @@ Date                                         Date`
             setDiagramEditorAsset({ asset, index: savedIndex });
             const updateDiagramContent = (content: any) => {
               if (!content) return content;
+              if (savedIndex === -1) return { ...content, conceptual_flow_asset: asset };
               if (Array.isArray(content.architecture_diagram_assets)) {
                 const assets = [...content.architecture_diagram_assets];
                 assets[savedIndex] = asset;
