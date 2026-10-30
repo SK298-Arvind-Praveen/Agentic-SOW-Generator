@@ -21,7 +21,7 @@ from botocore.exceptions import ConnectionClosedError, EndpointConnectionError, 
 from app.core.bedrock_llm import BedrockLLM
 from app.core.document_context import select_section_evidence
 from app.diagram.review import ARCHITECTURE_REVIEW_RULES, geometry_report, routes, layout_quality
-from app.diagram.planning import CONTAINMENT_RULES, DEPLOYMENT_DESIGN_RULES
+from app.diagram.planning import CONTAINMENT_RULES, DEPLOYMENT_DESIGN_RULES, ARCHITECTURE_DESIGN_BRIEF
 
 
 def image_for_review(png):
@@ -294,7 +294,7 @@ you cannot directly change architecture. No claims that this is certified or per
 Omitting an ID from node_order is NOT a deletion request: it will be preserved.
 Suspected duplicates across customer-owned and proposed resources require architectural
 validation; never omit their IDs to make the picture simpler.
-''' + composition_instructions + ARCHITECTURE_REVIEW_RULES + DEPLOYMENT_DESIGN_RULES + CONTAINMENT_RULES + '\nCONTEXT:\n' + json.dumps(context, ensure_ascii=False)
+''' + composition_instructions + ARCHITECTURE_REVIEW_RULES + ARCHITECTURE_DESIGN_BRIEF + DEPLOYMENT_DESIGN_RULES + CONTAINMENT_RULES + '\nCONTEXT:\n' + json.dumps(context, ensure_ascii=False)
         if original['layout_engine'] in {'hybrid', 'hybrid_drawio'}:
             prompt = '''Review this rendered AWS solution architecture image against its fixed graph.
 Return JSON only; no Markdown or summary. At most THREE actual visible defects,
@@ -323,8 +323,8 @@ for each container. Empty strings may reserve cells. Do not include security rai
 children in their parent grid; those are automatically packed separately.
 The ONLY top-level keys are issues, layout_patch, composition_patch. grids and
 external_sides MUST be nested inside composition_patch, never alongside it.
-''' + composition_instructions + '\nDATA:\n'+json.dumps({
-                'graph':{'nodes':[{'id':n.id,'name':n.label,'scope':n.scope} for n in spec.nodes],
+''' + ARCHITECTURE_DESIGN_BRIEF + composition_instructions + '\nDATA:\n'+json.dumps({
+                'graph':{'nodes':[{'id':n.id,'name':n.label,'scope':n.scope,'icon_key':n.icon_key} for n in spec.nodes],
                          'edges':[e.__dict__ for e in spec.edges]},
                 'hierarchy':context['layout_hierarchy'],
                 'membership':original.get('rendered_membership'),
@@ -438,7 +438,7 @@ Only correct scope/placement_role/subnet for existing components when explicitly
 design_evidence. Preserve external ownership, all nodes, edges and AZ assignments.
 Do not add/remove/rename any resource or connection. Return no placements if uncertain.
 Missing/incorrect flows or technologies must be unresolved, not silently rewritten.
-''' + ARCHITECTURE_REVIEW_RULES + DEPLOYMENT_DESIGN_RULES + CONTAINMENT_RULES + '\n' + json.dumps({**context, 'findings': architecture})
+''' + ARCHITECTURE_REVIEW_RULES + ARCHITECTURE_DESIGN_BRIEF + DEPLOYMENT_DESIGN_RULES + CONTAINMENT_RULES + '\n' + json.dumps({**context, 'findings': architecture})
             try:
                 def validate_placements(value):
                     if (not isinstance(value, dict) or set(value) != {'placements', 'unresolved'}

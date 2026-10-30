@@ -30,6 +30,20 @@ No titles, legends, prose, feature boxes or colored category containers.
 Choose placement by the complete graph, including feedback/request edges. Avoid
 page-wide return arrows, crossings and long loops. Service names remain unchanged.
 Start with starting_composition; return it unchanged if it already reads clearly.
+Build the composition container-first: arrange Region/VPC/AZ/subnet siblings,
+then their workloads. Align peer AZ columns and corresponding subnet tiers when
+present; never manufacture an AZ or move a child out of its real parent.
+Use empty grid slots only for needed connector corridors, not decorative spacing.
+Keep labels and icons out of corridors. Put high-degree workloads beside their
+data/model dependencies; avoid a cramped subnet next to a mostly empty Region.
+Place external ticketing/device systems on the side nearest their actual adapter.
+Do not use a page-wide route when a different peer ordering shortens it. Read the
+primary request, data access and external integration paths separately before
+choosing grids. Avoid stacked return paths through labels and false junctions.
+Compact the Cloud/Region footprint; a single global service must not force a
+large unused area. Preserve the fixed security/global packing managed by code.
+The existing grid schema is authoritative: do not emit coordinates, new style
+fields, renamed services, replacement icons or routing code.
 external_sides keys MUST come from external_ids only. Security controls are AWS
 resources, NOT externals. Leave their fixed auto-packing alone. A path entering
 from an external system on the right may run right-to-left in its own row.

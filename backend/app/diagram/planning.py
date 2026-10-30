@@ -1,5 +1,9 @@
 """Planning guidance and conservative deployment-boundary normalization."""
 
+from pathlib import Path
+
+ARCHITECTURE_DESIGN_BRIEF = (Path(__file__).resolve().parents[2] / 'templates' / 'architecture_design_prompt.md').read_text(encoding='utf-8')
+
 DEPLOYMENT_DESIGN_RULES = """
 DESIGN SUPPORTING INFRASTRUCTURE, NOT JUST THE BRD'S FEATURE LIST
 The BRD establishes business scope, not an exhaustive infrastructure inventory.
