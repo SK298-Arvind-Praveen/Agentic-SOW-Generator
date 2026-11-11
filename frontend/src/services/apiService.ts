@@ -5,7 +5,7 @@
 
 import API_CONFIG from '../config/apiConfig';
 
-export type SOWMode = 'POC' | 'PROD' | 'POC_TO_PROD';
+export type SOWMode = 'POC' | 'PROD';
 
 export interface GenerateSOWRequest {
   author_name: string;
@@ -303,11 +303,11 @@ class APIService {
   /**
    * Map internal mode values to API mode values
    */
-  private mapModeToAPI(mode: 'poc' | 'production' | 'poc-to-production'): SOWMode {
+  private mapModeToAPI(mode: 'poc' | 'production'): SOWMode {
     const modeMap: Record<string, SOWMode> = {
       'poc': 'POC',
       'production': 'PROD',
-      'poc-to-production': 'POC_TO_PROD'
+
     };
     return modeMap[mode] || 'POC';
   }
@@ -573,12 +573,12 @@ class APIService {
   async generateSOW(
     authorName: string,
     companyName: string,
-    mode: 'poc' | 'production' | 'poc-to-production',
+    mode: 'poc' | 'production',
     objective: string,
     projectName: string
   ): Promise<GenerateSOWResponse> {
     const apiMode = this.mapModeToAPI(mode);
-    
+
     const requestData: GenerateSOWRequest = {
       author_name: authorName,
       company_name: companyName,
@@ -605,99 +605,7 @@ class APIService {
     }
   }
 
-  /**
-   * Convert POC to Production - fetches the existing POC file from s3_url and uploads it
-   */
-  async convertToProduction(
-    authorName: string,
-    companyName: string,
-    projectName: string,
-    s3Url: string,
-    projectId?: string,
-    accountId?: string
-  ): Promise<GenerateSOWResponse> {
-    try {
-      const baseUrl = API_CONFIG.BASE_URL.replace(/\/$/, '');
-
-      // Step 1: Download source POC document via proxy
-      const proxyResponse = await this.authenticatedFetch(`${baseUrl}/api/proxy-download`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ s3_url: s3Url })
-      });
-
-      if (!proxyResponse.ok) {
-        throw new Error(`Failed to fetch file via proxy: ${proxyResponse.statusText}`);
-      }
-
-      const fileBlob = await proxyResponse.blob();
-      const urlParts = s3Url.split('/');
-      const fileName = urlParts[urlParts.length - 1].split('?')[0] || 'document.docx';
-      const file = new File([fileBlob], fileName, { type: fileBlob.type });
-
-      // Step 2: Send to /api/preview — returns preview_id immediately (async generation)
-      const formData = new FormData();
-      formData.append('mode', 'POC_TO_PROD');
-      formData.append('file', file);
-      formData.append('company_name', companyName);
-      formData.append('author_name', authorName);
-      formData.append('project_name', projectName);
-      if (projectId) formData.append('project_id', projectId);
-      if (accountId) formData.append('account_id', accountId);
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.TIMEOUT);
-
-      const previewResponse = await this.authenticatedFetch(`${baseUrl}/api/preview`, {
-        method: 'POST',
-        body: formData,
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!previewResponse.ok) {
-        const errorText = await previewResponse.text();
-        throw new Error(`HTTP ${previewResponse.status}: ${previewResponse.statusText} - ${errorText}`);
-      }
-
-      const previewData = await previewResponse.json();
-      console.log('To Production Preview Response:', previewData);
-
-      // Return the preview response — caller will poll status and show preview modal
-      return previewData as GenerateSOWResponse;
-
-    } catch (error) {
-      console.error('To Production Error:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
-      };
-    }
-  }
-
-  /**
-   * Generate SOW document with file upload
-   */
-  async generateSOWWithFiles(files: File[]): Promise<GenerateSOWResponse> {
-    try {
-      const response = await this.makeRequestWithFiles(
-        API_CONFIG.ENDPOINTS.GENERATE_SOW,
-        'POST',
-        files,
-        'POC_TO_PROD'
-      );
-
-      return response as GenerateSOWResponse;
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
-      };
-    }
-  }
-
-  /**
+/**
    * Fetch all documents
    */
   async fetchDocuments(params?: { businessUnit?: string; mine?: boolean; limit?: number }): Promise<DocumentsResponse> {
@@ -808,24 +716,7 @@ class APIService {
     }
   }
 
-  /**
-   * Fetch POC to Production documents
-   */
-  async fetchPocToProductionRecords(): Promise<DocumentsResponse> {
-    try {
-      const response = await this.makeRequest('/api/recent-poc_to_prod', 'GET');
-      return response as DocumentsResponse;
-    } catch (error) {
-      return {
-        count: 0,
-        documents: [],
-        success: false,
-        metadata: { filter_type: 'poc-to-production', filter_value: null, limit: 100 }
-      };
-    }
-  }
-
-  /**
+/**
    * Fetch companies grouped data
    */
   async fetchCompaniesGrouped(businessUnit?: string): Promise<any> {
@@ -868,7 +759,7 @@ class APIService {
   async generatePreview(
     authorName: string,
     companyName: string,
-    mode: 'poc' | 'production' | 'poc-to-production',
+    mode: 'poc' | 'production',
     additionalDetails: string,
     projectName: string,
     file?: File,
@@ -883,55 +774,17 @@ class APIService {
     },
     customTemplateId?: string,
     timelineFormat: 'table' | 'gantt' = 'table',
+    reservedPreviewId?: string,
   ): Promise<any> {
     const apiMode = this.mapModeToAPI(mode);
 
 
     try {
-      // poc-to-production requires file upload as FormData
-      if (mode === 'poc-to-production' && file) {
-        const baseUrl = API_CONFIG.BASE_URL.replace(/\/$/, '');
-        const formData = new FormData();
-        formData.append('mode', 'poc_to_prod');
-        formData.append('timeline_format', timelineFormat);
-        formData.append('file', file);
-        formData.append('selected_sow_sections', JSON.stringify(selectedSowSections || []));
-        if (customTemplateId) formData.append('custom_template_id', customTemplateId);
-        if (businessUnit) formData.append('business_unit', businessUnit);
-        if (pricingOptions?.region) formData.append('pricing_region', pricingOptions.region);
-        formData.append('pricing_include_proposed', String(pricingOptions?.includeProposed ?? true));
-        formData.append('pricing_read_cost', 'true');
 
-        // Add supporting documents if provided
-        if (supportingDocs && supportingDocs.length > 0) {
-          supportingDocs.forEach(doc => {
-            formData.append('supporting_docs', doc);
-          });
-          console.log(`Added ${supportingDocs.length} supporting document(s) to request`);
-        }
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.TIMEOUT);
-
-        const response = await this.authenticatedFetch(`${baseUrl}/api/preview`, {
-          method: 'POST',
-          body: formData,
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        const responseText = await response.text();
-        console.log('Preview API Response (poc_to_prod):', responseText);
-
-        try {
-          return JSON.parse(responseText);
-        } catch {
-          return { success: false, error: 'Invalid JSON response' };
-        }
-      }
 
       // POC and Production modes — send as FormData fields with optional supporting docs
       const formData = new FormData();
+      if (reservedPreviewId) formData.append('reserved_preview_id', reservedPreviewId);
       formData.append('author_name', authorName);
       formData.append('company_name', companyName);
       formData.append('mode', apiMode);
@@ -1043,6 +896,14 @@ class APIService {
 
   async heartbeatPreview(previewId: string): Promise<any> {
     return this.makeRequest(`/api/preview/${encodeURIComponent(previewId)}/heartbeat`, 'POST', {});
+  }
+
+  async reservePreview(): Promise<any> {
+    return this.makeRequest('/api/preview/reserve', 'POST', {});
+  }
+
+  async cancelPreview(previewId: string): Promise<any> {
+    return this.makeRequest(`/api/preview/${encodeURIComponent(previewId)}/cancel`, 'POST', {});
   }
 
   async savePreviewAsDraft(previewId: string): Promise<any> {
@@ -1167,10 +1028,11 @@ class APIService {
         }
         return response;
       }
-      throw new Error('Finalization is still running. Your draft remains available in SOW Records.');
+      throw new Error('Finalization is still running. Keep this preview open and try again shortly.');
     } catch (error) {
       return {
         success: false,
+        code: (error as { code?: string })?.code,
         error: error instanceof Error ? error.message : 'Unknown error occurred'
       };
     }
@@ -1179,7 +1041,7 @@ class APIService {
   /**
    * Fetch sections
    */
-  async fetchSections(mode: 'poc' | 'prod' | 'poc_to_prod', previewId?: string): Promise<any> {
+  async fetchSections(mode: 'poc' | 'prod', previewId?: string): Promise<any> {
     try {
       const qs = previewId ? `?preview_id=${encodeURIComponent(previewId)}` : '';
       const response = await this.makeRequest(`/api/sections/${mode}${qs}`, 'GET');
@@ -1262,7 +1124,16 @@ class APIService {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // Preserve validation guidance instead of hiding it behind "409 CONFLICT".
+        let errorData: { error?: string; message?: string; code?: string } = {};
+        try {
+          errorData = (await response.json()) || {};
+        } catch {
+          // Proxies may return an empty or non-JSON error response.
+        }
+        throw Object.assign(new Error(
+          errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`
+        ), { code: errorData.code, status: response.status });
       }
 
       const responseData = await response.json();
@@ -1271,58 +1142,6 @@ class APIService {
       if (attempt < API_CONFIG.RETRY_ATTEMPTS && this.isRetryableError(error)) {
         await this.delay(API_CONFIG.RETRY_DELAY * attempt);
         return this.makeRequestJSON(endpoint, method, data, attempt + 1);
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Make HTTP request with file uploads
-   */
-  private async makeRequestWithFiles(
-    endpoint: string,
-    method: 'POST' | 'PUT',
-    files: File[],
-    mode: SOWMode,
-    attempt: number = 1
-  ): Promise<unknown> {
-    const baseUrl = API_CONFIG.BASE_URL.replace(/\/$/, '');
-    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    const url = `${baseUrl}${cleanEndpoint}`;
-
-    const formData = new FormData();
-    formData.append('mode', mode);
-    
-    files.forEach((file) => {
-      formData.append(`file`, file);
-    });
-
-    const options: RequestInit = {
-      method,
-      body: formData
-    };
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.TIMEOUT);
-
-      const response = await this.authenticatedFetch(url, {
-        ...options,
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const responseData = await response.json();
-      return responseData;
-    } catch (error) {
-      if (attempt < API_CONFIG.RETRY_ATTEMPTS && this.isRetryableError(error)) {
-        await this.delay(API_CONFIG.RETRY_DELAY * attempt);
-        return this.makeRequestWithFiles(endpoint, method, files, mode, attempt + 1);
       }
       throw error;
     }
@@ -1384,11 +1203,11 @@ class APIService {
       }
 
       const responseText = await response.text();
-      
+
       if (!responseText || responseText.trim() === '') {
         return { success: false, error: 'Empty response from server' };
       }
-      
+
       try {
         const responseData = JSON.parse(responseText);
         return responseData;

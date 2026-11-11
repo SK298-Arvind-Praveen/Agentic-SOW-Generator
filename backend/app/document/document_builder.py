@@ -1447,7 +1447,7 @@ class DocumentBuilder:
 
     def build_document(self, sections: Dict[str, Any], metadata: Dict[str, Any], mode: str = "POC") -> Optional[Path]:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        prefix = "PROD" if mode in ("PROD", "POC_TO_PROD") else "POC"
+        prefix = "PROD" if mode in ("PROD") else "POC"
         safe_company = re.sub(r"[^A-Za-z0-9_-]+", "_", metadata.get("company_name", "Client")).strip("_")
         path = Path(self.config.OUTPUT_DIR) / f"{prefix}_{safe_company}_{timestamp}.docx"
         path.parent.mkdir(parents=True, exist_ok=True)

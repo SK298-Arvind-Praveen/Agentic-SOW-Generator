@@ -13,6 +13,7 @@ import CustomTemplateSelector from './CustomTemplateSelector';
 import { CustomSowTemplate } from '../services/apiService';
 import { hasProjectScopeSource } from './sowInputValidation';
 import DiagramEditorModal, { ArchitectureDiagramAsset } from './DiagramEditorModal';
+import DiagramWarning from './DiagramWarning';
 import ArchitectureRegenerationControls from './ArchitectureRegenerationControls';
 import { armPreviewChime, installPreviewChimeUnlock, playPreviewReadyChime } from '../utils/previewChime';
 import {
@@ -26,9 +27,10 @@ import {
 } from './SOWPreviewMarkdown';
 import './SOWGenerator.css';
 import { useAuth } from '../contexts/AuthContext';
+import { readPageMemory, usePageMemoryState } from '../hooks/usePageMemoryState';
 
 interface SOWGeneratorData {
-  generationMode: 'poc' | 'production' | 'poc-to-production';
+  generationMode: 'poc' | 'production';
   companyName: string;
   authorOrganization: string;
   authorName: string;
@@ -42,7 +44,8 @@ interface SOWGeneratorData {
 }
 
 interface SOWGeneratorProps {
-  selectedMode?: 'poc' | 'production' | 'poc-to-production';
+  selectedMode?: 'poc' | 'production';
+  onModeChange?: (mode: 'poc' | 'production') => void;
   onGenerateSuccess?: (data: SOWGeneratorData) => void;
   onGenerateError?: (error: string) => void;
   // New props for project-based creation
@@ -69,11 +72,12 @@ const getCompanyName = (accountName?: string, projectName?: string, currentValue
 const getProjectName = (projectName?: string, companyName?: string): string => {
   if (projectName && projectName.trim()) return projectName.trim();
   if (companyName && companyName !== 'Loading...' && companyName.trim()) return companyName.trim();
-  return 'ShellKode';
+  return '';
 };
 
 const SOWGenerator: React.FC<SOWGeneratorProps> = ({
   selectedMode,
+  onModeChange,
   onGenerateSuccess,
   onGenerateError,
   projectId,
@@ -88,11 +92,12 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
 
   // If projectId is provided, use it for project-based SOW creation
   const isProjectBased = !!projectId;
+  const memoryKey = `sow:${user?.email || 'anonymous'}:${accountId || ''}:${projectId || 'standalone'}`;
 
-  const [formData, setFormData] = useState<SOWGeneratorData>({
+  const [formData, setFormData] = usePageMemoryState<SOWGeneratorData>(`${memoryKey}:form`, {
     generationMode: selectedMode || 'poc',
     companyName: accountName || '',
-    authorOrganization: isProjectBased ? (projectName || '') : 'ShellKode',
+    authorOrganization: isProjectBased ? (projectName || '') : '',
     authorName: '',
     documentDate: new Date().toISOString().split('T')[0],
     projectObjective: '',
@@ -102,16 +107,16 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
     pricingIncludeProposed: true,
   });
   // Include standard sections by default; users may exclude individual sections.
-  const [selectedSowSections, setSelectedSowSections] = useState<string[]>(availableSowSectionIds(formData.generationMode));
-  const [customTemplate, setCustomTemplate] = useState<CustomSowTemplate | null>(null);
+  const [selectedSowSections, setSelectedSowSections] = usePageMemoryState<string[]>(`${memoryKey}:sections`, () => availableSowSectionIds(formData.generationMode));
+  const [customTemplate, setCustomTemplate] = usePageMemoryState<CustomSowTemplate | null>(`${memoryKey}:template`, null);
 
   const changeCustomTemplate = useCallback((template: CustomSowTemplate | null) => {
     setSelectedSowSections(previous => previous.filter(id => !id.startsWith('custom_')));
     setCustomTemplate(template);
-  }, []);
+  }, [setSelectedSowSections, setCustomTemplate]);
 
   // Track if initial auto-population has been done
-  const [initialPopulationDone, setInitialPopulationDone] = useState(false);
+  const [initialPopulationDone, setInitialPopulationDone] = usePageMemoryState(`${memoryKey}:populated`, false);
 
   // Update company name and project name when props change (only initially)
   useEffect(() => {
@@ -123,14 +128,14 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
     if (isProjectBased && (accountName || projectName)) {
       const newCompanyName = getCompanyName(accountName, projectName, formData.companyName);
       const newProjectName = getProjectName(projectName, newCompanyName);
-      
+
       let hasUpdates = false;
       const updates: Partial<SOWGeneratorData> = {};
-      
+
       // Always update company name if we have a better value and current is empty or placeholder
       if (newCompanyName && (
-        !formData.companyName || 
-        formData.companyName === 'Loading...' || 
+        !formData.companyName ||
+        formData.companyName === 'Loading...' ||
         formData.companyName === '' ||
         formData.companyName === 'Auto-populated from project context'
       )) {
@@ -138,11 +143,11 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
         hasUpdates = true;
         console.log('Auto-populating company name:', newCompanyName);
       }
-      
+
       // Only auto-populate project name initially, don't override user edits
       if (newProjectName && (
-        !formData.authorOrganization || 
-        formData.authorOrganization === 'Loading...' || 
+        !formData.authorOrganization ||
+        formData.authorOrganization === 'Loading...' ||
         formData.authorOrganization === 'ShellKode' ||
         formData.authorOrganization === ''
       )) {
@@ -150,11 +155,11 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
         hasUpdates = true;
         console.log('Auto-populating project name:', newProjectName);
       }
-      
+
       if (hasUpdates) {
         console.log('📝 Applying auto-population updates:', updates);
         setFormData(prev => ({ ...prev, ...updates }));
-        
+
         // Only show notification once when we have meaningful updates
         if (!initialPopulationDone) {
           setInitialPopulationDone(true);
@@ -173,20 +178,20 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
   // Auto-populate company name when accountName becomes available
   useEffect(() => {
     console.log('SOWGenerator - Props changed:', { accountName, projectName, isProjectBased });
-    
+
     if (isProjectBased && accountName && (!formData.companyName || formData.companyName === '')) {
       console.log('Auto-populating company name with:', accountName);
       setFormData(prev => ({
         ...prev,
         companyName: accountName
       }));
-      
+
       toast.success('Company name auto-populated from account', {
         position: 'bottom-right',
         autoClose: 2000,
       });
     }
-    
+
     if (isProjectBased && projectName && (!formData.authorOrganization || formData.authorOrganization === '' || formData.authorOrganization === 'ShellKode')) {
       console.log('Auto-populating project name with:', projectName);
       setFormData(prev => ({
@@ -196,8 +201,11 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
     }
   }, [accountName, projectName, isProjectBased]);
 
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [timelineFormat, setTimelineFormat] = useState<'table' | 'gantt'>('table');
+  const [isGenerating, setIsGenerating] = usePageMemoryState(`${memoryKey}:generating`, false);
+  const [isPreviewRunning, setIsPreviewRunning] = usePageMemoryState(`${memoryKey}:previewRunning`, false);
+  const [isCancelling, setIsCancelling] = usePageMemoryState(`${memoryKey}:cancelling`, false);
+  const [activePreviewId, setActivePreviewId] = usePageMemoryState<string | null>(`${memoryKey}:activePreview`, null);
+  const [timelineFormat, setTimelineFormat] = usePageMemoryState<'table' | 'gantt'>(`${memoryKey}:timeline`, 'table');
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewProgress, setPreviewProgress] = useState(0);
   const [targetProgress, setTargetProgress] = useState(0);
@@ -205,7 +213,7 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
   const [fileUploadError, setFileUploadError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
-  const [previewData, setPreviewData] = useState<any>(null);
+  const [previewData, setPreviewData] = usePageMemoryState<any>(`${memoryKey}:preview`, null);
   const [diagramEditorAsset, setDiagramEditorAsset] = useState<{asset: ArchitectureDiagramAsset; index: number} | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editData, setEditData] = useState<any>(null);
@@ -216,12 +224,25 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
   const [isRegeneratingArchitecture, setIsRegeneratingArchitecture] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isDiscardingPreview, setIsDiscardingPreview] = useState(false);
-  const [hasPreviewGenerated, setHasPreviewGenerated] = useState(false);
+  const [hasPreviewGenerated, setHasPreviewGenerated] = usePageMemoryState(`${memoryKey}:hasPreview`, false);
+
+  useEffect(() => {
+    if (selectedMode && selectedMode !== formData.generationMode) {
+      setFormData(previous => ({ ...previous, generationMode: selectedMode }));
+      setPreviewData(null);
+      setHasPreviewGenerated(false);
+      setActivePreviewId(null);
+      setShowPreviewModal(false);
+    }
+    // The parent can select a type when opening the form from a project.
+    // Local dropdown changes remain valid when no parent callback is provided.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMode]);
   // React state updates are asynchronous, so a rapid second click can arrive
   // before isGenerating is rendered. This ref closes that race immediately.
   const generationLockRef = useRef(false);
   const acquireGenerationLock = () => {
-    if (generationLockRef.current) return false;
+    if (generationLockRef.current || readPageMemory<boolean>(`${memoryKey}:generating`)) return false;
     generationLockRef.current = true;
     setIsGenerating(true);
     return true;
@@ -229,6 +250,23 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
   const releaseGenerationLock = () => {
     generationLockRef.current = false;
     setIsGenerating(false);
+    setIsPreviewRunning(false);
+    setIsCancelling(false);
+    setActivePreviewId(null);
+  };
+
+  const handleCancelGeneration = async () => {
+    if (readPageMemory<boolean>(`${memoryKey}:cancelling`)) return;
+    setIsCancelling(true);
+    // A cancel during upload is queued until the server returns the job ID.
+    if (!activePreviewId) return;
+    try {
+      const result = await apiService.cancelPreview(activePreviewId);
+      if (!result.success) throw new Error(result.error || 'Could not cancel generation');
+    } catch (error) {
+      setIsCancelling(false);
+      toast.error(error instanceof Error ? error.message : 'Could not cancel generation');
+    }
   };
 
   // Auto-load preview from draft if coming from drafts modal
@@ -343,7 +381,7 @@ const SOWGenerator: React.FC<SOWGeneratorProps> = ({
 
 About Shellkode                                                                                    3
 About WaterTec                                                                                     3
-Objective                                                                                          
+Objective
 Scope of Work                                                                                      3
 Technical Specifications & System Design                                                           3
 Architecture & Integrations                                                                        4
@@ -454,27 +492,6 @@ Bhuvanesh CTO                                XXX
 Date                                         Date`
   });
 
-  // Clear form data when selected mode changes
-  useEffect(() => {
-    setFormData({
-      generationMode: selectedMode || 'poc',
-      companyName: '',
-      authorOrganization: '',
-      authorName: '',
-      documentDate: new Date().toISOString().split('T')[0],
-      projectObjective: '',
-      uploadedFiles: [],
-      businessUnit: user?.business_unit || '',
-      pricingRegion: '',
-      pricingIncludeProposed: true,
-    });
-    setFileUploadError('');
-    setSelectedSowSections(availableSowSectionIds(formData.generationMode));
-    setCustomTemplate(null);
-    setHasPreviewGenerated(false);
-    setInitialPopulationDone(false); // Reset auto-population flag
-  }, [selectedMode]);
-
   // Smooth progress animation effect
   useEffect(() => {
     if (!isPreviewLoading) return;
@@ -495,10 +512,7 @@ Date                                         Date`
   const isFormValid = useCallback((): boolean => {
     if (selectedSowSections.length === 0) return false;
 
-    if (formData.generationMode === 'poc-to-production') {
-      // For poc-to-production mode, only require uploaded files
-      return formData.uploadedFiles !== undefined && formData.uploadedFiles.length > 0;
-    } else {
+    {
       // For POC and Production modes, require all fields
       const companyNameValid = formData.companyName.trim() !== '' &&
                               formData.companyName.trim() !== 'Loading...' &&
@@ -517,10 +531,7 @@ Date                                         Date`
   const getMissingFormFields = useCallback((): string[] => {
     const missing: string[] = [];
     if (selectedSowSections.length === 0) missing.push('at least one SOW section');
-    if (formData.generationMode === 'poc-to-production') {
-      if (!formData.uploadedFiles?.length) missing.push('a POC document');
-      return missing;
-    }
+
     if (!formData.companyName.trim() || ['Loading...', 'Auto-populated from project context'].includes(formData.companyName.trim())) {
       missing.push('company name');
     }
@@ -669,7 +680,7 @@ Date                                         Date`
         if (response.success) {
           // Clear preview_id IMMEDIATELY after successful call to prevent duplicates
           localStorage.removeItem('lastPreviewId');
-          
+
           toast.update(toastId, {
             render: 'SOW finalized successfully!',
             type: 'success',
@@ -677,7 +688,7 @@ Date                                         Date`
             autoClose: 5000,
             closeButton: true,
           });
-          
+
           // For project-based SOWs, call onSuccess to refresh the project page
           if (isProjectBased && onSuccess) {
             onSuccess();
@@ -755,7 +766,7 @@ Date                                         Date`
         const modeMap: { [key: string]: string } = {
           'poc': 'POC',
           'production': 'PROD',
-          'poc-to-production': 'POC_TO_PROD'
+
         };
 
         // Determine the best company name to use
@@ -770,7 +781,6 @@ Date                                         Date`
           author_name: formData.authorName || 'ShellKode'
         });
 
-        // ✅ FIX: Use project-based API for ALL modes including POC_TO_PROD
         response = await apiService.createSOWForProject(projectId, {
           mode: modeMap[formData.generationMode] || 'POC',
           objective: formData.projectObjective,
@@ -778,9 +788,6 @@ Date                                         Date`
           project_name: finalProjectName,
           author_name: formData.authorName || 'ShellKode'
         });
-      } else if (formData.generationMode === 'poc-to-production') {
-        // For standalone (non-project) poc-to-production, use file upload method
-        response = await apiService.generateSOWWithFiles(formData.uploadedFiles || []);
       } else {
         // For standalone (non-project) poc and production modes, use regular method
         response = await apiService.generateSOW(
@@ -845,6 +852,9 @@ Date                                         Date`
     }
 
     // Clear old preview data and close modal
+    setIsPreviewRunning(true);
+    setIsCancelling(false);
+    setActivePreviewId(null);
     armPreviewChime();
     setPreviewData(null);
     setShowPreviewModal(false);
@@ -859,7 +869,7 @@ Date                                         Date`
     try {
       // Prepare data for preview API
       let companyName, projectName, authorName;
-      
+
       if (isProjectBased) {
         // For project-based SOWs, use the auto-populated data
         companyName = accountName || formData.companyName || 'Unknown Company';
@@ -884,16 +894,10 @@ Date                                         Date`
         businessUnit: formData.businessUnit,
       });
 
-      // Separate main file (for POC_TO_PROD) from supporting documents
       let mainFile: File | undefined;
       let supportingDocs: File[] = [];
 
-      if (formData.generationMode === 'poc-to-production' && formData.uploadedFiles && formData.uploadedFiles.length > 0) {
-        // First file is the main POC document
-        mainFile = formData.uploadedFiles[0];
-        // Rest are supporting documents
-        supportingDocs = formData.uploadedFiles.slice(1);
-      } else {
+      {
         // For POC and PROD modes, all files are supporting documents
         supportingDocs = formData.uploadedFiles || [];
       }
@@ -902,7 +906,15 @@ Date                                         Date`
       console.log('Supporting docs:', supportingDocs.map(f => f.name));
 
       // Call the preview API
-      const response = await apiService.generatePreview(
+      const reservation = await apiService.reservePreview();
+      if (!reservation.success || !reservation.preview_id) throw new Error(reservation.error || 'Could not start preview');
+      setActivePreviewId(reservation.preview_id);
+      const queuedCancel = readPageMemory<boolean>(`${memoryKey}:cancelling`);
+      if (queuedCancel) await apiService.cancelPreview(reservation.preview_id).catch(() => undefined);
+      const response = reservation;
+      // Poll the reservation immediately, even while upload/extraction is pending.
+      // A slow upload response must not delay acknowledgement of cancellation.
+      if (!queuedCancel) void apiService.generatePreview(
         authorName,
         companyName,
         formData.generationMode,
@@ -920,11 +932,23 @@ Date                                         Date`
         },
         customTemplate?.template_id,
         timelineFormat,
-      );
+        reservation.preview_id,
+      ).then(upload => {
+        if (!upload.success && readPageMemory<string>(`${memoryKey}:activePreview`) === reservation.preview_id
+            && !readPageMemory<boolean>(`${memoryKey}:cancelling`)) {
+          toast.error(upload.error || 'Upload response was interrupted. Check generation status or cancel to retry.');
+        }
+      }).catch(error => {
+        console.error('Preview upload response interrupted:', error);
+      });
 
       console.log('Preview API Response:', response);
 
       if (response.success && response.preview_id) {
+        setActivePreviewId(response.preview_id);
+        if (readPageMemory<boolean>(`${memoryKey}:cancelling`)) {
+          await apiService.cancelPreview(response.preview_id).catch(() => undefined);
+        }
         // Store preview_id in localStorage
         localStorage.setItem('lastPreviewId', response.preview_id);
 
@@ -943,13 +967,11 @@ Date                                         Date`
         // disappear during a long LLM step while polling continues with a stale ID.
         let currentProgressToast: any = toastId;
         let pollInterval: ReturnType<typeof setInterval> | null = null;
-        let safetyTimeout: ReturnType<typeof setTimeout> | null = null;
         let pollingFinished = false;
         const stopPolling = () => {
           if (pollingFinished) return;
           pollingFinished = true;
           if (pollInterval) clearInterval(pollInterval);
-          if (safetyTimeout) clearTimeout(safetyTimeout);
           releaseGenerationLock();
         };
 
@@ -962,6 +984,28 @@ Date                                         Date`
             const statusResponse = await apiService.checkPreviewStatus(response.preview_id);
             if (pollingFinished) return; // Ignore responses arriving after timeout/completion.
             console.log('Status API Response:', statusResponse);
+            if (!statusResponse.success) {
+              // A transport error is not confirmation that backend work stopped.
+              toast.update(currentProgressToast, { render: 'Waiting for the server to confirm generation status...', isLoading: true, autoClose: false });
+              return;
+            }
+            if (statusResponse.status === 'cancelling') {
+              setIsCancelling(true);
+              toast.update(currentProgressToast, { render: statusResponse.current_step || 'Cancelling...', isLoading: true, autoClose: false });
+              return;
+            }
+            if (statusResponse.status === 'cancelled') {
+              stopPolling();
+              setPreviewData(null);
+              setHasPreviewGenerated(false);
+              if (localStorage.getItem('lastPreviewId') === response.preview_id) localStorage.removeItem('lastPreviewId');
+              toast.update(currentProgressToast, { render: 'Generation cancelled. Nothing was saved.', type: 'info', isLoading: false, autoClose: 3000, closeButton: true });
+              return;
+            }
+            if (readPageMemory<boolean>(`${memoryKey}:cancelling`)) {
+              await apiService.cancelPreview(response.preview_id).catch(() => undefined);
+              return;
+            }
 
             const displayProgress = Number(statusResponse.progress ?? 0);
 
@@ -1059,13 +1103,12 @@ Date                                         Date`
           } catch (error) {
             if (pollingFinished) return;
             console.error('Status polling error:', error);
-            stopPolling();
             toast.update(currentProgressToast, {
-              render: 'Failed to check preview status',
-              type: 'error',
-              isLoading: false,
-              autoClose: 5000,
-              closeButton: true,
+              render: 'Waiting for the server to confirm generation status...',
+              type: 'info',
+              isLoading: true,
+              autoClose: false,
+              closeButton: false,
             });
           } finally {
             pollInFlight = false;
@@ -1079,20 +1122,6 @@ Date                                         Date`
           pollInterval = setInterval(pollPreviewStatus, 4000);
         }
 
-        // Keep polling for long source-backed generations for up to ten minutes.
-        // The completed result remains recoverable from the server afterwards.
-        if (!pollingFinished) {
-          safetyTimeout = setTimeout(() => {
-            stopPolling();
-            toast.update(currentProgressToast, {
-              render: 'Preview is still processing. Reopen this page later to retrieve it.',
-              type: 'warning',
-              isLoading: false,
-              autoClose: 5000,
-              closeButton: true,
-            });
-          }, 600000); // 10-minute safety window
-        }
 
       } else {
         releaseGenerationLock();
@@ -1311,8 +1340,8 @@ Date                                         Date`
       const asset = content as ArchitectureDiagramAsset & { error?: string };
       return <div key={section} className="preview-content-section architecture-diagram-preview">
         <h4>Conceptual Flow Diagram</h4>
-        {asset.image_base64 ? <img src={`data:image/png;base64,${asset.image_base64}`} alt="Conceptual flow diagram" />
-          : <p role="alert">{asset.error || 'Conceptual flow diagram could not be generated.'}</p>}
+        {asset.image_base64 ? <img src={`data:image/png;base64,${asset.image_base64}`} alt="Conceptual Flow Diagram" />
+          : <p role="alert">{asset.error || 'Conceptual Flow Diagram could not be generated.'}</p>}
         {asset.drawio_xml && <button type="button" className="modal-btn modal-btn-primary"
           onClick={() => setDiagramEditorAsset({ asset, index: -1 })}>
           <Edit size={15} /> Edit Diagram
@@ -1338,8 +1367,9 @@ Date                                         Date`
           </div>
           {assets.map((asset, index) => (!asset.diagram_type || asset.diagram_type === 'architecture_overview') && (
             <div className="architecture-diagram-item" key={`${asset.diagram_type || asset.title}-${index}`}>
+              <DiagramWarning asset={asset} />
               {asset.image_base64 ? <img src={`data:image/png;base64,${asset.image_base64}`} alt={asset.alt_text || asset.title} />
-                : <p role="status">The diagram did not pass validation. Regenerate it below; your SOW text is preserved.</p>}
+                : <p role="alert">The architecture diagram could not pass its checks and will not be included in the download. Regenerate it below before finalizing to include it. Your SOW text is preserved.</p>}
               {index === 0 && previewData?.preview_id && <ArchitectureRegenerationControls
                 previewId={previewData.preview_id}
                 disabled={isGenerating || isSavingDraft || isDiscardingPreview || isRecalculatingPricing || !!diagramEditorAsset}
@@ -1450,7 +1480,12 @@ Date                                         Date`
     const entries = Object.entries(effectivePreviewContent as Record<string, unknown>);
     const assets = entries.filter(([key]) => key === 'architecture_diagram_assets' || key === 'architecture_diagram_asset' || key === 'conceptual_flow_asset');
     assets.sort(([a], [b]) => (a === 'conceptual_flow_asset' ? -1 : b === 'conceptual_flow_asset' ? 1 : 0));
+    const order: string[] = previewData?.preview_section_order || [];
     const body = entries.filter(([key]) => !assets.some(([assetKey]) => assetKey === key));
+    body.sort(([a], [b]) => {
+      const ai = order.indexOf(a), bi = order.indexOf(b);
+      return (ai < 0 ? order.length : ai) - (bi < 0 ? order.length : bi);
+    });
     const architectureIndex = body.findIndex(([key]) => /architecture/.test(key));
     body.splice(architectureIndex < 0 ? body.length : architectureIndex, 0, ...assets);
     const flowIndex = body.findIndex(([key]) => key === 'conceptual_flow_asset');
@@ -1477,170 +1512,32 @@ Date                                         Date`
       </div>
 
       <div className="form-content">
-        {formData.generationMode === 'poc-to-production' ? (
-          // POC-to-Production mode - only show file upload
-          <div className="section-group">
-            <div className="section-header">
-              <Upload className="section-icon" />
-              <h2 className="section-title">Upload POC Documents</h2>
-            </div>
-
-            <CustomTemplateSelector
-              value={customTemplate}
-              onChange={changeCustomTemplate}
-              disabled={isGenerating || isPreviewLoading}
-            />
-
-            <SOWSectionChecklist
-              timelineFormat={timelineFormat}
-              onTimelineFormatChange={setTimelineFormat}
-              mode={formData.generationMode}
-              selected={selectedSowSections}
-              onChange={setSelectedSowSections}
-              extractedSections={(customTemplate?.sections || []).map(section => ({ ...section, modes: ['poc', 'production', 'poc-to-production'] }))}
-            />
-            
-            <div className="field-group full-width">
-              <label className="field-label">POC Documents <span className="required">*</span></label>
-              <div 
-                className={`upload-area ${dragActive ? 'drag-active' : ''}`}
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-                role="region"
-                aria-label="File upload area"
-              >
-                <div className="upload-content">
-                  <Upload className="upload-icon" />
-                  <div className="upload-text">
-                    <h3>Drop your POC documents here</h3>
-                    <p>or <label htmlFor="file-input" className="upload-link">browse files</label> from your device</p>
-                    <span className="upload-hint">Only PDF, Word (DOC/DOCX), Excel (XLS/XLSX), and TXT files are supported • Max 10MB per file</span>
-                  </div>
-                  <input
-                    id="file-input"
-                    type="file"
-                    multiple
-                    accept=".pdf,.doc,.docx,.xls,.xlsx,.txt"
-                    onChange={(e) => handleFileUpload(e.target.files)}
-                    className="file-input-hidden"
-                    aria-label="Upload POC documents"
-                  />
-                </div>
-              </div>
-
-              {fileUploadError && (
-                <div className="upload-error">
-                  <AlertCircle className="error-icon" />
-                  <span>{fileUploadError}</span>
-                </div>
-              )}
-
-              {formData.uploadedFiles && formData.uploadedFiles.length > 0 && (
-                <div className="uploaded-files">
-                  <div className="files-header">
-                    <span className="files-title">Uploaded Files ({formData.uploadedFiles.length})</span>
-                  </div>
-                  <div className="files-list">
-                    {formData.uploadedFiles.map((file, index) => (
-                      <div key={index} className="file-item">
-                        <FileText className="file-icon" />
-                        <div className="file-info">
-                          <span className="file-name">
-                            {file.name}
-                            {formData.generationMode === 'poc-to-production' && index === 0 && (
-                              <span className="file-badge" style={{ marginLeft: '8px', padding: '2px 8px', backgroundColor: '#4CAF50', color: 'white', borderRadius: '4px', fontSize: '11px' }}>
-                                Main POC
-                              </span>
-                            )}
-                            {formData.generationMode === 'poc-to-production' && index > 0 && (
-                              <span className="file-badge" style={{ marginLeft: '8px', padding: '2px 8px', backgroundColor: '#2196F3', color: 'white', borderRadius: '4px', fontSize: '11px' }}>
-                                Supporting
-                              </span>
-                            )}
-                            {formData.generationMode !== 'poc-to-production' && (
-                              <span className="file-badge" style={{ marginLeft: '8px', padding: '2px 8px', backgroundColor: '#2196F3', color: 'white', borderRadius: '4px', fontSize: '11px' }}>
-                                Supporting
-                              </span>
-                            )}
-                          </span>
-                          <span className="file-size">{(file.size / 1024 / 1024).toFixed(2)} MB</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => removeFile(index)}
-                          className="file-remove-btn"
-                          aria-label={`Remove ${file.name}`}
-                          title={`Remove ${file.name}`}
-                        >
-                          <X className="remove-icon" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Smart Single Button for POC_TO_PROD */}
-            <div className="button-container" style={{ marginTop: '24px' }}>
-              {hasPreviewGenerated && previewData && (
-                <button type="button" onClick={handleReviewPreview} className="review-preview-button">
-                  <Eye className="button-icon" />
-                  <span className="button-text">Review Preview</span>
-                </button>
-              )}
-              <button
-                onClick={hasPreviewGenerated ? handleGenerateSOW : handlePreview}
-                disabled={isGenerating}
-                aria-disabled={!isFormComplete || isGenerating}
-                className={`smart-generate-button ${isGenerating ? 'generating' : ''} ${!isFormComplete ? 'disabled' : ''}`}
-                aria-busy={isGenerating}
-                aria-label={
-                  isGenerating
-                    ? 'Crafting your document...'
-                    : hasPreviewGenerated
-                      ? 'Finalize and deliver'
-                      : 'Craft SOW Document'
-                }
-                title={
-                  !isFormComplete
-                    ? 'Please upload POC document'
-                    : isGenerating
-                      ? 'Creating your professional SOW...'
-                      : hasPreviewGenerated
-                        ? 'Click to finalize and download your document'
-                        : 'Click to preview and craft your SOW'
-                }
-              >
-                {isGenerating ? (
-                  <>
-                    <div className="spinner-icon"></div>
-                    <span className="button-text">
-                      Crafting Your Document...
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <Wand2 className="button-icon" />
-                    <span className="button-text">
-                      {hasPreviewGenerated ? 'Finalize & Deliver' : 'Craft SOW Document'}
-                    </span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        ) : (
+        {(
           // POC and Production modes - show all input fields
           <>
             <div className="section-group">
               <div className="section-header">
                 <h2 className="section-title">Organization Information</h2>
               </div>
-              
+
               <div className="fields-grid">
+                <div className="field-group">
+                  <label htmlFor="generationMode" className="field-label">SOW Type <span className="required">*</span></label>
+                  <select id="generationMode" name="generationMode" className="field-input"
+                    value={formData.generationMode} disabled={isPreviewRunning || isGenerating}
+                    onChange={(event) => {
+                      const mode = event.target.value as 'poc' | 'production';
+                      setFormData(previous => ({ ...previous, generationMode: mode }));
+                      setPreviewData(null);
+                      setHasPreviewGenerated(false);
+                      setActivePreviewId(null);
+                      setShowPreviewModal(false);
+                      onModeChange?.(mode);
+                    }}>
+                    <option value="poc">SOW for POC</option>
+                    <option value="production">SOW for Production</option>
+                  </select>
+                </div>
                 <div className="field-group">
                   <label htmlFor="companyName" className="field-label">
                     Company Name <span className="required">*</span>
@@ -1712,7 +1609,7 @@ Date                                         Date`
                     name="authorOrganization"
                     value={formData.authorOrganization}
                     onChange={handleInputChange}
-                    placeholder={isProjectBased ? "Auto-populated from project (editable)" : "Enter project name"}
+                    placeholder="Enter project name"
                     className={`field-input ${isProjectBased && projectName ? 'auto-populated' : ''}`}
                     title={isProjectBased && projectName ? `Auto-populated from project: ${projectName} (you can edit this)` : ''}
                   />
@@ -1770,7 +1667,7 @@ Date                                         Date`
                 mode={formData.generationMode}
                 selected={selectedSowSections}
                 onChange={setSelectedSowSections}
-                extractedSections={(customTemplate?.sections || []).map(section => ({ ...section, modes: ['poc', 'production', 'poc-to-production'] }))}
+                extractedSections={(customTemplate?.sections || []).map(section => ({ ...section, modes: ['poc', 'production'] }))}
               />
 
               {selectedSowSections.includes('aws_pricing') && (
@@ -1808,7 +1705,7 @@ Date                                         Date`
                   </label>
                 </div>
               )}
-              
+
               {/* Supporting documents are the primary requirements source. */}
               <div className="field-group full-width" style={{ marginTop: '20px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
@@ -1909,7 +1806,7 @@ Date                                         Date`
             </div>
 
             {/* Smart Single Button for POC/PROD */}
-            <div className="button-container" style={{ marginTop: '24px' }}>
+            <div className={`button-container ${isPreviewRunning ? "preview-running" : ""}`} style={{ marginTop: '24px' }}>
               {hasPreviewGenerated && previewData && (
                 <button type="button" onClick={handleReviewPreview} className="review-preview-button">
                   <Eye className="button-icon" />
@@ -1955,6 +1852,12 @@ Date                                         Date`
                   </>
                 )}
               </button>
+              {isPreviewRunning && (
+                <button type="button" className="cancel-generation-button" onClick={handleCancelGeneration}
+                  disabled={isCancelling} aria-busy={isCancelling}>
+                  {isCancelling ? 'Cancelling…' : 'Cancel'}
+                </button>
+              )}
             </div>
           </>
         )}
@@ -2039,14 +1942,14 @@ Date                                         Date`
                         <span className="progress-percentage">{previewData.progress}%</span>
                       </div>
                       <div className="progress-bar-container">
-                        <div 
-                          className="progress-bar-fill" 
+                        <div
+                          className="progress-bar-fill"
                           style={{ width: `${previewData.progress}%` }}
                         ></div>
                       </div>
                     </div>
                   )}
-                  
+
                   {previewData.current_step && (
                     <div className="current-step-section">
                       <div className="step-icon">
@@ -2216,6 +2119,7 @@ Date                                         Date`
                   </>
                 )}
               </button>
+
             </div>
           </div>
         </div>
@@ -2297,8 +2201,8 @@ Date                                         Date`
               <button className="modal-btn modal-btn-secondary" onClick={handleCloseEditor}>
                 Close
               </button>
-              <button 
-                className="modal-btn modal-btn-primary" 
+              <button
+                className="modal-btn modal-btn-primary"
                 onClick={handleSaveEdit}
                 disabled={!markdownDraft.trim() || isSavingMarkdown}
               >

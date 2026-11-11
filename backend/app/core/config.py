@@ -65,6 +65,12 @@ class Config:
             "arn:aws:bedrock:us-east-1:106611079163:"
             "application-inference-profile/hbq88skix7wt"
         )
+        # Dedicated diagram planning/review profile; do not change SOW writing,
+        # general analysis, editing or embeddings when switching diagram models.
+        default_diagram_inference_profile = (
+            "arn:aws:bedrock:us-east-1:106611079163:"
+            "application-inference-profile/hlc2w29214np"
+        )
         default_embedding_inference_profile = (
             "arn:aws:bedrock:us-east-1:106611079163:"
             "application-inference-profile/ve7wpqurv75w"
@@ -84,14 +90,14 @@ class Config:
         )
         self.DIAGRAM_MODEL_ID = os.environ.get(
             "BEDROCK_DIAGRAM_MODEL_ID",
-            self.ANALYSIS_MODEL_ID,
+            default_diagram_inference_profile,
         )
         self.EDITOR_MODEL_ID = os.environ.get(
             "BEDROCK_EDITOR_MODEL_ID",
             self.FAST_MODEL_ID,
         )
         self.DIAGRAM_REVIEW_MODEL_ID = os.environ.get(
-            "BEDROCK_DIAGRAM_REVIEW_MODEL_ID", self.FAST_MODEL_ID,
+            "BEDROCK_DIAGRAM_REVIEW_MODEL_ID", self.DIAGRAM_MODEL_ID,
         )
         self.FALLBACK_MODEL_ID = os.environ.get(
             "BEDROCK_FALLBACK_MODEL_ID",
@@ -220,7 +226,6 @@ class Config:
         self.POC_RULES_FILE = self.TEMPLATES_DIR / "poc_rules.json"
         self.POC_TEMPLATE_FILE = self.TEMPLATES_DIR / "poc_template.md"
         self.PRODUCTION_TEMPLATE_FILE = self.TEMPLATES_DIR / "production_template.md"
-        self.POC_TO_PROD_TEMPLATE_FILE = self.TEMPLATES_DIR / "poc_to_prod_template.md"
         self.COVER_PAGE_TEMPLATE = self.TEMPLATES_DIR / "sow_coverpage_template.docx"
         self.COVER_PAGE_IMAGE = self.ASSETS_DIR / "coverpage.png"
         self.ARCHITECTURE_DIAGRAM = self.ASSETS_DIR / "architecture_diagram.png"
@@ -484,7 +489,6 @@ class Config:
         results = {
             "poc_template": self.POC_TEMPLATE_FILE.exists(),
             "production_template": self.PRODUCTION_TEMPLATE_FILE.exists(),
-            "poc_to_prod_template": self.POC_TO_PROD_TEMPLATE_FILE.exists(),
             "cover_page_template": self.COVER_PAGE_TEMPLATE.exists(),
             "cover_page_image": self.COVER_PAGE_IMAGE.exists(),
             "architecture_diagram": self.ARCHITECTURE_DIAGRAM.exists(),

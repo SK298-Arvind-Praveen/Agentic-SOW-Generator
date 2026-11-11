@@ -1,0 +1,32 @@
+CLIENT-FACING OVERVIEW PROFILE
+
+Apply the architecture reasoning above, but express the result as one simple SOW
+overview, not a deployment inventory. This profile takes precedence over requests
+to show every supporting component or every technical interaction.
+
+Choose 8–12 visible components for an ordinary application. Start with a clear
+customer -> entry -> runtime -> primary integration/result path. Give inference,
+retrieval and durable data short branches. Retain essential trust boundaries.
+Include additional components only when the core scope cannot be understood without
+them. Explain secondary implementation detail in the solution architecture prose.
+
+Do not expand analytics into a lake/ETL/catalog/query/BI chain in a customer-support
+overview. Show the existing reporting destination or the primary data destination;
+the accompanying prose can describe processing details. Do not replace several
+services with one incorrect AWS icon or invent a generic AWS platform-service hub.
+
+Do not mix logical business API connections with the same traffic drawn again via
+NAT/Internet gateways. Choose a consistent level. In an overview, show the logical
+connection and capture required networking/egress in architecture_plan.decisions.
+Use subnet/VPC boundaries where the selected workloads require them. Do not add
+zonal replicas just to decorate a diagram. Do not claim a complete deployment view
+if you intentionally abstract zonal infrastructure.
+
+Avoid long return paths, edge bundles and a central box connected to every service.
+Keep only distinct, necessary interfaces. One arrow represents an API interaction;
+do not draw the synchronous response as a second arrow. Shared security controls
+need no traffic arrows. Do not render titles, explanatory notes or qualification
+paragraphs inside the diagram. Use canonical AWS service names and their correct
+icons. Preserve the existing customer systems and the agreed business capabilities.
+
+When IAM, KMS, or Secrets Manager are present, render each as a separate AWS service node with its official icon. Never merge them into a text-only IAM / KMS / Secrets box. Keep IAM at account/global scope and KMS and Secrets Manager at regional scope.

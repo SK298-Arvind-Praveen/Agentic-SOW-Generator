@@ -9,7 +9,7 @@ Port: 9000
 ✅ NEW: Active tasks visible in history APIs
 ✅ UPDATED: Fixed timestamp sorting, memory leaks, task lookup fallback
 ✅ ENHANCED: History APIs now return full task details (matching /api/task/<id>)
-✅ NEW: Drive link included in ALL history API responses (history, recent-pocs, recent-prod, recent-poc_to_prod)
+✅ NEW: Drive link included in ALL history API responses (history, recent-pocs, recent-prod)
 """
 
 import os
@@ -146,6 +146,28 @@ logging.basicConfig(level=logging.INFO, handlers=[_handler], force=True)
 
 # Initialize Flask app
 app = Flask(__name__)
+
+
+@app.after_request
+def include_preview_section_order(response):
+    """Use the DOCX resolver as the authority for preview ordering, including aliases."""
+    if request.path.startswith('/api/') and response.is_json:
+        payload = response.get_json(silent=True)
+        content = payload.get('content') if isinstance(payload, dict) else None
+        if isinstance(content, dict):
+            from app.document.document_builder import DocumentBuilder
+            builder = DocumentBuilder(None)
+            builder._parse_toc_entries(content)
+            markers = {key: key for key, value in content.items()
+                       if value and key not in builder.RESERVED_KEYS}
+            order = []
+            for heading in builder.toc_entries:
+                key = builder._resolve_section_content(heading, markers, payload.get('metadata') or {})
+                if key in markers and key not in order:
+                    order.append(key)
+            payload['preview_section_order'] = order
+            response.set_data(app.json.dumps(payload))
+    return response
 CORS(app)
 
 # Configure upload folder
@@ -778,7 +800,7 @@ def manage_sow_sections():
         }), 400
     if any(item.get("id") == section_id for item in sections):
         return jsonify({"success": False, "error": "A section with this id already exists"}), 409
-    modes = data.get("modes") or ["poc", "production", "poc-to-production"]
+    modes = data.get("modes") or ["poc", "production"]
     section = {
         "id": section_id,
         "label": label,
@@ -956,7 +978,6 @@ def custom_template_detail(template_id):
 FOLDER_MAPPING = {
     "POC": "poc",
     "PROD": "production",
-    "POC_TO_PROD": "poc_to_prod"
 }
 
 # ============================================================================
@@ -1098,7 +1119,7 @@ def get_active_tasks_as_documents(mode_filter=None):
     Returns list of task objects with full document details
     
     Args:
-        mode_filter: Optional mode filter (POC, PROD, POC_TO_PROD)
+        mode_filter: Optional mode filter (POC, PROD)
         
     Returns:
         list: List of task objects matching /api/task/<id> response structure
@@ -1225,7 +1246,7 @@ def merge_with_active_tasks(db_documents, mode_filter=None, limit=50):
     
     Args:
         db_documents: List of documents from DynamoDB
-        mode_filter: Optional mode filter (POC, PROD, POC_TO_PROD)
+        mode_filter: Optional mode filter (POC, PROD)
         limit: Maximum number of results to return
     
     Returns:
@@ -1307,7 +1328,7 @@ def get_s3_client():
         return None
 
 
-def _delete_draft_record(record):
+def _delete_draft_record(record, strict=False):
     """Remove a persisted draft and both of its S3 artifacts."""
     if not record:
         return
@@ -1320,14 +1341,68 @@ def _delete_draft_record(record):
             bucket, key = parse_s3_location(location)
             get_s3_client().delete_object(Bucket=bucket, Key=key)
         except Exception as exc:
+            if strict:
+                raise
             print(f"[DRAFT] Could not remove {url_field}: {exc}", flush=True)
-    handler.delete_document(
+    removed = handler.delete_document(
         str(record.get("document_id") or ""), str(record.get("timestamp") or "")
     )
+    if strict and not removed:
+        raise RuntimeError('Cancelled draft record could not be removed')
     try:
-        AccountHandler().delete_sow(str(record.get("document_id") or ""))
+        unlinked = AccountHandler().delete_sow(str(record.get("document_id") or ""))
+        if strict and unlinked is False:
+            raise RuntimeError('Cancelled draft project link could not be removed')
     except Exception as exc:
+        if strict:
+            raise
         print(f"[DRAFT] Could not unlink project draft: {exc}", flush=True)
+
+
+def _finish_preview_cancellation(preview_id):
+    """Acknowledge only after generation/save workers and rollback have finished."""
+    with preview_lock:
+        live = preview_storage.get(preview_id)
+        if (not live or not live.get('cancel_requested') or live.get('generation_worker_active')
+                or live.get('generation_calls_active') or live.get('draft_save_active') or live.get('cancel_cleanup_active')):
+            return
+        if live.get('status') == 'cancelled':
+            return
+        live['cancel_cleanup_active'] = True
+        may_have_draft = live.get('draft_save_started') or live.get('autosaved_draft')
+        locations = list(live.get('cancel_artifacts') or [])
+        pending_record = live.get('cancel_record')
+    try:
+        if may_have_draft:
+            record = pending_record or DynamoDBHandler().query_by_task_id(preview_id)
+            if record:
+                if record.get('status') != 'draft':
+                    raise RuntimeError('Cancellation cannot remove a finalized document')
+                with preview_lock:
+                    if preview_id in preview_storage:
+                        preview_storage[preview_id]['cancel_record'] = record
+                _delete_draft_record(record, strict=True)
+        for location in locations:
+            bucket,key = parse_s3_location(location)
+            get_s3_client().delete_object(Bucket=bucket, Key=key)
+        with preview_lock:
+            live = preview_storage.get(preview_id)
+            if live:
+                live.update(status='cancelled', content={}, final_state={}, progress=0,
+                            current_step='Generation cancelled', cancel_cleanup_error=None,
+                            cancel_artifacts=[], cancel_record=None, auto_draft_enabled=False)
+        from app.core.nodes import clear_token_usage
+        clear_token_usage(preview_id)
+    except Exception as exc:
+        with preview_lock:
+            if preview_id in preview_storage:
+                preview_storage[preview_id].update(status='cancelling', cancel_cleanup_error=str(exc),
+                    current_step='Cancelling: retrying cleanup')
+        print(f'[PREVIEW {preview_id}] Cancellation cleanup will retry: {exc}', flush=True)
+    finally:
+        with preview_lock:
+            if preview_id in preview_storage:
+                preview_storage[preview_id]['cancel_cleanup_active'] = False
 
 
 def _cleanup_replaced_draft_artifacts(record, s3_url, snapshot_url=None):
@@ -1344,9 +1419,15 @@ def _cleanup_replaced_draft_artifacts(record, s3_url, snapshot_url=None):
 
 def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None):
     """Persist a ready preview as an ordinary version marked draft."""
+    from app.preview.cancellation import check_cancelled, GenerationCancelled
+    with preview_lock:
+        if (preview_storage.get(preview_id) or {}).get('cancel_requested'):
+            return {'success': False, 'status': 'cancelling'}
     existing = DynamoDBHandler().query_by_task_id(preview_id)
     with preview_lock:
         live = preview_storage.get(preview_id)
+        if live and live.get('cancel_requested'):
+            return {'success': False, 'status': 'cancelling'}
         draft_id = (live or {}).get("metadata", {}).get("draft_document_id")
     # A slow DynamoDB request must not block every status poll behind this lock.
     if draft_id:
@@ -1357,6 +1438,8 @@ def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None)
             return {"success": False, "error": "You do not have access to this document"}
         if automatic and live and existing.get("status") == "draft":
             with preview_lock:
+                live['cancel_record'] = existing
+                live['draft_save_started'] = True
                 live.setdefault("metadata", {}).update({
                     "draft_document_id": existing["document_id"],
                     "version": existing.get("version"),
@@ -1377,6 +1460,8 @@ def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None)
         preview = preview_storage.get(preview_id)
         if not preview:
             return {"success": False, "error": "Preview not found"}
+        if preview.get('cancel_requested'):
+            return {'success': False, 'status': 'cancelling'}
         if preview.get("status") == "draft_saving":
             return {"success": False, "processing": True, "status": "draft_saving"}
         allowed = {"ready", "draft_pending"} if revision_candidate is None else {"architecture_regenerating"}
@@ -1387,6 +1472,8 @@ def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None)
                 or (preview.get('architecture_job') or {}).get('id') != revision_candidate.get('_architecture_job_id')):
             return {'success': False, 'error': 'Preview changed during regeneration; revision was not applied'}
         preview["status"] = "draft_saving"
+        preview['draft_save_active'] = True
+        preview['draft_save_started'] = True
         preview["current_step"] = "Saving draft"
         snapshot = copy.deepcopy(revision_candidate if revision_candidate is not None else preview)
 
@@ -1395,6 +1482,7 @@ def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None)
     s3_url = None
     db_persisted = False
     try:
+        check_cancelled(preview_id, storage=preview_storage)
         metadata = dict(snapshot.get("metadata") or {})
         content = snapshot.get("content") or {}
         mode = str(snapshot.get("mode") or "POC")
@@ -1418,12 +1506,14 @@ def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None)
 
         # Drafts need durable S3 storage, not publication to the final Drive folder.
         drive_result = None
+        check_cancelled(preview_id, storage=preview_storage)
         s3_result = upload_to_s3(upload_file, mode=FOLDER_MAPPING.get(mode, mode))
         if not s3_result:
             raise RuntimeError("Draft could not be uploaded to S3")
         s3_url = s3_result.get("https_url") or s3_result.get("s3_url") or s3_result.get("url")
         if not s3_url:
             raise RuntimeError("Draft upload returned no S3 location")
+        check_cancelled(preview_id, storage=preview_storage)
 
         s3_client = get_s3_client()
         bucket = str(s3_result.get("bucket") or parse_s3_location(s3_url)[0])
@@ -1436,6 +1526,7 @@ def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None)
             "architecture_changes": snapshot.get('architecture_changes', []),
             "saved_at": datetime.now().isoformat(),
         }
+        snapshot_location = f"s3://{bucket}/{snapshot_key}"
         s3_client.put_object(
             Bucket=bucket,
             Key=snapshot_key,
@@ -1443,6 +1534,7 @@ def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None)
             ContentType="application/json",
         )
         snapshot_location = f"s3://{bucket}/{snapshot_key}"
+        check_cancelled(preview_id, storage=preview_storage)
         drive_link = (drive_result or {}).get("link") or (drive_result or {}).get("url")
         db_result = save_to_dynamodb(
             metadata={
@@ -1483,6 +1575,17 @@ def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None)
         if not db_result or not db_result.get("success") or not db_result.get("document_id"):
             raise RuntimeError((db_result or {}).get("error") or "Draft metadata could not be saved")
         db_persisted = True
+        # Keep the committed primary key: the task GSI can lag behind this write.
+        with preview_lock:
+            live = preview_storage.get(preview_id)
+            if live is not None:
+                live['cancel_record'] = {
+                    'document_id': db_result['document_id'],
+                    'timestamp': db_result.get('timestamp') or (existing or {}).get('timestamp'),
+                    'status': 'draft', 's3_url': s3_url,
+                    'draft_preview_s3_url': snapshot_location,
+                }
+        check_cancelled(preview_id, storage=preview_storage)
         if existing:
             _cleanup_replaced_draft_artifacts(existing, s3_url, snapshot_location)
 
@@ -1526,6 +1629,8 @@ def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None)
             with preview_lock:
                 live = preview_storage.get(preview_id)
                 if live:
+                    if live.get('cancel_requested'):
+                        raise GenerationCancelled()
                     if revision_candidate is not None:
                         live.setdefault('metadata', {}).update(revision_candidate.get('metadata') or {})
                         for field in ('content', 'final_state', 'edit_count', 'token_usage', 'total_tokens', 'architecture_changes'):
@@ -1561,7 +1666,16 @@ def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None)
             "success": True, "document_id": document_id, "s3_url": s3_url,
             "drive_link": drive_link, "status": "draft", "automatic": automatic,
         }
-    except Exception as exc:
+    except (Exception, GenerationCancelled) as exc:
+        with preview_lock:
+            live = preview_storage.get(preview_id)
+            cancelled = bool(live and live.get('cancel_requested'))
+            if cancelled:
+                live.setdefault('cancel_artifacts', []).extend(
+                    location for location in (snapshot_location,s3_url) if location)
+                live.update(status='cancelling', current_step='Cancelling: removing draft artifacts')
+        if cancelled:
+            return {'success': False, 'status': 'cancelling'}
         # Avoid leaving unreferenced S3 objects if persistence failed before a
         # DynamoDB record was committed. Once committed, retries use task-id
         # idempotency and the files must remain intact.
@@ -1584,11 +1698,15 @@ def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None)
         print(f"[DRAFT] Could not save {preview_id}: {exc}", flush=True)
         return {"success": False, "error": str(exc)}
     finally:
+        with preview_lock:
+            if preview_id in preview_storage:
+                preview_storage[preview_id]['draft_save_active'] = False
         if upload_file:
             try:
                 Path(upload_file).unlink(missing_ok=True)
             except OSError:
                 pass
+        _finish_preview_cancellation(preview_id)
 
 
 def _schedule_preview_auto_draft(preview_id):
@@ -1607,10 +1725,16 @@ def _schedule_preview_auto_draft(preview_id):
                     if not preview:
                         return
                     status = str(preview.get("status") or "")
+                    cancelled = preview.get('cancel_requested')
+                    if status == 'cancelled':
+                        return
                     if status == "failed":
                         return
-                    if not preview.get("auto_draft_enabled", True):
+                    if not cancelled and not preview.get("auto_draft_enabled", True):
                         return
+                if cancelled:
+                    _finish_preview_cancellation(preview_id)
+                    continue
                 if status in {"ready", "draft_pending"}:
                     result = _save_preview_as_draft(preview_id, automatic=True)
                     if result.get("success"):
@@ -1637,19 +1761,16 @@ def ensure_output_folders():
 
     poc_folder = output_folder / "POC"
     prod_folder = output_folder / "Production"
-    poc_to_prod_folder = output_folder / "POC_to_Production"
     archive_folder = output_folder / "Archive"
 
     poc_folder.mkdir(parents=True, exist_ok=True)
     prod_folder.mkdir(parents=True, exist_ok=True)
-    poc_to_prod_folder.mkdir(parents=True, exist_ok=True)
     archive_folder.mkdir(parents=True, exist_ok=True)
 
     return {
         "base": output_folder,
         "poc": poc_folder,
         "production": prod_folder,
-        "poc_to_prod": poc_to_prod_folder,
         "archive": archive_folder
     }
 
@@ -1660,8 +1781,6 @@ def get_output_folder(mode, folders):
         return folders["poc"]
     elif mode == "PROD":
         return folders["production"]
-    elif mode == "POC_TO_PROD":
-        return folders["poc_to_prod"]
     else:
         return folders["base"]
 
@@ -1894,34 +2013,6 @@ def process_document_generation(task_id, task_data):
 
         # Extract metadata if needed
         extracted_metadata = None
-        if mode == "POC_TO_PROD" and source_file:
-            print("\n[TASK] Extracting Metadata from Document")
-            extracted_metadata = extract_metadata_from_document(source_file)
-            if extracted_metadata:
-                # Only use LLM-extracted values for fields the user didn't provide
-                placeholder_values = ['to be extracted from document', None, '']
-
-                if not company_name or company_name.lower() in [v for v in placeholder_values if v]:
-                    company_name = extracted_metadata.get("company_name", company_name)
-                if not project_name or project_name.lower() in [v for v in placeholder_values if v]:
-                    project_name = extracted_metadata.get("project_title", project_name)
-                if not author_name or author_name.lower() in [v for v in placeholder_values if v]:
-                    author_name = extracted_metadata.get("author_name", author_name)
-
-                # Update metadata dict
-                metadata["company_name"] = company_name
-                metadata["project_title"] = project_name
-                metadata["author_name"] = author_name
-
-                # Merge non-critical extracted fields (objective, dates, etc.)
-                for key in ['objective', 'author_org', 'document_date']:
-                    if extracted_metadata.get(key) and not metadata.get(key):
-                        metadata[key] = extracted_metadata[key]
-
-                print(f"   ✅ Final metadata after merge:")
-                print(f"      Company: {company_name}")
-                print(f"      Project: {project_name}")
-                print(f"      Author: {author_name}")
 
         update_task(task_id, progress=30, current_step=f"Generating {mode} document")
 
@@ -2174,10 +2265,10 @@ def generate_document():
         ownership = _ownership_metadata(business_unit)
         mode = request.form.get('mode', '').upper()
 
-        if not mode or mode not in ["POC", "PROD", "POC_TO_PROD"]:
+        if not mode or mode not in ["POC", "PROD"]:
             return jsonify({
                 "success": False,
-                "error": "Invalid or missing mode (POC, PROD, or POC_TO_PROD)"
+                "error": "Invalid or missing mode (POC or PROD)"
             }), 400
 
         custom_template_id = request.form.get('custom_template_id', '').strip()
@@ -2250,54 +2341,38 @@ def generate_document():
             }), 400
 
         # Validate required fields based on mode
-        if mode == "POC_TO_PROD":
-            if 'file' not in request.files or not request.files['file'].filename:
-                return jsonify({
-                    "success": False,
-                "error": "POC_TO_PROD mode requires a supported document upload"
-                }), 400
+        company_name = request.form.get('company_name', '').strip()
+        author_name = request.form.get('author_name', '').strip()
+        project_name = request.form.get('project_name', '').strip()
+        objective = (
+            request.form.get('additional_details', '').strip()
+            or request.form.get('objective', '').strip()
+        )
 
-            company_name = request.form.get('company_name', '').strip() or None
-            author_name = request.form.get('author_name', '').strip() or None
-            project_name = request.form.get('project_name', '').strip() or None
-            objective = (
-                request.form.get('additional_details', '').strip()
-                or request.form.get('objective', '').strip()
-                or None
-            )
-        else:
-            company_name = request.form.get('company_name', '').strip()
-            author_name = request.form.get('author_name', '').strip()
-            project_name = request.form.get('project_name', '').strip()
-            objective = (
-                request.form.get('additional_details', '').strip()
-                or request.form.get('objective', '').strip()
-            )
+        uploaded_supporting = [
+            item for item in request.files.getlist('supporting_docs')
+            if item and item.filename
+        ]
+        if any(Path(item.filename).suffix.lower() not in SUPPORTED_DOCUMENT_EXTENSIONS
+               for item in uploaded_supporting):
+            return jsonify({
+                "success": False,
+                "error": "Unsupported file type. Supported files: PDF, Word, Excel, and TXT.",
+            }), 415
+        has_supporting_source = bool(uploaded_supporting)
 
-            uploaded_supporting = [
-                item for item in request.files.getlist('supporting_docs')
-                if item and item.filename
-            ]
-            if any(Path(item.filename).suffix.lower() not in SUPPORTED_DOCUMENT_EXTENSIONS
-                   for item in uploaded_supporting):
-                return jsonify({
-                    "success": False,
-                    "error": "Unsupported file type. Supported files: PDF, Word, Excel, and TXT.",
-                }), 415
-            has_supporting_source = bool(uploaded_supporting)
-
-            if not all([company_name, author_name, project_name]) or not (
-                objective or has_supporting_source
-            ):
-                return jsonify({
-                    "success": False,
-                    "error": (
-                        f"{mode} mode requires company_name, author_name, project_name, "
-                        "and either a BRD/supporting document or sufficient additional details"
-                    )
-                }), 400
-            if not objective:
-                objective = ""
+        if not all([company_name, author_name, project_name]) or not (
+            objective or has_supporting_source
+        ):
+            return jsonify({
+                "success": False,
+                "error": (
+                    f"{mode} mode requires company_name, author_name, project_name, "
+                    "and either a BRD/supporting document or sufficient additional details"
+                )
+            }), 400
+        if not objective:
+            objective = ""
 
         document_date = request.form.get('document_date') or datetime.now().strftime("%d %B %Y")
         version = request.form.get('version', '1.0')
@@ -2948,47 +3023,6 @@ def get_recent_prods():
         }), 200
 
 
-@app.route('/api/recent-poc_to_prod', methods=['GET'])
-def get_recent_poc_to_prods():
-    """
-    ✅ ENHANCED: Get recent POC_TO_PROD documents with full task details including drive_link
-    Returns task objects matching /api/task/<id> structure
-    """
-    try:
-        print(f"\n[API] Fetching recent POC_TO_PRODs (with active tasks and drive links)...")
-        handler = DynamoDBHandler()
-        
-        # Get completed POC_TO_PROD documents from DynamoDB
-        all_docs = handler.list_all_documents(limit=100)
-        
-        if all_docs:
-            # Filter for POC_TO_PROD mode only
-            poc_to_prod_docs = [doc for doc in all_docs if doc.get('mode') == 'POC_TO_PROD']
-        else:
-            poc_to_prod_docs = []
-        
-        # ✅ MERGE WITH ACTIVE POC_TO_PROD TASKS (returns full task structure with drive_link)
-        merged_docs = merge_with_active_tasks(poc_to_prod_docs, mode_filter='POC_TO_PROD', limit=50)
-        merged_docs = _visible_documents(merged_docs)
-        
-        print(f"[API] Returning {len(merged_docs)} POC_TO_PROD task objects (with drive links)")
-        
-        return jsonify({
-            "success": True,
-            "documents": merged_docs,
-            "count": len(merged_docs)
-        }), 200
-
-    except Exception as e:
-        print(f"[API] Recent POC_TO_PRODs error: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            "success": True,
-            "documents": [],
-            "count": 0,
-            "error": str(e)
-        }), 200
 
 
 @app.route('/api/search-suggestions', methods=['GET'])
@@ -3099,7 +3133,6 @@ def get_companies_grouped():
                         "project_name": "E-commerce Platform",
                         "POC": ["v1", "v2", "v3"],
                         "PROD": ["v1", "v2"],
-                        "POC_TO_PROD": []
                     }
                 }
             }
@@ -3155,7 +3188,7 @@ def get_company_documents(company_name):
     
     Query Parameters:
         - project: Filter by project name (optional)
-        - mode: Filter by mode (POC/PROD/POC_TO_PROD) (optional)
+        - mode: Filter by mode (POC/PROD) (optional)
         - version: Filter by version (v1, v2, etc.) (optional)
         - limit: Max results (default: 100)
     
@@ -3415,6 +3448,8 @@ def regenerate_document_preview(document_id):
             "refinement_instructions": instructions,
         }
         mode = str(record.get("mode") or "POC").upper()
+        if mode not in ("POC", "PROD"):
+            return jsonify({"success": False, "error": "This SOW mode is no longer supported"}), 400
         from app.core.sow_section_preferences import (
             infer_selected_section_ids,
             parse_selected_section_ids,
@@ -3521,7 +3556,7 @@ def regenerate_document_preview(document_id):
                 },
             })
         from app.preview.async_preview import process_preview_async
-        process_preview_async(preview_id, initial_state, True, on_complete=_save_preview_as_draft)
+        process_preview_async(preview_id, initial_state, True, on_complete=_save_preview_as_draft, on_cancel=_finish_preview_cancellation)
         _schedule_preview_auto_draft(preview_id)
         return jsonify({
             "success": True,
@@ -3544,16 +3579,31 @@ def regenerate_document_preview(document_id):
             except OSError:
                 pass
 
+@app.route('/api/preview/reserve', methods=['POST'])
+def reserve_preview_generation():
+    business_unit, denied = _business_unit_for_new_record()
+    if denied:
+        return denied
+    preview_id = create_preview_id()
+    store_preview_data(preview_id, {}, _ownership_metadata(business_unit), 'POC')
+    with preview_lock:
+        preview_storage[preview_id].update(reserved=True, auto_draft_enabled=False,
+            current_step='Waiting for upload', progress=0)
+    return jsonify(success=True, preview_id=preview_id), 201
+
+
 @app.route('/api/preview', methods=['POST'])
 def generate_preview():
     """
     API 1: Generate content preview without creating document
     Returns preview_id immediately and processes everything in background
     
-    For POC_TO_PROD: Extracts text from uploaded document first
     """
     preview_started_at = time.perf_counter()
     uploaded_file_path = None
+    reserved_preview_id = None
+    reservation_claimed = False
+    worker_started = False
     
     try:
         print("\n[API] POST /api/preview - Generating content preview...")
@@ -3561,13 +3611,28 @@ def generate_preview():
         if denied:
             return denied
         ownership = _ownership_metadata(business_unit)
+        reserved_preview_id = request.form.get('reserved_preview_id')
+        if reserved_preview_id:
+            with preview_lock:
+                reserved = preview_storage.get(reserved_preview_id)
+                if not reserved:
+                    return jsonify(success=False, error='Preview reservation expired'), 404
+                denied = _preview_denied(reserved)
+                if denied:
+                    return denied
+                if reserved.get('cancel_requested'):
+                    return jsonify(success=True, preview_id=reserved_preview_id, status=reserved['status']), 202
+                if not reserved.get('reserved'):
+                    return jsonify(success=False, error='Preview reservation already used'), 409
+                reserved.update(reserved=False, generation_worker_active=True, current_step='Reading uploaded documents')
+                reservation_claimed = True
         
         mode = request.form.get('mode', '').upper()
         
-        if not mode or mode not in ["POC", "PROD", "POC_TO_PROD"]:
+        if not mode or mode not in ["POC", "PROD"]:
             return jsonify({
                 "success": False,
-                "error": "Invalid or missing mode (POC, PROD, or POC_TO_PROD)"
+                "error": "Invalid or missing mode (POC or PROD)"
             }), 400
 
         custom_template_id = request.form.get('custom_template_id', '').strip()
@@ -3642,7 +3707,6 @@ def generate_preview():
         # Always use async mode now - remove async parameter check
         use_fast_mode = request.form.get('fast_mode', 'true').lower() == 'true'
         
-        # Handle POC_TO_PROD mode - extract text from document
         extracted_text = None
         source_file = None
         document_only_request = False
@@ -3656,114 +3720,48 @@ def generate_preview():
         document_date = datetime.now().strftime("%d %B %Y")
         version = '1.0'
         
-        if mode == "POC_TO_PROD":
-            if 'file' not in request.files or not request.files['file'].filename:
-                return jsonify({
-                    "success": False,
-                    "error": "POC_TO_PROD mode requires a supported document upload"
-                }), 400
-            
-            file = request.files['file']
-            file_ext = Path(file.filename).suffix.lower()
-            
-            if file_ext not in SUPPORTED_DOCUMENT_EXTENSIONS:
-                return jsonify({
-                    "success": False,
-                    "error": "Unsupported file type. Supported files: PDF, Word, Excel, and TXT."
-                }), 415
-            
-            # Save file temporarily
-            filename = secure_filename(file.filename)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            unique_filename = f"{timestamp}_{filename}"
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
-            file.save(filepath)
-            uploaded_file_path = filepath
-            source_file = filepath
-            
-            print(f"   📄 Extracting text from: {filename}")
-            
-            # Extract text using doc_reader
-            extracted_text = read_document(filepath)
-            
-            if not extracted_text or len(extracted_text.strip()) < 50:
-                return jsonify({
-                    "success": False,
-                    "error": "Could not extract sufficient text from document"
-                }), 400
-            
-            print(f"   ✓ Extracted {len(extracted_text)} characters")
-            
-            # Extract metadata from the document
-            print(f"   📋 Extracting metadata from document...")
-            extracted_metadata = extract_metadata_from_document(filepath)
-            
-            if extracted_metadata:
-                # Update metadata with extracted values
-                company_name = extracted_metadata.get("company_name", "Unknown Company")
-                author_name = extracted_metadata.get("author_name", "Unknown Author")
-                project_name = extracted_metadata.get("project_title", "Unknown Project")
-                document_date = extracted_metadata.get("document_date", document_date)
-                version = extracted_metadata.get("version", version)
-                
-                print(f"   ✓ Extracted metadata:")
-                print(f"      Company: {company_name}")
-                print(f"      Project: {project_name}")
-                print(f"      Author: {author_name}")
-            else:
-                # Fallback if metadata extraction fails
-                company_name = "Unknown Company"
-                author_name = "Unknown Author"
-                project_name = "Unknown Project"
-            
-            # For POC_TO_PROD, we don't need other fields to be required
-            objective = "Convert POC to Production document"
-        
-        else:
-            # For POC and PROD modes, accept either typed scope or an uploaded
-            # BRD/supporting document as the authoritative project source.
-            company_name = request.form.get('company_name', '').strip()
-            author_name = request.form.get('author_name', '').strip()
-            project_name = request.form.get('project_name', '').strip()
-            
-            # ✅ DEBUG: Log all form data to see what frontend is sending
-            print(f"\n🔍 DEBUG: Form data received:")
-            for key, value in request.form.items():
-                print(f"   {key}: {value}")
-            objective = (
-                request.form.get('additional_details', '').strip()
-                or request.form.get('objective', '').strip()
-            )
+        company_name = request.form.get('company_name', '').strip()
+        author_name = request.form.get('author_name', '').strip()
+        project_name = request.form.get('project_name', '').strip()
 
-            uploaded_supporting = [
-                item for item in request.files.getlist('supporting_docs')
-                if item and item.filename
-            ]
-            if any(Path(item.filename).suffix.lower() not in SUPPORTED_DOCUMENT_EXTENSIONS
-                   for item in uploaded_supporting):
-                return jsonify({
-                    "success": False,
-                    "error": "Unsupported file type. Supported files: PDF, Word, Excel, and TXT.",
-                }), 415
-            has_supporting_source = bool(uploaded_supporting)
-            document_only_request = not objective and has_supporting_source
-            
-            if not all([company_name, author_name, project_name]) or not (
-                objective or has_supporting_source
-            ):
-                return jsonify({
-                    "success": False,
-                    "error": (
-                        f"{mode} mode requires company_name, author_name, project_name, "
-                        "and either a BRD/supporting document or sufficient additional details"
-                    )
-                }), 400
-            if not objective:
-                objective = ""
-            
-            # Get optional fields for POC/PROD
-            document_date = request.form.get('document_date', document_date)
-            version = request.form.get('version', version)
+        # ✅ DEBUG: Log all form data to see what frontend is sending
+        print(f"\n🔍 DEBUG: Form data received:")
+        for key, value in request.form.items():
+            print(f"   {key}: {value}")
+        objective = (
+            request.form.get('additional_details', '').strip()
+            or request.form.get('objective', '').strip()
+        )
+
+        uploaded_supporting = [
+            item for item in request.files.getlist('supporting_docs')
+            if item and item.filename
+        ]
+        if any(Path(item.filename).suffix.lower() not in SUPPORTED_DOCUMENT_EXTENSIONS
+               for item in uploaded_supporting):
+            return jsonify({
+                "success": False,
+                "error": "Unsupported file type. Supported files: PDF, Word, Excel, and TXT.",
+            }), 415
+        has_supporting_source = bool(uploaded_supporting)
+        document_only_request = not objective and has_supporting_source
+
+        if not all([company_name, author_name, project_name]) or not (
+            objective or has_supporting_source
+        ):
+            return jsonify({
+                "success": False,
+                "error": (
+                    f"{mode} mode requires company_name, author_name, project_name, "
+                    "and either a BRD/supporting document or sufficient additional details"
+                )
+            }), 400
+        if not objective:
+            objective = ""
+
+        # Get optional fields for POC/PROD
+        document_date = request.form.get('document_date', document_date)
+        version = request.form.get('version', version)
         
         # Prepare metadata
         pricing_region = request.form.get('pricing_region', '').strip().lower()
@@ -3913,7 +3911,7 @@ def generate_preview():
             "objective": objective,
             "additional_details": objective,
             "mode": mode,
-            "source_file": source_file,  # For POC_TO_PROD
+            "source_file": source_file,
             "analyzed_requirements": None,
             "validated_requirements": None,
             "poc_content": None,
@@ -3933,22 +3931,26 @@ def generate_preview():
         }
         
         # Create preview ID first
-        preview_id = create_preview_id()
-        
+        preview_id = reserved_preview_id or create_preview_id()
+
         # Always process in background now
         from app.preview.async_preview import process_preview_async
         
         # Store initial preview data with INITIALIZING status
-        preview_data = store_preview_data(
-            preview_id=preview_id,
-            content={},  # Empty initially
-            metadata=metadata,
-            mode=mode
-        )
+        if reserved_preview_id:
+            with preview_lock:
+                preview_data = preview_storage[preview_id]
+                if preview_data.get('cancel_requested'):
+                    return jsonify(success=True, preview_id=preview_id, status='cancelling'), 202
+                preview_data.update(metadata=metadata, mode=mode, content={}, auto_draft_enabled=True)
+        else:
+            preview_data = store_preview_data(preview_id=preview_id, content={}, metadata=metadata, mode=mode)
         
         # Set initial status to INITIALIZING
         with preview_lock:
             if preview_id in preview_storage:
+                if preview_storage[preview_id].get('cancel_requested'):
+                    return jsonify(success=True, preview_id=preview_id, status='cancelling'), 202
                 preview_storage[preview_id]["status"] = "initializing"
                 preview_storage[preview_id]["progress"] = 0
                 preview_storage[preview_id]["current_step"] = "Initializing preview generation..."
@@ -3960,7 +3962,8 @@ def generate_preview():
                 }
         
         # Start async processing (supporting_context already extracted — files not needed by thread)
-        process_preview_async(preview_id, initial_state, use_fast_mode, on_complete=_save_preview_as_draft)
+        process_preview_async(preview_id, initial_state, use_fast_mode, on_complete=_save_preview_as_draft, on_cancel=_finish_preview_cancellation)
+        worker_started = True
         _schedule_preview_auto_draft(preview_id)
 
         # Safe to clean up temp supporting files now — content already extracted into supporting_context
@@ -4008,6 +4011,15 @@ def generate_preview():
         response.headers['Cache-Control'] = 'no-cache'
         
         return response, 500
+    finally:
+        if reservation_claimed and not worker_started:
+            with preview_lock:
+                live = preview_storage.get(reserved_preview_id)
+                if live and not live.get('reserved'):
+                    live['generation_worker_active'] = False
+                    if not live.get('cancel_requested'):
+                        live.update(status='failed', error='Preview request did not start', auto_draft_enabled=False)
+            _finish_preview_cancellation(reserved_preview_id)
 
 def extract_sections_from_template(template_content: str, mode: str) -> list:
     """
@@ -4204,6 +4216,10 @@ def get_preview_status_api(preview_id):
     """
     try:
         with preview_lock:
+            needs_cleanup = (preview_storage.get(preview_id) or {}).get('status') == 'cancelling'
+        if needs_cleanup:
+            threading.Thread(target=_finish_preview_cancellation, args=(preview_id,), daemon=True).start()
+        with preview_lock:
             if preview_id not in preview_storage:
                 return jsonify({
                     "success": False,
@@ -4300,6 +4316,27 @@ def heartbeat_preview(preview_id):
             return denied
         preview["last_activity_at"] = time.time()
     return jsonify({"success": True}), 200
+
+
+@app.route('/api/preview/<preview_id>/cancel', methods=['POST'])
+def cancel_preview_generation(preview_id):
+    with preview_lock:
+        preview = preview_storage.get(preview_id)
+        if not preview:
+            return jsonify(success=False, error='Preview not found'), 404
+        denied = _preview_denied(preview)
+        if denied:
+            return denied
+        if preview.get('status') == 'cancelled':
+            return jsonify(success=True, status='cancelled'), 200
+        if preview.get('status') in {'document_finalizing', 'architecture_regenerating'}:
+            return jsonify(success=False, error='This operation is no longer generating a preview'), 409
+        preview.update(cancel_requested=True, auto_draft_enabled=False, status='cancelling',
+                       current_step='Cancelling: waiting for active work to stop')
+    # Never block an HTTP request on an active model call or durable cleanup.
+    threading.Thread(target=_finish_preview_cancellation, args=(preview_id,), daemon=True).start()
+    _schedule_preview_auto_draft(preview_id)
+    return jsonify(success=True, status='cancelling'), 202
 
 
 @app.route('/api/preview/<preview_id>/draft', methods=['POST'])
@@ -4645,7 +4682,10 @@ def recalculate_preview_aws_pricing(preview_id):
     from app.core.nodes import bind_token_usage, get_token_usage, unbind_token_usage
     usage_token = bind_token_usage(preview_id)
     try:
+        metadata['pricing_previous_monthly_cost'] = (final_state.get('pricing_result') or {}).get('monthly_cost')
         result = AwsPricingService(Config()).generate(requirements, metadata, supporting_context)
+        result['previous_estimate'] = {k: (final_state.get('pricing_result') or {}).get(k)
+                                       for k in ('monthly_cost', 'region', 'generated_at')}
     finally:
         unbind_token_usage(usage_token)
     token_usage = get_token_usage(preview_id)
@@ -4856,7 +4896,7 @@ def get_active_previews():
                     continue
 
                 # Only include non-finalized previews (drafts)
-                if status != "finalized":
+                if status not in {"finalized", "cancelled", "cancelling"} and not preview_data.get("reserved"):
                     preview_info = {
                         "preview_id": preview_id,
                         "status": status,
@@ -5351,10 +5391,6 @@ def finalize_document():
         metadata = preview_data.get("metadata")
         content = preview_data.get("content")
 
-        architecture_assets = (content or {}).get('architecture_diagram_assets') or []
-        if any(isinstance(asset, dict) and asset.get('status') == 'unavailable' for asset in architecture_assets):
-            return jsonify(success=False, code='ARCHITECTURE_REGENERATION_REQUIRED',
-                           error='The architecture diagram did not pass validation. Regenerate it before finalizing; you can still save this preview as a draft.'), 409
         pricing_result = (preview_data.get("final_state") or {}).get("pricing_result") or {}
         if pricing_result.get("status") == "stale":
             return jsonify({
@@ -5370,11 +5406,22 @@ def finalize_document():
             live_preview = preview_storage.get(preview_id)
             if not live_preview:
                 return jsonify({"success": False, "error": "Preview is no longer available"}), 404
-            if live_preview.get("status") == "draft_saving":
-                return jsonify({"success": False, "error": "Draft save is already in progress"}), 409
+            if live_preview.get("status") in {"draft_pending", "draft_saving", "document_finalizing"}:
+                # Autosave and a concurrent finalize request temporarily own
+                # the preview. Let the client poll rather than report a conflict
+                # or start a second document build before the task is registered.
+                return jsonify({
+                    "success": True, "processing": True,
+                    "task_id": task_id, "status": "processing",
+                    "current_step": live_preview.get("current_step") or "Waiting for the current save to finish",
+                }), 202
             if live_preview.get("status") != "ready":
                 return jsonify({"success": False, "error": "Preview is not ready to finalize"}), 409
             live_preview["status"] = "document_finalizing"
+
+        # Preserve diagram quality decisions from the preview. Finalization must
+        # not resurrect a rejected/missing image as a generic fallback diagram.
+        # The document builder skips unavailable optional assets.
 
         from app.core.nodes import get_token_usage
         live_token_usage = get_token_usage(preview_id)
@@ -6401,7 +6448,9 @@ def create_sow_for_project(project_id):
 
         # Extract request data with enhanced fallbacks
         data = request.json
-        mode = data.get('mode', 'POC')
+        mode = str(data.get('mode', 'POC')).upper()
+        if mode not in ("POC", "PROD"):
+            return jsonify({"success": False, "error": "Invalid mode (POC or PROD)"}), 400
         
         # Enhanced company name resolution with multiple fallbacks
         customer_name = (
@@ -6831,7 +6880,6 @@ if __name__ == '__main__':
     print("   • API 3: /api/finalize → Create document from edited content")
     print("   • Preview data stored in memory (not in history)")
     print("   • Smart editing identifies which sections to change")
-    print("   • POC_TO_PROD: Extract text from PDF/DOCX first")
     print("\n✅ ENHANCED: FULL TASK DETAILS IN ALL HISTORY APIS + DRIVE LINKS")
     print("   • History APIs return same structure as /api/task/<id>")
     print("   • Active tasks include full task + document objects")
@@ -6872,7 +6920,6 @@ if __name__ == '__main__':
     print("   GET  /api/history → All task objects (active + completed + drive_link)")
     print("   GET  /api/recent-pocs → POC task objects (+ drive_link)")
     print("   GET  /api/recent-prod → PROD task objects (+ drive_link)")
-    print("   GET  /api/recent-poc_to_prod → POC_TO_PROD task objects (+ drive_link)")
     print("   GET  /api/search-suggestions → Autocomplete")
     print("\n📦 WORKFLOW EXAMPLE:")
     print("   1. POST /api/preview (mode=POC, company_name, project_name, ...)")

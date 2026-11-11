@@ -43,7 +43,6 @@ interface Statistics {
   thisMonthSOWs: number;
   pocCount: number;
   prodCount: number;
-  pocToProdCount: number;
 }
 
 const SOWTracker: React.FC = () => {
@@ -57,7 +56,6 @@ const SOWTracker: React.FC = () => {
     thisMonthSOWs: 0,
     pocCount: 0,
     prodCount: 0,
-    pocToProdCount: 0
   });
 
   // Filter states
@@ -81,7 +79,7 @@ const SOWTracker: React.FC = () => {
 
       // Fetch all SOW records from history API
       const response = await apiService.fetchDocuments({
-        
+
       });
 
       if (response.success && response.documents) {
@@ -132,7 +130,6 @@ const SOWTracker: React.FC = () => {
       }).length,
       pocCount: records.filter(r => r.mode === 'POC').length,
       prodCount: records.filter(r => r.mode === 'PROD' || r.mode === 'PRODUCTION').length,
-      pocToProdCount: records.filter(r => r.mode === 'POC_TO_PROD' || r.mode === 'POC-TO-PRODUCTION').length
     };
 
     setStatistics(stats);
@@ -173,7 +170,7 @@ const SOWTracker: React.FC = () => {
       filtered = filtered.filter(record => {
         if (selectedMode === 'POC') return record.mode === 'POC';
         if (selectedMode === 'PROD') return record.mode === 'PROD' || record.mode === 'PRODUCTION';
-        if (selectedMode === 'POC_TO_PROD') return record.mode === 'POC_TO_PROD' || record.mode === 'POC-TO-PRODUCTION';
+
         return true;
       });
     }
@@ -279,14 +276,14 @@ const SOWTracker: React.FC = () => {
   const getModeLabel = (mode: string) => {
     if (mode === 'POC') return 'POC';
     if (mode === 'PROD' || mode === 'PRODUCTION') return 'Production';
-    if (mode === 'POC_TO_PROD' || mode === 'POC-TO-PRODUCTION') return 'POC to Prod';
+
     return mode;
   };
 
   const getModeColor = (mode: string) => {
     if (mode === 'POC') return '#2563eb';
     if (mode === 'PROD' || mode === 'PRODUCTION') return '#059669';
-    if (mode === 'POC_TO_PROD' || mode === 'POC-TO-PRODUCTION') return '#7c3aed';
+
     return '#6b7280';
   };
 
@@ -345,16 +342,7 @@ const SOWTracker: React.FC = () => {
           </div>
         </div>
 
-        <div className="stat-card stat-card-purple">
-          <div className="stat-icon">
-            <FileText size={32} />
-          </div>
-          <div className="stat-content">
-            <h3>POC to Prod</h3>
-            <p className="stat-value">{statistics.pocToProdCount}</p>
-            <span className="stat-label">Transition documents</span>
-          </div>
-        </div>
+
       </div>
 
       {/* Filters and Search */}
@@ -391,12 +379,7 @@ const SOWTracker: React.FC = () => {
           >
             Production
           </button>
-          <button
-            className={`filter-btn ${selectedMode === 'POC_TO_PROD' ? 'active' : ''}`}
-            onClick={() => setSelectedMode('POC_TO_PROD')}
-          >
-            POC to Prod
-          </button>
+
         </div>
       </div>
 

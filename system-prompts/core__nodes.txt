@@ -1,0 +1,103 @@
+
+
+SOURCE: backend/app/core/nodes.py:685
+NAME: prompt
+
+Extract metadata from this POC/SOW document cover page EXACTLY as it appears.
+
+COVER PAGE LAYOUT ANALYSIS:
+Look at the FIRST PAGE (cover page) which typically has this layout:
+- TOP AREA: Vendor company logo/name (like "Shellkode")
+- MIDDLE AREA: Client company name (large text, like "Truemeds")  
+- BELOW CLIENT: Project title (like "Logistoc Planner analyzer")
+- BOTTOM LEFT: Author name (like "Abdul")
+- BOTTOM RIGHT: "Prepared by" text
+
+FIELD DEFINITIONS:
+- company_name: The CLIENT company name (large text in middle of cover page, NOT the vendor)
+- project_title: The project name (appears below client company name on cover page)
+- author_name: The PERSON's name (appears in bottom left corner of cover page)
+- author_org: The VENDOR company (appears in top area with logo, like "Shellkode")
+- objective: What the project aims to achieve (1-2 sentences)
+- document_date: The document date in format: DD Month YYYY
+
+CRITICAL EXTRACTION RULES:
+⚠️ FOCUS ONLY ON THE COVER PAGE (FIRST PAGE) ⚠️
+
+0. DOCUMENT PROPERTIES (HIGHEST PRIORITY):
+   - If text starts with "DOCUMENT_AUTHOR: <name>", use that as author_name
+   - If text starts with "DOCUMENT_TITLE: <title>", use that as project_title
+   - These come from the document's built-in metadata and are most reliable
+
+1. COMPANY NAME (Client):
+   - Look for the LARGEST text on the cover page (usually client company name)
+   - This is NOT "Shellkode" (that's the vendor)
+   - Examples: "Truemeds", "SmallestAI", "TechCorp"
+
+2. PROJECT TITLE:
+   - Look for text BELOW the client company name
+   - Usually 2-4 words describing the project
+   - Examples: "Logistoc Planner analyzer", "Demand Forecasting System"
+   - Extract EXACTLY as written, don't add words
+
+3. AUTHOR NAME:
+   - Look in BOTTOM LEFT corner of cover page
+   - Usually just a first name or full name
+   - Examples: "Abdul", "John Smith", "Sarah"
+   - NOT "Contents", "About", or document structure text
+
+4. AUTHOR ORG (Vendor):
+   - Usually "Shellkode" (appears with logo in top area)
+
+IGNORE THESE (they are document structure, not content):
+- "Contents", "About", "Table of Contents", "Overview"
+- "Scope of Work", "Project Overview" (these are section headers)
+- "Prepared by" (this is a label, not the name)
+
+{combined_text}
+
+IMPORTANT: Return ONLY valid JSON, no markdown, no code blocks.
+Focus on the cover page layout and extract the actual content, not document structure.
+Return format:
+{"company_name": "...", "author_name": "...", "author_org": "...", "project_title": "...", "objective": "...", "document_date": "..."}
+
+
+
+SOURCE: backend/app/core/nodes.py:1054
+NAME: prompt
+
+Extract source evidence from part {index} of {len(chunks)} of an existing POC SOW.
+
+DOCUMENT EXCERPT:
+{chunk}
+
+Return JSON only. Use [] or null when absent. Do not infer production requirements or invent results.
+{
+  "project_overview": null,
+  "current_state": [],
+  "key_features": [],
+  "functional_requirements": [],
+  "non_functional_requirements": [],
+  "confirmed_aws_services": [],
+  "aws_services": [],
+  "technical_stack": [],
+  "architecture_components": [],
+  "workflow_steps": [],
+  "data_sources": [],
+  "data_characteristics": {},
+  "integration_details": [],
+  "security_requirements": [],
+  "compliance_requirements": [],
+  "success_metrics": [],
+  "test_evidence": [],
+  "key_deliverables": [],
+  "assumptions": [],
+  "out_of_scope": [],
+  "risks_and_mitigations": [],
+  "known_limitations": [],
+  "timeline": null,
+  "duration_weeks": null,
+  "business_impact": null,
+  "poc_evidence": [],
+  "open_clarifications": []
+}

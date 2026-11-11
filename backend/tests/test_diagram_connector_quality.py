@@ -22,6 +22,54 @@ def test_loop_is_penalised_even_without_crossings():
     assert short['connector_bends'] == 0
 
 
+def test_outbound_integrations_enter_from_top_without_under_box_loops():
+    positions = {'runtime':(200,50,300,200),'a':(40,420,120,95),
+                 'b':(300,420,120,95),'c':(580,420,120,95)}
+    spec = SimpleNamespace(nodes=[], edges=[SimpleNamespace(source='runtime',target=k) for k in ('a','b','c')])
+    sides = {('runtime',k):{'runtime':{'bottom'},k:{'top'}} for k in ('a','b','c')}
+    paths = local_routes(spec,positions,{}, {},760,560,max_terminal_gap=32,terminal_sides=sides)
+    assert all(path[0][1] == 250 and path[-1][1] == 420 for path in paths)
+    assert all(y <= 420 for path in paths for x,y in path)
+    assert geometry_report(spec,positions,paths)['connector_node_intersections'] == 0
+
+
+def test_aligned_icons_do_not_jog_due_to_different_incident_counts():
+    positions = {'a':(20,100,168,132),'b':(300,100,168,132),'c':(20,300,168,132)}
+    spec = SimpleNamespace(nodes=[SimpleNamespace(id=k,icon_key='aws-icon') for k in positions],
+        edges=[SimpleNamespace(source='c',target='a'),SimpleNamespace(source='a',target='b')])
+    paths = local_routes(spec,positions,{}, {},550,500,iconic=True)
+    assert len(paths[1]) == 2
+    assert paths[1][0][1] == paths[1][1][1]
+    assert geometry_report(spec,positions,paths)['connector_node_intersections'] == 0
+
+
+def test_short_routes_win_over_page_wide_routes_with_slightly_fewer_parallel_pairs():
+    long = dict(connector_crossings=3, ambiguous_connector_pairs=11,
+                connector_length_normalized=5.8, connector_bends=41,
+                long_connector_count=3, longest_connector_fraction=1.0)
+    compact = dict(connector_crossings=3, ambiguous_connector_pairs=17,
+                   connector_length_normalized=4.2, connector_bends=36,
+                   long_connector_count=0, longest_connector_fraction=.65)
+    assert layout_quality(compact) < layout_quality(long)
+
+
+def test_vertical_actor_group_path_does_not_jog_due_to_incident_offsets():
+    positions={'actor':(180,20,180,80),'group':(100,300,500,180),'peer':(680,300,100,80)}
+    spec=SimpleNamespace(nodes=list(positions),edges=[SimpleNamespace(source='actor',target='group'),
+        SimpleNamespace(source='peer',target='group')])
+    paths=local_routes(spec,positions,{}, {},850,550)
+    assert len(paths[0])==2 and paths[0][0][0]==paths[0][1][0]
+    assert geometry_report(spec,positions,paths)['connector_node_intersections']==0
+
+
+def test_vertical_shortcut_never_goes_through_an_intervening_node():
+    positions={'actor':(180,20,180,80),'group':(100,350,500,180),'blocker':(160,170,220,100)}
+    spec=SimpleNamespace(nodes=list(positions),edges=[SimpleNamespace(source='actor',target='group')])
+    paths=local_routes(spec,positions,{}, {},800,600)
+    assert len(paths[0])>2
+    assert geometry_report(spec,positions,paths)['connector_node_intersections']==0
+
+
 def test_router_uses_short_facing_ports_and_preserves_edges():
     positions = {'a': (20,20,80,80), 'b': (200,20,80,80), 'c': (200,180,80,80)}
     spec = SimpleNamespace(nodes=list(positions), edges=[
@@ -32,6 +80,17 @@ def test_router_uses_short_facing_ports_and_preserves_edges():
     assert paths[1][0][1] == 100
     assert paths[1][-1] == (240,180)
     assert geometry_report(spec, positions, paths)['connector_node_intersections'] == 0
+
+
+def test_physical_routes_can_cross_empty_sibling_boundaries_without_page_detours():
+    positions={'app':(50,160,100,80),'report':(700,160,100,80),'db':(340,330,100,80)}
+    boxes={'az_a':(20,80,180,400),'az_b':(240,80,350,400)}
+    parents={'app':'az_a','db':'az_b','report':'region'}
+    spec=SimpleNamespace(nodes=list(positions),edges=[SimpleNamespace(source='app',target='report')])
+    paths=local_routes(spec,positions,boxes,parents,850,550,boundary_transit=True)
+    assert len(paths[0])==2  # The empty AZ corridor is not a service or a wall.
+    assert geometry_report(spec,positions,paths)['connector_node_intersections']==0
+    assert parents=={'app':'az_a','db':'az_b','report':'region'}
 
 
 def test_distinct_edges_do_not_share_a_visible_terminal():
@@ -87,6 +146,21 @@ def test_routing_budget_is_enforced():
     spec = SimpleNamespace(edges=[SimpleNamespace(source='a', target='b')])
     with pytest.raises(TimeoutError):
         local_routes(spec, {'a':(20,20,80,80), 'b':(200,20,80,80)}, {}, {}, 320, 140, deadline=0)
+
+
+def test_external_relationship_routes_outside_cloud_without_blocking_internal_flow():
+    from app.diagram.review import hits_box
+    positions = {'staff':(120,10,80,70), 'crm':(260,440,80,70),
+                 'app':(100,220,80,70), 'data':(300,220,80,70)}
+    cloud = (40,130,400,240)
+    spec = SimpleNamespace(nodes=list(positions), edges=[
+        SimpleNamespace(source='staff',target='crm'),
+        SimpleNamespace(source='app',target='data')])
+    paths = local_routes(spec,positions,{}, {},500,560,
+        edge_obstacles={('staff','crm'):[cloud]})
+    assert not any(hits_box(a,b,cloud) for a,b in zip(paths[0],paths[0][1:]))
+    assert len(paths[1]) == 2
+    assert geometry_report(spec,positions,paths)['connector_node_intersections'] == 0
 
 
 def test_shared_target_has_separate_arrowheads_and_approach_tracks():

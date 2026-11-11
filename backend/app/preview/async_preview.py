@@ -13,12 +13,17 @@ if _backend_root not in sys.path:
 
 from app.preview.preview_handler import preview_storage, preview_lock, PreviewStatus
 
-def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fast_mode: bool = True, on_complete=None):
+def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fast_mode: bool = True, on_complete=None, on_cancel=None):
     """
     Process preview generation in background thread
     Updates status in real-time with 5 distinct phases
     """
+    from app.preview.cancellation import GenerationCancelled, check_cancelled, current_preview
+    with preview_lock:
+        if preview_id in preview_storage:
+            preview_storage[preview_id]['generation_worker_active'] = True
     def background_task():
+        cancellation_token = current_preview.set(preview_id)
         preview_started_at = float(initial_state.get("preview_started_at") or time.perf_counter())
         usage_context_token = None
         try:
@@ -36,6 +41,8 @@ def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fa
                 with preview_lock:
                     if preview_id not in preview_storage:
                         return
+                    if preview_storage[preview_id].get('cancel_requested'):
+                        raise GenerationCancelled()
                     current = int(preview_storage[preview_id].get("progress", 0) or 0)
                     previous_step = str(preview_storage[preview_id].get("current_step", ""))
                     progress = max(current, min(int(progress), 99))
@@ -96,12 +103,15 @@ def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fa
             
             # Run the actual graph
             final_state = preview_graph.invoke(graph_state)
+            check_cancelled(preview_id)
             if final_state.get("errors"):
                 raise ValueError(str(final_state["errors"][0]))
             
             # Phase 5: Finalizing (90-100%)
             with preview_lock:
                 if preview_id in preview_storage:
+                    if preview_storage[preview_id].get('cancel_requested'):
+                        raise GenerationCancelled()
                     preview_storage[preview_id]["status"] = "finalizing"
                     preview_storage[preview_id]["progress"] = 96
                     preview_storage[preview_id]["current_step"] = "Finalizing content structure..."
@@ -119,6 +129,8 @@ def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fa
             # Update with final result - Status: Ready
             with preview_lock:
                 if preview_id in preview_storage:
+                    if preview_storage[preview_id].get('cancel_requested'):
+                        raise GenerationCancelled()
                     preview_storage[preview_id]["status"] = "draft_pending" if on_complete else "ready"
                     preview_storage[preview_id]["content"] = poc_content
                     preview_storage[preview_id]["progress"] = 98 if on_complete else 100
@@ -136,11 +148,13 @@ def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fa
                     print(f"✅ Preview stored in memory: {preview_id}")
 
             if on_complete:
+                check_cancelled(preview_id)
                 try:
                     on_complete(preview_id, automatic=True)
                 except Exception as save_error:
                     # Generation remains recoverable; the server autosave monitor retries.
                     print(f"[DRAFT] Autosave will retry: {save_error}", flush=True)
+            check_cancelled(preview_id)
 
             # Print token usage summary after preview generation
             from app.core.nodes import print_token_summary
@@ -152,6 +166,8 @@ def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fa
             print(f"[TIMING] Scope generation time: {scope_seconds:.2f} seconds", flush=True)
             print(f"[TIMING] Total preview time: {total_seconds:.2f} seconds", flush=True)
             
+        except GenerationCancelled:
+            print(f'[PREVIEW {preview_id}] Cancellation acknowledged by worker', flush=True)
         except Exception as e:
             print(f"[PREVIEW {preview_id}] FAILED — {e}", flush=True)
             import traceback
@@ -165,7 +181,7 @@ def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fa
             # Update with error status
             with preview_lock:
                 if preview_id in preview_storage:
-                    preview_storage[preview_id]["status"] = "failed"
+                    preview_storage[preview_id]["status"] = ('cancelling' if preview_storage[preview_id].get('cancel_requested') else 'failed')
                     preview_storage[preview_id]["error"] = str(e)
                     preview_storage[preview_id]["current_step"] = f"Error: {str(e)}"
                     preview_storage[preview_id]["token_usage"] = failed_usage
@@ -175,9 +191,23 @@ def process_preview_async(preview_id: str, initial_state: Dict[str, Any], use_fa
             from app.core.nodes import clear_token_usage
             clear_token_usage(preview_id)
         finally:
+            current_preview.reset(cancellation_token)
             if usage_context_token is not None:
                 from app.core.nodes import unbind_token_usage
                 unbind_token_usage(usage_context_token)
+            with preview_lock:
+                preview = preview_storage.get(preview_id)
+                if preview:
+                    preview['generation_worker_active'] = False
+                cancelled = bool(preview and preview.get('cancel_requested'))
+            if cancelled:
+                if on_cancel:
+                    on_cancel(preview_id)
+                else:
+                    with preview_lock:
+                        if preview_id in preview_storage:
+                            preview_storage[preview_id].update(status='cancelled', content={}, final_state={},
+                                                              current_step='Generation cancelled')
     
     # Start background thread
     thread = threading.Thread(target=background_task, daemon=True)

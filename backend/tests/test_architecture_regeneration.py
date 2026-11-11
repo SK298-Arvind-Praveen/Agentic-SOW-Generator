@@ -114,6 +114,20 @@ def test_regeneration_updates_diagram_and_all_affected_sections_without_mutating
     assert service.generate_assets.call_args.args[0]['architecture_source_context'] == baseline['final_state']['supporting_context']
 
 
+def test_recovery_regeneration_keeps_picture_without_promoting_unverified_design():
+    original = snapshot()
+    original['final_state']['pricing_result'] = {'monthly_cost':123}
+    asset = {**good_asset(), 'used_fallback':True, 'status':'review_required',
+             'quality_warnings':['Primary planning failed']}
+    service = mock_service([], asset)
+    with patch('app.preview.architecture_regeneration.DiagramService', return_value=service):
+        result = regenerate(original, '', object())
+    assert result['content']['architecture_diagram_assets'][0]['image_base64'] == 'image'
+    assert result['content']['architecture_diagram'] == original['content']['architecture_diagram']
+    assert result['final_state']['pricing_result']['monthly_cost'] == 123
+    service.llm.generate.assert_not_called()
+
+
 def test_protected_section_patch_retried_not_applied():
     bad = revision()
     bad['sections']['terms_conditions'] = 'Changed legal clause'
@@ -149,16 +163,20 @@ def test_failed_diagram_does_not_rewrite_text():
     service.llm.generate.assert_not_called()
 
 
-def test_architecture_changes_invalidate_existing_pricing():
+def test_architecture_changes_automatically_refresh_existing_pricing():
     original = snapshot()
     original['final_state']['pricing_result'] = {'status': 'estimated', 'region': 'us-east-1'}
     asset = good_asset()
     asset['spec']['nodes'] = [{'id': 'new'}]
     service = mock_service([revision(), {'consistent': True, 'problems': []}], asset)
     with patch('app.preview.architecture_regeneration.DiagramService', return_value=service), \
-         patch('app.pricing.render_aws_pricing_section', return_value='Updated pricing required'):
+         patch('app.pricing.AwsPricingService') as pricing_service, \
+         patch('app.pricing.render_aws_pricing_section', return_value='Refreshed pricing'):
+        pricing_service.return_value.generate.return_value = {'status': 'priced', 'monthly_cost': 42}
         result = regenerate(original, '', object())
-    assert result['final_state']['pricing_result']['stale']
+    assert result['final_state']['pricing_result']['monthly_cost'] == 42
+    assert result['content']['aws_pricing'] == 'Refreshed pricing'
+    assert pricing_service.return_value.generate.call_args.args[1]['pricing_region'] == 'us-east-1'
 
 
 def test_regeneration_endpoint_is_idempotent_while_running():

@@ -199,7 +199,8 @@ def test_compact_hierarchy_preserves_real_vpc_az_and_subnet_membership(service):
     assert len(data['paths']) == 3
     assert data['metrics']['containment_violations'] == 0
     captions = list(data['captions'].values())
-    assert {'App VPC', 'Availability Zone A', 'Availability Zone B', 'Private subnet'} <= set(captions)
+    assert {'VPC', 'Availability Zone', 'Private subnet'} <= set(captions)
+    assert captions.count('Availability Zone') == 2
     assert data['parents']['app'].endswith('_private')
     assert data['parents']['replica'].endswith('_private')
     assert data['parents']['s3'].startswith('__region')

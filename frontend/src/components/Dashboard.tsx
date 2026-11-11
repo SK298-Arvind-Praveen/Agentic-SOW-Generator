@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { toast } from '../utils/toast';
 import {
   FileText,
@@ -14,15 +14,10 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  ArrowUpCircle,
   RefreshCw,
-  X,
-  Edit,
-  BarChart3,
   Trash2
 } from 'lucide-react';
 import SOWGenerator from './SOWGenerator';
-import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import apiService, { Document } from '../services/apiService';
 import { downloadWithNativeSaveAs } from '../utils/downloadFile';
@@ -33,33 +28,18 @@ import './Dashboard.css';
 import './SOWGenerator.css';
 import { useAuth } from '../contexts/AuthContext';
 import SOWDeleteDialog from './SOWDeleteDialog';
+import { usePageMemoryState } from '../hooks/usePageMemoryState';
 
-type SOWType = 'poc' | 'production' | 'poc-to-production';
-type ViewType = 'generate' | 'records' | 'documents';
+type SOWType = 'poc' | 'production';
+type ViewType = 'generate' | 'records';
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const location = useLocation();
   const { isAdmin, user } = useAuth();
-  const [selectedSOW, setSelectedSOW] = useState<SOWType>('poc');
+  const [selectedSOW, setSelectedSOW] = usePageMemoryState<SOWType>(`sow-mode:${user?.email || 'anonymous'}`, 'poc');
   const [selectedView, setSelectedView] = useState<ViewType>('generate');
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
   const [recentPOCs, setRecentPOCs] = useState<Document[]>([]);
-  const [isLoadingRecentPOCs, setIsLoadingRecentPOCs] = useState(false);
   const [productionRecords, setProductionRecords] = useState<Document[]>([]);
-  const [isLoadingProductionRecords, setIsLoadingProductionRecords] = useState(false);
-  const [pocToProductionRecords, setPocToProductionRecords] = useState<Document[]>([]);
-  const [isLoadingPocToProductionRecords, setIsLoadingPocToProductionRecords] = useState(false);
-  const [filters, setFilters] = useState({
-    projectName: '',
-    customerName: '',
-    authorName: '',
-    sowType: '',
-    status: '',
-    startDate: null as Date | null,
-    endDate: null as Date | null
-  });
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [rowVersions, setRowVersions] = useState<{ [key: string]: Array<{ document_id?: string; version: string; date: string; author: string; status: string; s3_url: string; total_tokens?: number | string }> }>({});
@@ -73,22 +53,10 @@ const Dashboard: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<Document | null>(null);
   const [deletingSOW, setDeletingSOW] = useState(false);
 
-  // To Production flow state
-  const [isProductionLoading, setIsProductionLoading] = useState(false);
-  const [productionProgress, setProductionProgress] = useState(0);
-  const [productionTargetProgress, setProductionTargetProgress] = useState(0);
-  const [showProductionPreviewModal, setShowProductionPreviewModal] = useState(false);
-  const [productionPreviewData, setProductionPreviewData] = useState<any>(null);
-  const [showProductionEditModal, setShowProductionEditModal] = useState(false);
-  const [productionEditData, setProductionEditData] = useState<any>(null);
-  const [productionSelectedSections, setProductionSelectedSections] = useState<string[]>([]);
-  const [productionSectionInputs, setProductionSectionInputs] = useState<Record<string, string>>({});
-  const [isProductionFullReplace, setIsProductionFullReplace] = useState(false);
-
   // Helper functions to safely access document properties
   const getDocumentProperty = (doc: Document, property: string): string => {
     if (!doc) return '';
-    
+
     switch (property) {
       case 'author':
         return doc.author || doc.author_name || '';
@@ -109,23 +77,6 @@ const Dashboard: React.FC = () => {
     }
   };
 
- 
-  // Handle navigation state (e.g. redirect from /documents route)
-  useEffect(() => {
-    const state = location.state as { view?: ViewType } | null;
-    if (state?.view) {
-      setSelectedView(state.view);
-      // Clear the state so it doesn't re-trigger on back navigation
-      navigate(location.pathname, { replace: true, state: {} });
-    }
-  }, []);
-
-  // Fetch documents when documents view is selected
-  useEffect(() => {
-    if (selectedView === 'documents') {
-      fetchDocuments();
-    }
-  }, [selectedView]);
 
   // Fetch records every time the records view is opened
   useEffect(() => {
@@ -133,58 +84,6 @@ const Dashboard: React.FC = () => {
       fetchAllRecords(true);
     }
   }, [selectedView]);
-
-  // Smooth progress animation for production loader
-  useEffect(() => {
-    if (!isProductionLoading) return;
-    const interval = setInterval(() => {
-      setProductionProgress(current => {
-        if (current < productionTargetProgress) {
-          return Math.min(current + 1, productionTargetProgress);
-        }
-        return current;
-      });
-    }, 200);
-    return () => clearInterval(interval);
-  }, [isProductionLoading, productionTargetProgress]);
-
-  const fetchDocuments = async () => {
-    setIsLoadingDocuments(true);
-    const response = await apiService.fetchDocuments();
-    if (response.success && response.documents && Array.isArray(response.documents)) {
-      // Map the documents from the new API structure
-      const mappedDocuments: Document[] = response.documents.map((item: any) => {
-        // Extract document data from nested structure
-        const doc = item.document || item;
-        
-        return {
-          id: doc.document_id || doc.id,
-          document_id: doc.document_id || doc.doc_id || doc.id,
-          name: doc.project_name || doc.name || doc.title,
-          company: doc.customer_name || doc.company || doc.company_name,
-          author: doc.author_name || doc.author,
-          date: documentTimestamp(doc),
-          mode: doc.mode,
-          project_name: doc.project_name || doc.name,
-          company_name: doc.customer_name || doc.company,
-          author_name: doc.author_name || doc.author,
-          s3_url: doc.s3_url || doc.download_url || doc.url || '',
-          drive_link: doc.drive_link,
-          task_id: doc.task_id || item.task?.task_id,
-          timestamp: doc.timestamp,
-          version: doc.version,
-          status: item.task?.status || doc.status,
-          progress: item.task?.progress || doc.progress,
-          current_step: item.task?.current_step || doc.current_step,
-          is_processing: item.is_processing,
-          total_tokens: doc.total_tokens,
-        };
-      });
-      
-      setDocuments(mappedDocuments);
-    }
-    setIsLoadingDocuments(false);
-  };
 
   const fetchAllRecords = async (force = false) => {
     if (isFetchingRecords.current) return;
@@ -198,7 +97,6 @@ const Dashboard: React.FC = () => {
 
       const pocRecords: Document[] = [];
       const prodRecords: Document[] = [];
-      const p2pRecords: Document[] = [];
       const newRowVersions: typeof rowVersions = {};
 
       Object.entries(response.companies).forEach(([, company]: [string, any]) => {
@@ -207,7 +105,7 @@ const Dashboard: React.FC = () => {
         if (!company.projects) return;
 
         Object.entries(company.projects).forEach(([projectName, projectData]: [string, any]) => {
-          (['POC', 'PROD', 'POC_TO_PROD'] as const).forEach(mode => {
+          (['POC', 'PROD'] as const).forEach(mode => {
             const versionMap = projectData[mode];
             if (!versionMap || typeof versionMap !== 'object') return;
 
@@ -260,14 +158,13 @@ const Dashboard: React.FC = () => {
 
             if (mode === 'POC') pocRecords.push(record);
             else if (mode === 'PROD') prodRecords.push(record);
-            else if (mode === 'POC_TO_PROD') p2pRecords.push(record);
+
           });
         });
       });
 
       setRecentPOCs(pocRecords);
       setProductionRecords(prodRecords);
-      setPocToProductionRecords(p2pRecords);
       setRowVersions(newRowVersions);
       recordsCachedAt.current = Date.now();
     } catch (error) {
@@ -276,10 +173,6 @@ const Dashboard: React.FC = () => {
       isFetchingRecords.current = false;
     }
   };
-
-  const fetchRecentPOCs = fetchAllRecords;
-  const fetchProductionRecords = fetchAllRecords;
-  const fetchPocToProductionRecords = fetchAllRecords;
 
   const sowOptions = [
     {
@@ -296,13 +189,7 @@ const Dashboard: React.FC = () => {
       icon: Code,
       color: '#059669'
     },
-    {
-      id: 'poc-to-production' as SOWType,
-      title: 'POC to Production',
-      description: 'Statement of Work for transitioning POC to Production',
-      icon: Database,
-      color: '#7c3aed'
-    }
+
   ];
 
   const handleSOWSelect = (sowId: SOWType) => {
@@ -316,62 +203,13 @@ const Dashboard: React.FC = () => {
     setSelectedCompany(null); // Reset company selection when changing views
   };
 
-   const getFilteredDocuments = () => {
-    return documents.filter(doc => {
-      const projectMatch = getDocumentProperty(doc, 'name').toLowerCase().includes(filters.projectName.toLowerCase());
-      const customerMatch = getDocumentProperty(doc, 'company').toLowerCase().includes(filters.customerName.toLowerCase());
-      const authorMatch = getDocumentProperty(doc, 'author').toLowerCase().includes(filters.authorName.toLowerCase());
-      
-      let sowTypeMatch = true;
-      if (filters.sowType) {
-        const docMode = getDocumentProperty(doc, 'mode').toLowerCase();
-        sowTypeMatch = docMode === filters.sowType.toLowerCase() || 
-                      (filters.sowType === 'poc' && docMode === 'poc') ||
-                      (filters.sowType === 'prod' && (docMode === 'prod' || docMode === 'production')) ||
-                      (filters.sowType === 'poc_to_prod' && (docMode === 'poc_to_prod' || docMode === 'poc-to-production'));
-      }
-      
-      let statusMatch = true;
-      if (filters.status) {
-        const s3Url = getDocumentProperty(doc, 's3_url');
-        if (filters.status === 'completed') {
-          statusMatch = !!s3Url && !(doc.is_processing ?? false);
-        } else if (filters.status === 'processing') {
-          statusMatch = doc.is_processing ?? false;
-        } else if (filters.status === 'pending') {
-          statusMatch = !s3Url && !(doc.is_processing ?? false);
-        }
-      }
-      
-      let dateMatch = true;
-      if (filters.startDate || filters.endDate) {
-        const docDateStr = getDocumentProperty(doc, 'date');
-        if (docDateStr) {
-          const docDate = new Date(docDateStr);
-          if (filters.startDate && docDate < filters.startDate) {
-            dateMatch = false;
-          }
-          if (filters.endDate) {
-            const endOfDay = new Date(filters.endDate);
-            endOfDay.setHours(23, 59, 59, 999);
-            if (docDate > endOfDay) {
-              dateMatch = false;
-            }
-          }
-        }
-      }
-      
-      return projectMatch && customerMatch && authorMatch && sowTypeMatch && statusMatch && dateMatch;
-    });
-  };
-
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
-    
+
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
       direction = 'desc';
     }
-    
+
     setSortConfig({ key, direction });
   };
 
@@ -423,16 +261,9 @@ const Dashboard: React.FC = () => {
     if (!sortConfig || sortConfig.key !== columnKey) {
       return <ArrowUpDown size={14} className="sort-icon-inactive" />;
     }
-    return sortConfig.direction === 'asc' 
+    return sortConfig.direction === 'asc'
       ? <ArrowUp size={14} className="sort-icon-active" />
       : <ArrowDown size={14} className="sort-icon-active" />;
-  };
-
-  const handleFilterChange = (field: string, value: string | Date | null) => {
-    setFilters(prev => ({
-      ...prev,
-      [field]: value
-    }));
   };
 
   const getFilteredRecords = () => {
@@ -440,8 +271,6 @@ const Dashboard: React.FC = () => {
       return recentPOCs;
     } else if (selectedSOW === 'production') {
       return productionRecords;
-    } else if (selectedSOW === 'poc-to-production') {
-      return pocToProductionRecords;
     }
     return [];
   };
@@ -456,15 +285,15 @@ const Dashboard: React.FC = () => {
     const projectName = record.name || record.project_name || record.title || 'document';
 
     if (!s3Url) {
-      toast.error('No download URL available for this document', { 
-        position: 'top-right', 
-        autoClose: 3000 
+      toast.error('No download URL available for this document', {
+        position: 'top-right',
+        autoClose: 3000
       });
       return;
     }
 
-    const toastId = toast.loading('Downloading document...', { 
-      position: 'top-right' 
+    const toastId = toast.loading('Downloading document...', {
+      position: 'top-right'
     });
 
     try {
@@ -489,196 +318,6 @@ const Dashboard: React.FC = () => {
         type: 'error',
         isLoading: false,
         autoClose: 5000,
-      });
-    }
-  };
-
-  const handleToProduction = async (record: Document) => {
-    const companyName = record.company || record.company_name || record.customer_name || '';
-    const projectName = record.name || record.project_name || record.title || '';
-    const authorName = record.author || record.author_name || 'Unknown';
-    const s3Url = record.s3_url || record.drive_link || '';
-
-    if (!companyName || !projectName) {
-      toast.error('Missing company or project information', { position: 'top-right', autoClose: 5000 });
-      return;
-    }
-
-    if (!s3Url) {
-      toast.error('No document file found for this POC record', { position: 'top-right', autoClose: 5000 });
-      return;
-    }
-
-    // Reset and show loader
-    setProductionPreviewData(null);
-    setShowProductionPreviewModal(false);
-
-    // Show non-blocking toast notification
-    const toastId = toast.loading('Starting production conversion...', {
-      position: 'bottom-right',
-      autoClose: false,
-    });
-
-    try {
-      const response = await apiService.convertToProduction(authorName, companyName, projectName, s3Url);
-
-      if (response.success && (response as any).preview_id) {
-        const previewId = (response as any).preview_id;
-        localStorage.setItem('lastPreviewId', previewId);
-
-        // Update toast to show background processing
-        toast.update(toastId, {
-          render: 'Converting in the background...',
-          type: 'info',
-          isLoading: true,
-          autoClose: false,
-          closeButton: false,
-        });
-
-        // Track progress with smart increments based on steps
-        let currentProgressToast: any = toastId;
-        const progressMap: { [key: string]: number } = {
-          'Validating inputs': 10,
-          'Extracting metadata': 15,
-          'Generating document': 30,
-          'Researching': 35,
-          'Research': 35,
-          'Analyzing': 45,
-          'Analyze': 45,
-          'Validating': 55,
-          'Validate': 55,
-          'Generating content': 70,
-          'Generate': 70,
-          'Building document': 85,
-          'Build': 85,
-          'Document generated': 95,
-          'Uploading': 98,
-          'Completed': 100,
-        };
-
-        const getProgressFromStep = (step: string): number => {
-          // Try exact match first
-          if (progressMap[step]) return progressMap[step];
-
-          // Try partial match
-          for (const [key, value] of Object.entries(progressMap)) {
-            if (step.toLowerCase().includes(key.toLowerCase())) {
-              return value;
-            }
-          }
-
-          // Default based on backend progress or 50%
-          return 50;
-        };
-
-        const pollInterval = setInterval(async () => {
-          try {
-            const statusResponse = await apiService.checkPreviewStatus(previewId);
-
-            // Calculate smart progress based on current step
-            let displayProgress = statusResponse.progress || 50;
-            if (statusResponse.current_step) {
-              const stepProgress = getProgressFromStep(statusResponse.current_step);
-              // Use the higher of backend progress or step-based progress
-              displayProgress = Math.max(displayProgress, stepProgress);
-            }
-
-            // Update or create progress toast
-            if (statusResponse.current_step) {
-              const progressMessage = `Progress: ${displayProgress}% - ${statusResponse.current_step}`;
-
-              if (currentProgressToast) {
-                toast.update(currentProgressToast, {
-                  render: progressMessage,
-                  type: 'info',
-                  isLoading: true,
-                  autoClose: false,
-                  closeButton: false,
-                });
-              } else {
-                currentProgressToast = toast.info(progressMessage, {
-                  position: 'bottom-right',
-                  autoClose: false,
-                  isLoading: true,
-                  closeButton: false,
-                });
-              }
-            }
-
-            if (statusResponse.has_error || statusResponse.status === 'failed' || statusResponse.status === 'error') {
-              clearInterval(pollInterval);
-              toast.update(currentProgressToast, {
-                render: `Conversion failed: ${statusResponse.error || statusResponse.message || 'Unknown error'}`,
-                type: 'error',
-                isLoading: false,
-                autoClose: 8000,
-                closeButton: true,
-              });
-              return;
-            }
-
-            if (statusResponse.status === 'completed' || statusResponse.status === 'success' || statusResponse.status === 'ready') {
-              clearInterval(pollInterval);
-
-              if (statusResponse.content || statusResponse.updated_content) {
-                // Show success toast
-                toast.update(currentProgressToast, {
-                  render: 'Production conversion ready. Opening editor...',
-                  type: 'success',
-                  isLoading: false,
-                  autoClose: 2000,
-                  closeButton: true,
-                });
-
-                // Automatically set preview data and show modal
-                setProductionPreviewData(statusResponse);
-                setShowProductionPreviewModal(true);
-              } else {
-                toast.update(currentProgressToast, {
-                  render: 'Conversion completed but no content is available',
-                  type: 'warning',
-                  isLoading: false,
-                  autoClose: 5000,
-                  closeButton: true,
-                });
-              }
-            }
-          } catch (err) {
-            clearInterval(pollInterval);
-            toast.update(currentProgressToast, {
-              render: 'Failed to check conversion status',
-              type: 'error',
-              isLoading: false,
-              autoClose: 5000,
-              closeButton: true,
-            });
-          }
-        }, 10000);
-
-        setTimeout(() => {
-          clearInterval(pollInterval);
-          toast.warning('⏱️ Conversion timed out. Please try again.', {
-            position: 'bottom-right',
-            autoClose: 5000,
-            closeButton: true,
-          });
-        }, 300000);
-      } else {
-        toast.update(toastId, {
-          render: response.error || response.message || 'Failed to initiate production conversion',
-          type: 'error',
-          isLoading: false,
-          autoClose: 5000,
-          closeButton: true,
-        });
-      }
-    } catch (error) {
-      toast.update(toastId, {
-        render: error instanceof Error ? error.message : 'Unknown error occurred',
-        type: 'error',
-        isLoading: false,
-        autoClose: 5000,
-        closeButton: true,
       });
     }
   };
@@ -710,94 +349,10 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handleProductionEditFromPreview = async () => {
-    const previewId = productionPreviewData?.preview_id || localStorage.getItem('lastPreviewId');
-    if (!previewId) { toast.error('No preview ID found'); return; }
-
-    setShowProductionPreviewModal(false);
-    setProductionEditData(productionPreviewData);
-    setProductionSelectedSections([]);
-    setProductionSectionInputs({});
-    setIsProductionFullReplace(false); // Reset toggle to Partial Edit mode
-    setShowProductionEditModal(true);
-
-    const toastId = toast.loading('Loading sections...', { position: 'top-right', autoClose: false });
-    try {
-      const sectionsResponse = await apiService.fetchSections('poc_to_prod');
-      toast.update(toastId, { render: 'Sections loaded', type: 'success', isLoading: false, autoClose: 2000, closeButton: true });
-    } catch {
-      toast.update(toastId, { render: 'Failed to load sections', type: 'error', isLoading: false, autoClose: 3000, closeButton: true });
-    }
-  };
-
-  const handleProductionSectionToggle = (section: string) => {
-    setProductionSelectedSections(prev => {
-      if (prev.includes(section)) {
-        setProductionSectionInputs(prevInputs => { const n = { ...prevInputs }; delete n[section]; return n; });
-        return prev.filter(s => s !== section);
-      }
-      return [...prev, section];
-    });
-  };
-
-  const handleProductionSaveEdit = async () => {
-    if (productionSelectedSections.length === 0) { toast.error('Please select at least one section to edit'); return; }
-    const missing = productionSelectedSections.filter(s => !productionSectionInputs[s]?.trim());
-    if (missing.length > 0) { toast.error(`Please provide input for: ${missing.join(', ')}`); return; }
-
-    const previewId = productionEditData?.preview_id || localStorage.getItem('lastPreviewId');
-    if (!previewId) { toast.error('No preview ID found'); return; }
-
-    const toastId = toast.loading('Saving changes...', { position: 'top-right', autoClose: false });
-    try {
-      const combinedInput = productionSelectedSections.map(s => `[${s}]\n${productionSectionInputs[s]}`).join('\n\n');
-      const response = await apiService.editSOW(previewId, productionSelectedSections, combinedInput, isProductionFullReplace);
-
-      if (response.success) {
-        toast.update(toastId, { render: `${productionSelectedSections.length} section(s) updated!`, type: 'success', isLoading: false, autoClose: 3000, closeButton: true });
-        setShowProductionEditModal(false);
-        setProductionPreviewData(response);
-        setShowProductionPreviewModal(true);
-        setProductionSelectedSections([]);
-        setProductionSectionInputs({});
-      } else {
-        toast.update(toastId, { render: response.error || 'Failed to save changes', type: 'error', isLoading: false, autoClose: 5000, closeButton: true });
-      }
-    } catch (error) {
-      toast.update(toastId, { render: 'Failed to save changes', type: 'error', isLoading: false, autoClose: 5000, closeButton: true });
-    }
-  };
-
-  const handleProductionFinalize = async () => {
-    const previewId = productionPreviewData?.preview_id || localStorage.getItem('lastPreviewId');
-    if (!previewId) { toast.error('No preview ID found'); return; }
-
-    setShowProductionPreviewModal(false);
-    const toastId = toast.loading('Converting to Production...', { position: 'top-right', autoClose: false });
-    try {
-      const response = await apiService.finalizeSOW(previewId);
-      if (response.success) {
-        localStorage.removeItem('lastPreviewId');
-        toast.update(toastId, { render: 'Successfully converted to Production!', type: 'success', isLoading: false, autoClose: 5000, closeButton: true });
-        isFetchingRecords.current = false;
-        fetchAllRecords();
-      } else {
-        toast.update(toastId, { render: response.error || 'Failed to convert to production', type: 'error', isLoading: false, autoClose: 5000, closeButton: true });
-      }
-    } catch (error) {
-      toast.update(toastId, { render: error instanceof Error ? error.message : 'Unknown error', type: 'error', isLoading: false, autoClose: 5000, closeButton: true });
-    }
-  };
-
-  const handleViewDocuments = () => {
-    setSelectedView('documents');
-    setSelectedCompany(null); // Reset company selection when switching to documents
-  };
-
   // Group records by company
   const getCompanyGroups = () => {
     let records = getFilteredRecords();
-    
+
     // Apply search filter
     if (recordsSearchQuery.trim()) {
       const query = recordsSearchQuery.toLowerCase();
@@ -812,9 +367,9 @@ const Dashboard: React.FC = () => {
         return true;
       });
     }
-    
+
     const groups: { [key: string]: Document[] } = {};
-    
+
     records.forEach(record => {
       const company = getDocumentProperty(record, 'company') || 'Unknown Company';
       if (!groups[company]) {
@@ -822,7 +377,7 @@ const Dashboard: React.FC = () => {
       }
       groups[company].push(record);
     });
-    
+
     return groups;
   };
 
@@ -833,7 +388,7 @@ const Dashboard: React.FC = () => {
       const recordDate = getDocumentProperty(record, 'date');
       return recordDate > latest ? recordDate : latest;
     }, '');
-    
+
     return {
       total: totalRecords,
       latest: latestDate
@@ -842,42 +397,39 @@ const Dashboard: React.FC = () => {
 
   const handleCompanyCardClick = async (companyName: string) => {
     setSelectedCompany(companyName);
-    
+
     // Fetch company details from API
     try {
       const response = await apiService.fetchCompanyDetails(companyName);
       console.log('Company Details Response:', response);
-      
+
       if (response && response.success && response.projects) {
         const companyRecords: Document[] = [];
-        
+
         // Iterate through projects
         Object.entries(response.projects).forEach(([projectName, projectData]: [string, any]) => {
           // Get the appropriate mode data based on selected SOW type
           let modeData: any = null;
           let modeKey = '';
-          
+
           if (selectedSOW === 'poc') {
             modeData = projectData.POC;
             modeKey = 'POC';
           } else if (selectedSOW === 'production') {
             modeData = projectData.PROD;
             modeKey = 'PROD';
-          } else if (selectedSOW === 'poc-to-production') {
-            modeData = projectData.POC_TO_PROD;
-            modeKey = 'POC_TO_PROD';
           }
-          
+
           // If mode data exists, get only the latest version
           if (modeData && typeof modeData === 'object') {
             const versions = sortVersionKeysNewestFirst(modeData);
             if (versions.length > 0) {
               const latestVersion = versions[0];
               const documents = modeData[latestVersion];
-              
+
               if (Array.isArray(documents) && documents.length > 0) {
               const doc = latestDocumentForVersion(documents);
-                
+
                 companyRecords.push({
                   id: doc.document_id || `${companyName}-${projectName}-${latestVersion}`,
                   document_id: doc.document_id,
@@ -894,7 +446,7 @@ const Dashboard: React.FC = () => {
                   version: latestVersion,
                   total_tokens: doc.total_tokens,
                 });
-                
+
                 // Store other versions for expansion
                 if (versions.length > 1) {
                   const otherVersions = versions.slice(1).map((v) => {
@@ -910,7 +462,7 @@ const Dashboard: React.FC = () => {
                       total_tokens: vDoc?.total_tokens,
                     };
                   });
-                  
+
                   setRowVersions(prev => ({
                     ...prev,
                     [doc.document_id]: otherVersions
@@ -920,14 +472,12 @@ const Dashboard: React.FC = () => {
             }
           }
         });
-        
+
         // Update the appropriate state based on SOW type
         if (selectedSOW === 'poc') {
           setRecentPOCs(companyRecords);
         } else if (selectedSOW === 'production') {
           setProductionRecords(companyRecords);
-        } else if (selectedSOW === 'poc-to-production') {
-          setPocToProductionRecords(companyRecords);
         }
       }
     } catch (error) {
@@ -952,23 +502,6 @@ const Dashboard: React.FC = () => {
     setExpandedRows(newExpandedRows);
   };
 
-  const addNewVersion = (documentId: string) => {
-    const currentVersions = rowVersions[documentId] || [];
-    const newVersionNumber = `v${currentVersions.length + 1}.0`;
-    const newVersion = {
-      version: newVersionNumber,
-      date: new Date().toISOString().split('T')[0],
-      author: 'Current User',
-      status: 'Draft',
-      s3_url: ''
-    };
-    
-    setRowVersions(prev => ({
-      ...prev,
-      [documentId]: [newVersion, ...currentVersions]
-    }));
-  };
-
   return (
     <>
       <div className="main-content">
@@ -980,29 +513,7 @@ const Dashboard: React.FC = () => {
           </div>
 
           <div className="header-right">
-            <div className="dashboard-sow-tabs">
-              {sowOptions.map((sow) => {
-                const isActive = selectedSOW === sow.id && selectedView !== 'documents';
-                return (
-                  <button
-                    key={sow.id}
-                    className={`sow-tab ${isActive ? 'active' : ''}`}
-                    onClick={() => handleSOWSelect(sow.id)}
-                    title={sow.description}
-                  >
-                    {sow.title}
-                  </button>
-                );
-              })}
-              <button
-                className={`sow-tab ${selectedView === 'documents' ? 'active' : ''}`}
-                onClick={() => handleViewDocuments()}
-                title="View all generated documents"
-              >
-                Documents
-              </button>
-            </div>
-            {selectedView !== 'documents' && (
+            {(
               <div className="dashboard-view-tabs">
                 <button
                   className={`view-tab ${selectedView === 'generate' ? 'active' : ''}`}
@@ -1025,7 +536,7 @@ const Dashboard: React.FC = () => {
 
         <div className="content-body">
           {selectedView === 'generate' ? (
-            <SOWGenerator selectedMode={selectedSOW} />
+            <SOWGenerator selectedMode={selectedSOW} onModeChange={handleSOWSelect} />
           ) : selectedView === 'records' ? (
             <div className="records-view">
               <div className="records-header">
@@ -1059,8 +570,8 @@ const Dashboard: React.FC = () => {
                     />
                   </div>
                   <div className="records-filter-dropdown">
-                    <button 
-                      className="records-filter-btn" 
+                    <button
+                      className="records-filter-btn"
                       title="Filter"
                       onClick={() => setShowRecordsFilter(!showRecordsFilter)}
                     >
@@ -1068,7 +579,7 @@ const Dashboard: React.FC = () => {
                     </button>
                     {showRecordsFilter && (
                       <div className="filter-dropdown-menu">
-                        <div 
+                        <div
                           className={`filter-option ${recordsFilterBy === 'company' ? 'active' : ''}`}
                           onClick={() => {
                             setRecordsFilterBy('company');
@@ -1077,7 +588,7 @@ const Dashboard: React.FC = () => {
                         >
                           Company Name
                         </div>
-                        <div 
+                        <div
                           className={`filter-option ${recordsFilterBy === 'author' ? 'active' : ''}`}
                           onClick={() => {
                             setRecordsFilterBy('author');
@@ -1091,22 +602,16 @@ const Dashboard: React.FC = () => {
                   </div>
                 </div>
               </div>
-              
+
               {!selectedCompany ? (
                 // Company Cards View
                 <div className="company-cards-container">
-                  {(selectedSOW === 'poc' && isLoadingRecentPOCs) || 
-                   (selectedSOW === 'production' && isLoadingProductionRecords) || 
-                   (selectedSOW === 'poc-to-production' && isLoadingPocToProductionRecords) ? (
-                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px' }}>
-                      Loading companies...
-                    </div>
-                  ) : Object.keys(getCompanyGroups()).length > 0 ? (
+                  {Object.keys(getCompanyGroups()).length > 0 ? (
                     Object.entries(getCompanyGroups()).map(([companyName, records]) => {
                       const stats = getCompanyStats(records);
                       const initials = companyName.split(' ').map(word => word[0]).join('').substring(0, 2).toUpperCase();
                       return (
-                        <div 
+                        <div
                           key={companyName}
                           className="company-card-pro"
                           onClick={() => handleCompanyCardClick(companyName)}
@@ -1125,7 +630,7 @@ const Dashboard: React.FC = () => {
                                 </div>
                               </div>
                             </div>
-                            
+
                             <div className="card-metrics-grid">
                               <div className="metric-box">
                                 <div className="metric-info">
@@ -1139,7 +644,7 @@ const Dashboard: React.FC = () => {
                                   </svg>
                                 </div>
                               </div>
-                              
+
                               <div className="metric-box">
                                 <div className="metric-info">
                                   <div className="metric-label">Projects</div>
@@ -1152,7 +657,7 @@ const Dashboard: React.FC = () => {
                                 </div>
                               </div>
                             </div>
-                            
+
                             <div className="card-footer-action">
                               <button className="view-btn-modern">
                                 <span>View Details</span>
@@ -1166,9 +671,9 @@ const Dashboard: React.FC = () => {
                       );
                     })
                   ) : (
-                    <div style={{ 
-                      gridColumn: '1 / -1', 
-                      textAlign: 'center', 
+                    <div style={{
+                      gridColumn: '1 / -1',
+                      textAlign: 'center',
                       padding: '80px 40px',
                       display: 'flex',
                       flexDirection: 'column',
@@ -1219,7 +724,7 @@ const Dashboard: React.FC = () => {
                           const isExpanded = expandedRows.has(documentId);
                           const versions = rowVersions[documentId] || [];
                           const projectName = getDocumentProperty(record, 'name');
-                          
+
                           return (
                             <React.Fragment key={documentId}>
                               <tr>
@@ -1344,423 +849,10 @@ const Dashboard: React.FC = () => {
                 </div>
               )}
             </div>
-          ) : (
-            <div className="documents-view">
-              <div className="documents-header">
-                <h1>All Documents</h1>
-                <p>View all generated SOW documents across all projects</p>
-              </div>
-              
-              <div className="documents-table-container">
-                <table className="documents-table">
-                  <thead>
-                    <tr>
-                      <th>Project Name</th>
-                      <th>Company Name</th>
-                      <th>Author Name</th>
-                      <th>SOW Type</th>
-                      <th onClick={() => handleSort('date')} className="sortable-header">
-                        <span className="header-content">
-                          Generated Date
-                          {renderSortIcon('date')}
-                        </span>
-                      </th>
-                      <th>Status</th>
-                      <th>Total Tokens</th>
-                      <th>Actions</th>
-                    </tr>
-                    
-<tr className="filter-row">
-                      <th>
-                        <input
-                          type="text"
-                          placeholder="Filter..."
-                          value={filters.projectName}
-                          onChange={(e) => handleFilterChange('projectName', e.target.value)}
-                          className="filter-input"
-                        />
-                      </th>
-                      <th>
-                        <input
-                          type="text"
-                          placeholder="Filter..."
-                          value={filters.customerName}
-                          onChange={(e) => handleFilterChange('customerName', e.target.value)}
-                          className="filter-input"
-                        />
-                      </th>
-                      <th>
-                        <input
-                          type="text"
-                          placeholder="Filter..."
-                          value={filters.authorName}
-                          onChange={(e) => handleFilterChange('authorName', e.target.value)}
-                          className="filter-input"
-                        />
-                      </th>
-                      <th>
-                        <select
-                          value={filters.sowType}
-                          onChange={(e) => handleFilterChange('sowType', e.target.value)}
-                          className="filter-input"
-                        >
-                          <option value="">All</option>
-                          <option value="poc">POC</option>
-                          <option value="prod">Production</option>
-                          <option value="poc_to_prod">POC to Prod</option>
-                        </select>
-                      </th>
-                      <th>
-                        <div className="date-range-filter">
-                          <DatePicker
-                            selected={filters.startDate}
-                            onChange={(date: Date | null) => handleFilterChange('startDate', date)}
-                            placeholderText="From"
-                            className="filter-input date-input"
-                            dateFormat="dd-MM-yyyy"
-                          />
-                          <span className="date-separator">to</span>
-                          <DatePicker
-                            selected={filters.endDate}
-                            onChange={(date: Date | null) => handleFilterChange('endDate', date)}
-                            placeholderText="To"
-                            className="filter-input date-input"
-                            dateFormat="dd-MM-yyyy"
-                          />
-                        </div>
-                      </th>
-                      <th>
-                        <select
-                          value={filters.status}
-                          onChange={(e) => handleFilterChange('status', e.target.value)}
-                          className="filter-input"
-                        >
-                          <option value="">All</option>
-                          <option value="completed">Completed</option>
-                          <option value="processing">Processing</option>
-                          <option value="pending">Pending</option>
-                        </select>
-                      </th>
-                      <th></th>
-                      <th></th>
-                    </tr>
-
-                  </thead>
-                  <tbody>
-                    {isLoadingDocuments ? (
-                      <tr>
-                        <td colSpan={8} className="no-records">
-                          Loading documents...
-                        </td>
-                      </tr>
-                    ) : getSortedRecords(getFilteredDocuments()).length > 0 ? (
-                      getSortedRecords(getFilteredDocuments()).map((doc) => (
-                        <tr key={getDocumentProperty(doc, 'document_id') || Math.random().toString()}>
-                          <td>{getDocumentProperty(doc, 'name') || 'N/A'}</td>
-                          <td>{getDocumentProperty(doc, 'company') || 'N/A'}</td>
-                          <td>{getDocumentProperty(doc, 'author') || 'N/A'}</td>
-                          <td>
-                            <span className={`sow-type-badge ${getDocumentProperty(doc, 'mode').toLowerCase()}`}>
-                              {(() => {
-                                const mode = getDocumentProperty(doc, 'mode').toLowerCase();
-                                if (mode === 'poc') return 'POC';
-                                if (mode === 'prod' || mode === 'production') return 'Production';
-                                if (mode === 'poc_to_prod' || mode === 'poc-to-production') return 'POC to Prod';
-                                return mode || 'Unknown';
-                              })()}
-                            </span>
-                          </td>
-                          <td>{getDocumentProperty(doc, 'date') || 'N/A'}</td>
-                          <td>
-                            {doc.is_processing ? (
-                              <span className="status-badge processing">
-                                {doc.current_step || 'Processing'} {doc.progress ? `(${doc.progress}%)` : ''}
-                              </span>
-                            ) : getDocumentProperty(doc, 's3_url') ? (
-                              <span className="status-badge completed">Completed</span>
-                            ) : (
-                              <span className="status-badge pending">Pending</span>
-                            )}
-                          </td>
-                          <td>{formatTokenCount(doc.total_tokens)}</td>
-                          <td>
-                            <div className="action-buttons">
-                              {getDocumentProperty(doc, 's3_url') && (
-                                <a 
-                                  href={getDocumentProperty(doc, 's3_url')} 
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="download-icon-btn"
-                                  title="Download document"
-                                >
-                                  <Download width={"16px"} height={"16px"} className="download-icon" />
-                                </a>
-                              )}
-                              {doc.is_processing && (
-                                <button className="action-btn processing-btn" disabled>
-                                  Processing...
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={8} className="no-records">
-                          No documents found
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
 
-      {/* Production Preview Modal */}
-      {showProductionPreviewModal && productionPreviewData && (
-        <div className="modal-overlay" onClick={() => setShowProductionPreviewModal(false)}>
-          <div className="modal-content modal-large preview-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>SOW Preview</h2>
-              <button className="modal-close" onClick={() => setShowProductionPreviewModal(false)}>
-                <X size={20} />
-              </button>
-            </div>
-            <div className="modal-body preview-body">
-              <h3 className="preview-section-title">Document Information</h3>
-              <div className="preview-info-grid">
-                <div className="preview-info-row"><span className="preview-label">Mode:</span><span className="preview-value">{productionPreviewData.mode || 'N/A'}</span></div>
-                <div className="preview-info-row"><span className="preview-label">Company Name:</span><span className="preview-value">{productionPreviewData.metadata?.company_name || productionPreviewData.company_name || 'N/A'}</span></div>
-                <div className="preview-info-row"><span className="preview-label">Project Title:</span><span className="preview-value">{productionPreviewData.metadata?.project_title || productionPreviewData.project_title || 'N/A'}</span></div>
-                <div className="preview-info-row"><span className="preview-label">Author Name:</span><span className="preview-value">{productionPreviewData.metadata?.author_name || productionPreviewData.author_name || 'N/A'}</span></div>
-              </div>
-
-              {productionPreviewData.content && (
-                <>
-                  <h3 className="preview-section-title">Generated Content</h3>
-                  <div className="preview-content-display">
-                    {typeof productionPreviewData.content === 'string' ? (
-                      <pre className="preview-content-text">{productionPreviewData.content}</pre>
-                    ) : (
-                      <div className="preview-content-sections">
-                        {Object.entries(productionPreviewData.content).map(([section, content]) => {
-                          const isEdited = productionPreviewData.edited_sections?.includes(section);
-                          return (
-                            <div key={section} id={`prod-section-${section}`} className={`preview-content-section ${isEdited ? 'edited-section' : ''}`}>
-                              <h4 className="preview-content-section-title">{section}{isEdited && <span className="edited-badge">Edited</span>}</h4>
-                              <p className="preview-content-section-text">{String(content)}</p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-
-              {productionPreviewData.updated_content && (
-                <>
-                  <h3 className="preview-section-title">Document Sections</h3>
-                  <div className="preview-content-display">
-                    <div className="preview-content-sections">
-                      {Object.entries(productionPreviewData.updated_content).map(([section, content]) => {
-                        const isEdited = productionPreviewData.edited_sections?.includes(section);
-                        return (
-                          <div key={section} id={`prod-section-${section}`} className={`preview-content-section ${isEdited ? 'edited-section' : ''}`}>
-                            <h4 className="preview-content-section-title">{section}{isEdited && <span className="edited-badge">Edited</span>}</h4>
-                            <p className="preview-content-section-text">{String(content)}</p>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-            <div className="modal-footer">
-              <button className="modal-btn modal-btn-secondary" onClick={() => setShowProductionPreviewModal(false)}>Close</button>
-              <button className="modal-btn modal-btn-secondary" onClick={handleProductionEditFromPreview}>
-                <Edit size={16} style={{ marginRight: '8px' }} />
-                Edit Content
-              </button>
-              <button className="modal-btn modal-btn-primary" onClick={handleProductionFinalize}>
-                <ArrowUpCircle size={16} style={{ marginRight: '8px' }} />
-                To Production
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Production Edit Modal */}
-      {showProductionEditModal && productionEditData && (
-        <div className="modal-overlay" onClick={() => setShowProductionEditModal(false)}>
-          <div className="modal-content modal-large edit-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Edit SOW Sections</h2>
-              <button className="modal-close" onClick={() => setShowProductionEditModal(false)}>
-                <X size={20} />
-              </button>
-            </div>
-            <div className="modal-body edit-body">
-              {/* Edit Mode Toggle */}
-              <div className="edit-mode-toggle-container" style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '16px',
-                background: '#f9fafb',
-                border: '1px solid #e5e7eb',
-                borderRadius: '8px',
-                marginBottom: '20px',
-                gap: '16px',
-                minHeight: '60px',
-                width: '100%'
-              }}>
-                <div className="edit-mode-info" style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '4px',
-                  flex: 1
-                }}>
-                  <label className="edit-mode-label" style={{
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: '#374151',
-                    margin: 0
-                  }}>Edit Mode:</label>
-                  <span className="edit-mode-description" style={{
-                    fontSize: '13px',
-                    color: '#6b7280',
-                    lineHeight: 1.4
-                  }}>
-                    {isProductionFullReplace 
-                      ? 'Full Edit - Completely replace section content' 
-                      : 'Partial Edit - Make incremental changes to content'}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    console.log('Production Toggle clicked! Current state:', isProductionFullReplace);
-                    setIsProductionFullReplace(!isProductionFullReplace);
-                  }}
-                  className={`toggle-button ${isProductionFullReplace ? 'active' : ''}`}
-                  aria-pressed={isProductionFullReplace}
-                  title={isProductionFullReplace ? 'Switch to Partial Edit' : 'Switch to Full Edit'}
-                  style={{
-                    position: 'relative',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    padding: isProductionFullReplace ? '8px 60px 8px 16px' : '8px 16px 8px 60px',
-                    background: isProductionFullReplace ? '#dbeafe' : '#e5e7eb',
-                    border: isProductionFullReplace ? '2px solid #3b82f6' : '2px solid #d1d5db',
-                    borderRadius: '24px',
-                    cursor: 'pointer',
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    color: isProductionFullReplace ? '#1e40af' : '#6b7280',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  <span className="toggle-slider" style={{
-                    position: 'absolute',
-                    left: isProductionFullReplace ? 'auto' : '4px',
-                    right: isProductionFullReplace ? '4px' : 'auto',
-                    width: '44px',
-                    height: '28px',
-                    background: isProductionFullReplace ? '#3b82f6' : '#9ca3af',
-                    borderRadius: '20px',
-                    boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.1)'
-                  }}>
-                    <span style={{
-                      position: 'absolute',
-                      top: '2px',
-                      left: isProductionFullReplace ? '18px' : '2px',
-                      width: '24px',
-                      height: '24px',
-                      background: 'white',
-                      borderRadius: '50%',
-                      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)'
-                    }}></span>
-                  </span>
-                  <span className="toggle-label" style={{ userSelect: 'none' }}>
-                    {isProductionFullReplace ? 'Full Edit' : 'Partial Edit'}
-                  </span>
-                </button>
-              </div>
-
-              <div className="multi-section-selector">
-                <label className="section-label">Select Sections to Edit:</label>
-                <div className="sections-checkbox-list">
-                  {Object.keys((productionEditData?.content || productionEditData?.updated_content) || {}).map((section) => (
-                    <label key={section} className="section-checkbox-item">
-                      <input
-                        type="checkbox"
-                        checked={productionSelectedSections.includes(section)}
-                        onChange={() => handleProductionSectionToggle(section)}
-                        className="section-checkbox"
-                      />
-                      <span className="section-checkbox-label">{section}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {productionSelectedSections.length > 0 && (
-                <div className="selected-sections-inputs">
-                  {productionSelectedSections.map((section) => (
-                    <div key={section} className="section-input-group">
-                      <div className="section-input-header">
-                        <h4 className="section-input-title">{section}</h4>
-                        <button type="button" onClick={() => handleProductionSectionToggle(section)} className="remove-section-btn" title="Remove section">
-                          <X size={14} />
-                        </button>
-                      </div>
-                      <div className="current-content-compact">
-                        <span className="content-label">Current:</span>
-                        <div className="content-preview">
-                          {((productionEditData?.content || productionEditData?.updated_content)?.[section] || '').substring(0, 100)}...
-                        </div>
-                      </div>
-                      <textarea
-                        value={productionSectionInputs[section] || ''}
-                        onChange={(e) => setProductionSectionInputs(prev => ({ ...prev, [section]: e.target.value }))}
-                        placeholder={
-                          isProductionFullReplace 
-                            ? `Enter complete new content for ${section}...` 
-                            : `Describe changes for ${section} (e.g., "Add another week in the timeline")...`
-                        }
-                        className="section-input-textarea"
-                        rows={4}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {productionSelectedSections.length === 0 && (
-                <div className="no-selection-message"><p>Please select at least one section to edit</p></div>
-              )}
-            </div>
-            <div className="modal-footer">
-              <button className="modal-btn modal-btn-secondary" onClick={() => setShowProductionEditModal(false)}>Close</button>
-              <button className="modal-btn modal-btn-primary" onClick={handleProductionSaveEdit} disabled={productionSelectedSections.length === 0}>
-                <Edit size={16} style={{ marginRight: '8px' }} />
-                Save {productionSelectedSections.length > 0 && `(${productionSelectedSections.length})`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Production loader overlay */}
-      {/* Removed blocking production loader - now using non-blocking toast notifications */}
       {deleteTarget && <SOWDeleteDialog
         name={`${getDocumentProperty(deleteTarget, 'name')} - ${deleteTarget.mode || ''} ${deleteTarget.version || ''}`.trim()}
         deleting={deletingSOW}

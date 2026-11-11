@@ -48,7 +48,7 @@ interface Project {
   status: string;
 }
 
-type SOWMode = 'POC' | 'PROD' | 'POC_TO_PROD';
+type SOWMode = 'POC' | 'PROD';
 
 const ProjectDetail: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -371,8 +371,7 @@ const ProjectDetail: React.FC = () => {
         return 'SOW for POC';
       case 'PROD':
         return 'SOW for Production';
-      case 'POC_TO_PROD':
-        return 'POC to Production';
+
       default:
         return mode;
     }
@@ -384,8 +383,7 @@ const ProjectDetail: React.FC = () => {
         return '#2563eb';
       case 'PROD':
         return '#059669';
-      case 'POC_TO_PROD':
-        return '#7c3aed';
+
       default:
         return '#6b7280';
     }
@@ -412,10 +410,10 @@ const ProjectDetail: React.FC = () => {
   // If showing SOW creation form
   if (showCreateSOW) {
     // Map tab to mode
-    const modeMap: { [key: string]: 'poc' | 'production' | 'poc-to-production' } = {
+    const modeMap: { [key: string]: 'poc' | 'production' } = {
       'POC': 'poc',
       'PROD': 'production',
-      'POC_TO_PROD': 'poc-to-production'
+
     };
 
     console.log('=== ProjectDetail - SOW Form Debug ===');
@@ -467,6 +465,7 @@ const ProjectDetail: React.FC = () => {
           {account && account.account_name ? (
             <SOWGenerator
               selectedMode={modeMap[selectedTab]}
+              onModeChange={(mode) => setSelectedTab(mode === 'production' ? 'PROD' : 'POC')}
               projectId={projectId}
               projectName={project.project_name}
               accountName={account.account_name}
@@ -546,14 +545,7 @@ const ProjectDetail: React.FC = () => {
           <span className="tab-count">{sows.filter(s => s.mode === 'PROD').length}</span>
         </button>
 
-        <button
-          className={`tab-button ${selectedTab === 'POC_TO_PROD' ? 'active' : ''}`}
-          onClick={() => setSelectedTab('POC_TO_PROD')}
-        >
-          <FileText size={15} />
-          <span>POC to Production</span>
-          <span className="tab-count">{sows.filter(s => s.mode === 'POC_TO_PROD').length}</span>
-        </button>
+
       </div>
 
       {/* SOWs Content */}

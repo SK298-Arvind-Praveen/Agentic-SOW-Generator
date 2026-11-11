@@ -43,6 +43,7 @@ venv*
 frontend/node_modules/
 node_modules/
 frontend/build/
+frontend/node-compile-cache/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

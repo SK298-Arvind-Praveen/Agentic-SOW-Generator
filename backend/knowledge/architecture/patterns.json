@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "library_version": "2026-10-12.2",
+  "library_version": "2026-11-10.1",
   "patterns": [
     {
       "id": "private-batch-call-analytics",
@@ -381,9 +381,9 @@
     {
       "id": "knowledge-retrieval",
       "title": "Grounded knowledge retrieval",
-      "source_url": "https://docs.aws.amazon.com/prescriptive-guidance/latest/retrieval-augmented-generation-options/rag-fully-managed-bedrock.html",
+      "source_url": "https://docs.aws.amazon.com/prescriptive-guidance/latest/agentic-ai-serverless/grounding-and-rag.html",
       "published": null,
-      "reviewed_on": "2026-10-12",
+      "reviewed_on": "2026-11-10",
       "review_type": "source_text",
       "historical": false,
       "triggers": [
@@ -397,9 +397,11 @@
       "avoid": "Not every chatbot needs a vector store; select one supported retrieval implementation.",
       "flow": "Documents → chunking and embeddings → retrieval index; query → retriever → relevant passages → answer model.",
       "layout": "Separate offline ingestion from online answering; managed retrieval and custom orchestration are alternatives.",
+      "service_choices": ["Evaluate Bedrock Knowledge Bases for managed ingestion and retrieval; select one compatible storage/retrieval approach.", "Model inference is distinct from embedding and retrieval; a tool-using agent is an additional choice."],
+      "relationship_checks": ["Retrieved passages must reach the answer model; ingestion updates the retrieval index.", "Apply source/document permissions and freshness controls; grounding alone does not establish authorization."],
       "anchors": [
-        "RetrieveAndGenerate",
-        "Retrieve"
+        "Retrieve",
+        "access control"
       ]
     },
     {
@@ -454,7 +456,7 @@
       "title": "Asynchronous document extraction",
       "source_url": "https://docs.aws.amazon.com/textract/latest/dg/api-async.html",
       "published": null,
-      "reviewed_on": "2026-10-12",
+      "reviewed_on": "2026-11-10",
       "review_type": "source_text",
       "historical": false,
       "triggers": [
@@ -462,12 +464,18 @@
         "ocr",
         "document extraction",
         "multipage documents",
-        "document processing"
+        "document processing",
+        "scanned documents",
+        "scanned pdfs",
+        "clinical document extraction",
+        "document verification"
       ],
       "use_when": "Document analysis needs an asynchronous job lifecycle.",
       "avoid": "Do not route already structured records through OCR.",
       "flow": "Stored document → start analysis; completion topic → queue or handler → fetch analysis results.",
       "layout": "Separate job submission, completion notification and result retrieval; notification targets are alternatives.",
+      "service_choices": ["Textract performs OCR/field analysis; S3 holds input documents; custom compute handles business validation and exports.", "SNS can deliver completion to SQS or Lambda; choose a completion path rather than stacking unnecessary consumers."],
+      "relationship_checks": ["Show the Textract-to-S3 document access as well as the caller's Start API invocation.", "After completion, Get APIs retrieve results; notification messages are not the extracted document.", "Keep review/case records and customer exports separate from raw extraction results."],
       "anchors": [
         "SNS",
         "SQS"

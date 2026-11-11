@@ -19,6 +19,7 @@ These are concise design decisions, not a reasoning transcript. Each adjacent pa
 in each path MUST be an actual directed edge. Branching dependencies are separate
 paths, not a fabricated sequence. Cover every non-control node with a meaningful
 path. Shared controls may be unconnected; do not add fake security traffic.
+A control flow may have an empty paths list when it describes unconnected controls.
 Use node field flow_id only for a component dedicated to one flow; shared nodes
 have an empty flow_id and must not be copied into multiple lanes.
 
@@ -38,9 +39,9 @@ Design in this order:
 5. Specify hosting, network ingress/egress, private access, storage, identity and
    availability decisions. Unknown values stay unresolved, not silently defaulted.
 6. Compose a compact processing spine with nearby branches; use whitespace rather
-   than a box per flow. Keep truly shared resources single, but use separate
-   Lambda functions for distinct business responsibilities, scaling or permissions.
-   Multiple instances of one AWS service are not duplicates. Deployment boundaries take
+   than a box per flow. Represent shared service endpoints once. Multiple Lambda
+   handlers can share one overview icon without sharing deployed permissions.
+   Repeat icons only for meaningful distinct deployments. Deployment boundaries take
    precedence over functional grouping.
 7. Walk every directed path and cross-boundary interface before returning. A
    connection is invocation/data transfer, never mere association.
@@ -93,6 +94,8 @@ def validate_plan(raw):
         if flow.get('kind') not in {'migration', 'runtime', 'analytics', 'lifecycle', 'control'}:
             print(f'[DIAGRAM][PLAN-NOTE] Preserving flow {fid} with advisory kind '
                   f'{str(flow.get("kind"))[:60]}', flush=True)
+        if flow.get('kind') == 'control' and flow.get('paths') == []:
+            continue
         if not isinstance(flow.get('paths'), list) or not flow['paths']:
             raise ValueError(f'Flow {fid} requires directed paths')
         for path in flow['paths']:

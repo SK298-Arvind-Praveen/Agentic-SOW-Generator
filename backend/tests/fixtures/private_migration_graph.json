@@ -1,0 +1,869 @@
+{
+  "title": "Private application migration",
+  "nodes": [
+    {
+      "id": "clients",
+      "label": "Test Clients",
+      "kind": "external",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "aws.resource.general-icons.client",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "application_processing",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "runtime"
+    },
+    {
+      "id": "source-db",
+      "label": "Source Clone PostgreSQL",
+      "kind": "external",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "Regression fixture",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "migration"
+    },
+    {
+      "id": "source-media",
+      "label": "Source Media Store",
+      "kind": "external",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "Regression fixture",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "migration"
+    },
+    {
+      "id": "route53",
+      "label": "Route 53",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.service.networking-content-delivery.amazon-route-53",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "iam",
+      "label": "AWS Identity and Access Management",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-identity-and-access-management",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "alb",
+      "label": "Internal ALB",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.elastic-load-balancing-application-load-balancer",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "network_delivery",
+      "placement_role": "entry",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "asg",
+      "label": "EC2 Auto Scaling",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.resource.compute.amazon-ec2-auto-scaling",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "application_processing",
+      "placement_role": "compute",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "ec2a",
+      "label": "EC2 App Node",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.compute.amazon-ec2",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "application_processing",
+      "placement_role": "compute",
+      "scope": "az",
+      "availability_zone": "az_a",
+      "subnet": "private",
+      "account": "",
+      "region": "",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "ec2b",
+      "label": "EC2 App Node",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.compute.amazon-ec2",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "application_processing",
+      "placement_role": "compute",
+      "scope": "az",
+      "availability_zone": "az_b",
+      "subnet": "private",
+      "account": "",
+      "region": "",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "runner",
+      "label": "EC2 Runner",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.compute.amazon-ec2",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "application_processing",
+      "placement_role": "compute",
+      "scope": "az",
+      "availability_zone": "az_a",
+      "subnet": "private",
+      "account": "",
+      "region": "",
+      "vpc": "POC VPC",
+      "flow_id": "migration"
+    },
+    {
+      "id": "dms",
+      "label": "DMS",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.databases.aws-database-migration-service",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "data_storage",
+      "placement_role": "integration",
+      "scope": "az",
+      "availability_zone": "az_a",
+      "subnet": "private",
+      "account": "",
+      "region": "",
+      "vpc": "POC VPC",
+      "flow_id": "migration"
+    },
+    {
+      "id": "rds-primary",
+      "label": "RDS Multi-AZ Primary",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.databases.amazon-rds",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "az",
+      "availability_zone": "az_a",
+      "subnet": "isolated",
+      "account": "",
+      "region": "",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "rds-standby",
+      "label": "RDS Multi-AZ Standby",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.databases.amazon-rds",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "az",
+      "availability_zone": "az_b",
+      "subnet": "isolated",
+      "account": "",
+      "region": "",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "gw-endpoint",
+      "label": "S3 Gateway Endpoint",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-endpoints",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "if-endpoint",
+      "label": "Interface Endpoints",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-endpoints",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "lambda",
+      "label": "AWS Lambda",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.compute.aws-lambda",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "application_processing",
+      "placement_role": "compute",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "runtime"
+    },
+    {
+      "id": "s3-media",
+      "label": "S3 Media Bucket",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "s3-evidence",
+      "label": "S3 Evidence Bucket",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "datasync",
+      "label": "DataSync",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.service.migration-modernization.aws-datasync",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "application_processing",
+      "placement_role": "integration",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "migration"
+    },
+    {
+      "id": "secrets",
+      "label": "AWS Secrets Manager",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-secrets-manager",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "ssm",
+      "label": "Systems Manager",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.aws-systems-manager",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "kms",
+      "label": "AWS Key Management Service",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-key-management-service",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "acm",
+      "label": "Certificate Manager",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-certificate-manager",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "inspector",
+      "label": "Inspector",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.amazon-inspector",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "cloudwatch",
+      "label": "Amazon CloudWatch",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.amazon-cloudwatch",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "sns",
+      "label": "SNS",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.application-integration.amazon-simple-notification-service",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "cloudtrail",
+      "label": "AWS CloudTrail",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.aws-cloudtrail",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "application_processing",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "budgets",
+      "label": "AWS Budgets",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.cloud-financial-management.aws-budgets",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "cost-explorer",
+      "label": "Cost Explorer",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.cloud-financial-management.aws-cost-explorer",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "cloudformation",
+      "label": "CloudFormation",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.aws-cloudformation",
+      "selection": "inferred",
+      "evidence": "Regression fixture",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    }
+  ],
+  "edges": [
+    {
+      "source": "clients",
+      "target": "alb",
+      "label": "HTTPS requests"
+    },
+    {
+      "source": "alb",
+      "target": "ec2a",
+      "label": "Forward"
+    },
+    {
+      "source": "alb",
+      "target": "ec2b",
+      "label": ""
+    },
+    {
+      "source": "alb",
+      "target": "lambda",
+      "label": "Stub targets"
+    },
+    {
+      "source": "ec2a",
+      "target": "rds-primary",
+      "label": "Read, write"
+    },
+    {
+      "source": "ec2b",
+      "target": "rds-primary",
+      "label": ""
+    },
+    {
+      "source": "rds-primary",
+      "target": "rds-standby",
+      "label": "Sync replication"
+    },
+    {
+      "source": "ec2a",
+      "target": "gw-endpoint",
+      "label": "Read images"
+    },
+    {
+      "source": "ec2b",
+      "target": "gw-endpoint",
+      "label": ""
+    },
+    {
+      "source": "gw-endpoint",
+      "target": "s3-media",
+      "label": ""
+    },
+    {
+      "source": "ec2a",
+      "target": "if-endpoint",
+      "label": "Secrets, config"
+    },
+    {
+      "source": "ec2b",
+      "target": "if-endpoint",
+      "label": ""
+    },
+    {
+      "source": "if-endpoint",
+      "target": "secrets",
+      "label": "Get secrets"
+    },
+    {
+      "source": "if-endpoint",
+      "target": "ssm",
+      "label": "Read flag"
+    },
+    {
+      "source": "asg",
+      "target": "ec2a",
+      "label": "Launch nodes"
+    },
+    {
+      "source": "asg",
+      "target": "ec2b",
+      "label": ""
+    },
+    {
+      "source": "source-db",
+      "target": "dms",
+      "label": "Load and CDC"
+    },
+    {
+      "source": "dms",
+      "target": "rds-primary",
+      "label": "Apply changes"
+    },
+    {
+      "source": "source-media",
+      "target": "datasync",
+      "label": "Read files"
+    },
+    {
+      "source": "datasync",
+      "target": "s3-media",
+      "label": "Copy media"
+    },
+    {
+      "source": "source-db",
+      "target": "runner",
+      "label": "Dump schema"
+    },
+    {
+      "source": "runner",
+      "target": "rds-primary",
+      "label": "Restore, reconcile"
+    },
+    {
+      "source": "runner",
+      "target": "s3-evidence",
+      "label": "Write ledger"
+    },
+    {
+      "source": "ssm",
+      "target": "route53",
+      "label": "Switch record"
+    },
+    {
+      "source": "route53",
+      "target": "alb",
+      "label": "Target record"
+    },
+    {
+      "source": "cloudwatch",
+      "target": "sns",
+      "label": "Alarm email"
+    },
+    {
+      "source": "budgets",
+      "target": "sns",
+      "label": "Cost alerts"
+    },
+    {
+      "source": "cloudtrail",
+      "target": "s3-evidence",
+      "label": "Audit logs"
+    }
+  ],
+  "note": "Proposed logical architecture; validate during discovery.",
+  "groups": [
+    {
+      "id": "application_processing",
+      "label": "Application & Processing",
+      "kind": "functional"
+    },
+    {
+      "id": "network_delivery",
+      "label": "Networking & Delivery",
+      "kind": "network"
+    },
+    {
+      "id": "security_identity",
+      "label": "Security & Identity",
+      "kind": "security"
+    },
+    {
+      "id": "data_storage",
+      "label": "Data & Storage",
+      "kind": "data"
+    }
+  ],
+  "description": "",
+  "spacing_scale": 1.0,
+  "architecture_plan": {
+    "functional_deployment_view": true,
+    "narrative_view": {
+      "groups": [
+        {
+          "id": "g1",
+          "label": "Test Access",
+          "rows": [
+            [
+              "alb",
+              "acm"
+            ],
+            [
+              "lambda"
+            ]
+          ]
+        },
+        {
+          "id": "g2",
+          "label": "Catalogue Runtime",
+          "rows": [
+            [
+              "asg",
+              "inspector"
+            ],
+            [
+              "ec2a",
+              "ec2b"
+            ],
+            [
+              "if-endpoint",
+              "gw-endpoint"
+            ]
+          ]
+        },
+        {
+          "id": "g3",
+          "label": "Catalogue Data",
+          "rows": [
+            [
+              "rds-primary",
+              "rds-standby"
+            ],
+            [
+              "s3-media"
+            ]
+          ]
+        },
+        {
+          "id": "g4",
+          "label": "Migration and Evidence",
+          "rows": [
+            [
+              "dms",
+              "datasync"
+            ],
+            [
+              "runner",
+              "s3-evidence"
+            ]
+          ]
+        }
+      ],
+      "support": [
+        "budgets",
+        "cloudformation",
+        "cloudtrail",
+        "cloudwatch",
+        "cost-explorer",
+        "iam",
+        "kms",
+        "secrets",
+        "sns",
+        "ssm"
+      ],
+      "roles": {
+        "alb": "Internal ingress",
+        "acm": "ALB certificate",
+        "lambda": "Dependency stubs",
+        "asg": "Node scaling",
+        "inspector": "Vulnerability scans",
+        "ec2a": "App node A",
+        "ec2b": "App node B",
+        "if-endpoint": "Private AWS APIs",
+        "gw-endpoint": "Private S3 access",
+        "rds-primary": "Catalogue database",
+        "rds-standby": "Standby database",
+        "s3-media": "Product media",
+        "dms": "Database replication",
+        "datasync": "Media copy",
+        "runner": "Migration scripts",
+        "s3-evidence": "Evidence ledger"
+      },
+      "links": [
+        {
+          "source": "clients",
+          "target": "g1",
+          "label": "HTTPS requests"
+        },
+        {
+          "source": "g1",
+          "target": "g2",
+          "label": "Forward"
+        },
+        {
+          "source": "g2",
+          "target": "g3",
+          "label": "Read / write"
+        },
+        {
+          "source": "source-db",
+          "target": "g4",
+          "label": "Load and CDC"
+        },
+        {
+          "source": "source-media",
+          "target": "g4",
+          "label": "Read files"
+        },
+        {
+          "source": "g4",
+          "target": "g3",
+          "label": "Load / restore"
+        }
+      ]
+    }
+  }
+}

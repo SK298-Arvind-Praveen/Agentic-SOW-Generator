@@ -2,27 +2,44 @@
 import copy
 import json
 import time
+from contextvars import ContextVar
+
+# Each stage gets an initial call and one corrective call. A shared ledger keeps
+# nested JSON helpers and pipeline resumes from multiplying the allowance.
+pipeline_attempt = ContextVar('architecture_pipeline_attempt', default=0)
+model_attempts = ContextVar('architecture_model_attempts', default=None)
 
 
 def structured_retry(call, prompt, validate, *, attempts=3, deadline=None):
     """Retry the exact contract, never accept malformed patches or invent a graph."""
     from app.diagram.service import _extract_json
     from app.core.bedrock_llm import BedrockOutputTruncatedError
-    from botocore.exceptions import ClientError, ConnectionClosedError, EndpointConnectionError, ReadTimeoutError
+    from botocore.exceptions import ClientError, ConnectionClosedError, EndpointConnectionError, ReadTimeoutError, ResponseStreamingError
+    from urllib3.exceptions import ProtocolError, ReadTimeoutError as StreamReadTimeoutError
+    attempts = min(attempts, 2) if pipeline_attempt.get() else attempts
     last = None
     for attempt in range(attempts):
         if deadline is not None and deadline - time.monotonic() < 5:
             break
         try:
             raw = call(prompt)
-        except (BedrockOutputTruncatedError, ConnectionClosedError, EndpointConnectionError, ReadTimeoutError, ClientError) as exc:
-            if isinstance(exc, ClientError) and exc.response.get('Error', {}).get('Code') not in {
-                    'ThrottlingException', 'ServiceUnavailableException', 'InternalServerException', 'ModelNotReadyException'}:
+        except (BedrockOutputTruncatedError, ConnectionClosedError, EndpointConnectionError, ReadTimeoutError,
+                ResponseStreamingError, ProtocolError, StreamReadTimeoutError, ClientError) as exc:
+            if isinstance(exc, ClientError) and str(exc.response.get('Error', {}).get('Code', '')).casefold() not in {
+                    'throttlingexception', 'serviceunavailableexception', 'internalserverexception',
+                    'modelnotreadyexception', 'modelstreamerrorexception'}:
                 raise
             last = exc
             print(f'[DIAGRAM][STRUCTURE] attempt={attempt + 1}; transient={type(exc).__name__}', flush=True)
             if isinstance(exc, BedrockOutputTruncatedError):
                 prompt += '\nThe response exceeded its output limit. Return concise COMPLETE JSON; no prose or repeated evidence.'
+            elif attempt + 1 < attempts:
+                # Do not burn the corrective attempt immediately into the same
+                # transient endpoint outage. Keep cancellation responsive.
+                from app.preview.cancellation import check_cancelled
+                for _ in range(8):
+                    check_cancelled()
+                    time.sleep(.25)
             continue
         try:
             return validate(_extract_json(raw))
@@ -32,7 +49,7 @@ def structured_retry(call, prompt, validate, *, attempts=3, deadline=None):
             prompt += ('\nYour previous response failed validation: ' + str(exc)
                        + '\nReturn the COMPLETE corrected JSON object using exactly the specified schema. '
                        'Preserve graph membership and all connections. No Markdown.\nREJECTED JSON:\n'
-                       + str(raw)[:24000])
+                       + str(raw))
     raise ValueError(f'Structured diagram response could not be validated: {last}')
 
 
@@ -50,7 +67,13 @@ def publication_issues(asset):
     if not asset.get('image_base64'):
         reasons.append('No rendered image')
     if asset.get('used_fallback'):
-        reasons.append('Generic fallback plan is not publishable')
+        reasons.append('Recovery diagram used because the primary pipeline failed; architecture is not verified')
+    overview_diagnostic = ((asset.get('spec') or {}).get('architecture_plan') or {}).get('narrative_diagnostic')
+    if overview_diagnostic:
+        reasons.append('Functional overview unavailable; full graph retained: ' + str(overview_diagnostic)[:200])
+    design = ((asset.get('spec') or {}).get('architecture_plan') or {}).get('service_design') or {}
+    if design.get('status') == 'needs_review':
+        reasons.append('Service selection needs review: ' + str(design.get('error', 'planning unavailable'))[:200])
     metrics = asset.get('layout_metrics') or {}
     # Crossings, shared tracks, detours and omitted arrow captions are layout
     # diagnostics, not grounds to discard an otherwise valid architecture.
@@ -59,6 +82,9 @@ def publication_issues(asset):
         if metrics.get(key, 0):
             reasons.append(f'{key}={metrics[key]}')
     review = asset.get('vision_review') or {}
+    if asset.get('layout_engine') in {'narrative_drawio', 'deployment_drawio'} and any(
+            i.get('kind') == 'visual' for i in review.get('issues', []) if isinstance(i, dict)):
+        reasons.append('Overview image review found visual issues; see diagram diagnostics')
     # A timed-out/malformed cosmetic review must not veto the original image.
     # Architecture findings remain blocking, including ones recorded before a
     # malformed visual patch prevented the reviewer from completing.
@@ -66,6 +92,36 @@ def publication_issues(asset):
             i.get('kind') == 'architecture' for i in review.get('issues', []) if isinstance(i, dict)):
         reasons.append('Unresolved architecture findings')
     return reasons
+
+
+def retry_issues(asset):
+    """Quality triggers corrective work, never prevents saving the retained image."""
+    reasons = publication_issues(asset) + asset.get('validation_warnings', [])
+    metrics = asset.get('layout_metrics') or {}
+    review = asset.get('vision_review') or {}
+    if metrics.get('connector_node_intersections'):
+        reasons.append('Connectors intersect nodes')
+    if metrics.get('connector_crossings', 0) > max(3, metrics.get('edges', 0) * .25):
+        reasons.append('Overview has too many connector crossings')
+    if review.get('status') in {'unavailable', 'review_unavailable', 'repair_failed', 'started'}:
+        reasons.append('Image review incomplete: ' + str(review.get('error', review.get('status')))[:200])
+    if any(i.get('kind') == 'visual' for i in review.get('issues', []) if isinstance(i, dict)):
+        reasons.append('Image review found visual defects')
+    return list(dict.fromkeys(reasons))
+
+
+def retain_with_warning(asset):
+    """Keep rendered output usable without representing a failed check as a pass."""
+    reasons = retry_issues(asset)
+    reasons += [str(i.get('description')) for i in (asset.get('vision_review') or {}).get('issues', [])
+                if isinstance(i, dict) and i.get('description')]
+    reasons = list(dict.fromkeys(reasons))
+    if reasons:
+        asset.update(status='review_required', quality_warnings=reasons,
+            review_warning='Diagram needs review — generation or validation did not fully succeed. '
+                           'The available diagram is retained for review and download.',
+            diagnostic='; '.join(reasons)[:4000])
+    return asset
 
 
 def architecture_evidence(requirements):

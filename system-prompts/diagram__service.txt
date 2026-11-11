@@ -1,0 +1,12 @@
+
+
+SOURCE: backend/app/diagram/service.py:2011
+NAME: repair_prompt
+
+self._prompt(requirements, metadata, narrative, [diagram_type], candidates)
+                        + '\nCorrect the rejected specification below. Preserve source-backed scope. '
+                        + 'Also consolidate capabilities of the SAME platform into one platform node; '
+                        + 'do not draw every UI module or configuration table as a separate deployment. '
+                        + 'Keep distinct migration/runtime/reporting interfaces and real dependencies. '
+                        + 'Return the complete corrected diagram, not a patch.\nVALIDATION ERROR: '
+                        + str(plan_error) + '\nREJECTED SPECIFICATION:\n' + json.dumps(item, default=str)

@@ -67,7 +67,7 @@ def test_editorial_purposes_are_not_ui_groupings():
 def test_all_modes_use_exact_requested_shellkode_paragraph():
     expected = "ShellKode is a cloud-native company with a global presence, delivering services from multiple strategic locations worldwide. We empower organizations to embrace change, accelerate innovation, and unlock holistic business value by placing Cloud and Data at the core of their digital transformation. At ShellKode, we are committed to continuous improvement and innovation, consistently exploring new ways to leverage modern technologies to drive agility, resilience, and long-term success for our customers."
     folder = Path(__file__).resolve().parents[1] / "templates"
-    for name in ("poc_template.md", "production_template.md", "poc_to_prod_template.md"):
+    for name in ("poc_template.md", "production_template.md"):
         body = (folder / name).read_text(encoding="utf-8")
         actual = body.split("## About ShellKode\n", 1)[1].split("[META_", 1)[0].strip()
         assert actual == expected

@@ -1,0 +1,132 @@
+
+
+SOURCE: backend/app/agents/content_editor.py:477
+NAME: prompt
+
+Extract the specific instruction for the "{section_name}" section from this user input:
+
+USER INPUT: {user_input}
+
+SECTION: {section_name}
+
+Return only the specific instruction for this section. If no specific instruction is given for this section, return a general instruction based on the overall user intent.
+
+Keep it concise and actionable.
+
+
+SOURCE: backend/app/agents/content_editor.py:508
+NAME: prompt
+
+Analyze if the "{dep_section}" section needs updating based on changes made to other sections.
+
+CHANGED SECTIONS: {', '.join(changed_sections)}
+USER CHANGES: {user_input}
+DEPENDENT SECTION: {dep_section}
+
+Current content of {dep_section}:
+{str(updated_content.get(dep_section, 'No content'))[:500]}
+
+Determine:
+1. Should this section be updated? (yes/no)
+2. If yes, what specific changes are needed?
+3. Brief reasoning
+
+Return JSON:
+{
+    "should_update": true/false,
+    "instruction": "specific instruction if updating",
+    "reasoning": "why this section needs/doesn't need updating"
+}
+
+
+SOURCE: backend/app/agents/content_editor.py:578
+NAME: prompt
+
+You are a document editor assistant. Analyze the user's edit request and identify which sections of the document need to be modified.
+
+USER'S EDIT REQUEST:
+{user_input}
+
+CURRENT DOCUMENT SECTIONS:
+{section_summary}
+
+Your task:
+1. Identify which sections need editing based on the user's request
+2. For each section, extract the specific instruction
+3. Explain your reasoning
+
+IMPORTANT:
+- Be VERY specific about what needs to change
+- Only identify sections that are directly mentioned or clearly implied
+- Do NOT suggest changes to sections that aren't related to the request
+- Keep instructions focused and precise
+
+Return ONLY a valid JSON object with this structure:
+{
+    "sections_to_edit": ["section_key_1", "section_key_2"],
+    "edit_instructions": {
+        "section_key_1": "specific instruction",
+        "section_key_2": "specific instruction"
+    },
+    "reasoning": "explanation of why these sections were selected"
+}
+
+IMPORTANT: 
+- Use the exact section keys from the document structure
+- Only include sections that NEED to be changed
+- Be specific about what needs to change in each section
+- Return ONLY valid JSON, no markdown
+
+
+
+SOURCE: backend/app/agents/content_editor.py:737
+NAME: looks_like_instruction
+
+any(word in instruction.lower()[:50] for word in [
+                    'add', 'remove', 'change', 'update', 'modify', 'edit', 'delete', 
+                    'insert', 'replace', 'rewrite', 'improve', 'fix', 'correct'
+                ])
+
+
+SOURCE: backend/app/agents/content_editor.py:812
+NAME: prompt
+
+You are editing the "{section_title}" table section of a document.
+
+CURRENT TABLE:
+{current_content}
+
+USER INSTRUCTION: {instruction}
+
+CRITICAL FORMATTING RULES:
+1. Apply the requested changes to the table
+2. Maintain the table format with | separators
+3. Keep the same structure unless specifically asked to change it
+4. Use proper spacing: no extra spaces around | separators
+5. Align columns properly
+6. Do NOT add explanations or introductory text
+7. Return ONLY the updated table content
+
+Apply the changes now:
+
+
+SOURCE: backend/app/agents/content_editor.py:830
+NAME: prompt
+
+You are editing the "{section_title}" section of a document.
+
+CURRENT CONTENT:
+{current_content}
+
+USER INSTRUCTION: {instruction}
+
+CRITICAL FORMATTING RULES:
+1. Apply the requested changes to the content
+2. Keep the same format and structure unless specifically asked to change it
+3. Do NOT add explanations, headers, or introductory text
+4. Use proper spacing: single space between words, no trailing spaces
+5. Use single line breaks between paragraphs
+6. For bullet points, use "• " (bullet + single space)
+7. Return ONLY the updated content, nothing else
+
+Apply the changes now:

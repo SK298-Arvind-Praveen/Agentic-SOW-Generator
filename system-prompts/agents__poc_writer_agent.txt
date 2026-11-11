@@ -1,0 +1,230 @@
+
+
+SOURCE: backend/app/agents/poc_writer_agent.py:288
+NAME: has_instruction
+
+bool(re.search(
+            r"\b(generate|write|include|derive|output|rules?|structure|using objective)\b",
+            content,
+            re.I,
+        ))
+
+
+SOURCE: backend/app/agents/poc_writer_agent.py:649
+NAME: prompt
+
+self._build_individual_prompt(
+            section, requirements, metadata, source_context,
+            prior_context="\n".join(prior_summaries[-4:]),
+        )
+
+
+SOURCE: backend/app/agents/poc_writer_agent.py:1023
+NAME: prompt
+
+You are the principal solution architect for this engagement.
+Analyse the complete source and create the internal work-breakdown blueprint used to author the SOW.
+Return JSON only; do not write SOW prose.
+
+CUSTOMER: {metadata.get('company_name', '')}
+PROJECT: {metadata.get('project_title', '')}
+MODE: {self.template_type}
+
+NORMALISED REQUIREMENTS:
+{json.dumps(requirements, indent=2, default=str)}
+
+AUTHORITATIVE SOURCE EVIDENCE:
+{source_context or '(none)'}
+
+Return this shape:
+{
+  "deliverables": [
+    {
+      "name": "outcome-oriented deliverable name",
+      "purpose": "business and solution boundary",
+      "separation_basis": "independent phase, deployment, acceptance boundary, or other source-backed reason",
+      "modules": [
+        {
+          "name": "cohesive implementation module or workstream",
+          "task_statement": "problem this module solves",
+          "objective": "target operating outcome",
+          "actors": [],
+          "inputs": [],
+          "requirements": [],
+          "delivery_approach": [],
+          "outputs": [],
+          "dependencies": [],
+          "validation_evidence": [],
+          "source_basis": [],
+          "evidence_status": "Confirmed|Source Assumption|Proposed|Open"
+        }
+      ]
+    }
+  ],
+  "cross_cutting_decisions": [],
+  "open_boundaries": []
+}
+
+Architecture rules:
+- Determine the natural number of deliverables and modules from the problem; there is no target, minimum, or maximum count.
+- A deliverable is a separately deployable or acceptably complete business outcome, release, or phase. It is not a synonym for a source table row, feature, integration, technical layer, workstream, or module.
+- First cluster capabilities that share the same users, release boundary, operating workflow, deployment and acceptance event. Promote a cluster to a separate deliverable only when it has a credible independent phase, deployment or acceptance boundary, and record that reason in separation_basis.
+- Preserve explicitly numbered or named customer-authored deliverables as top-level deliverables when
+  each describes a distinct reviewable business outcome. A shared programme, deployment, or acceptance
+  event does not override those explicit boundaries. Ordinary feature rows, artefacts, technical layers,
+  and checklists remain modules or outputs.
+- Perform a final cohesion audit before returning JSON: if two proposed deliverables would be designed, built, demonstrated and accepted together, merge them while retaining every module and source requirement.
+- Every deliverable must contain the modules needed to deliver its outcome. A module is a cohesive implementation workstream, not a generic document category.
+- Decompose source workflows, business rules, integrations, data, AI behaviour, user interaction, platform work, security, testing, and readiness where they materially affect delivery.
+- For every module reason from task/problem through objective, inputs, requirements and implementation approach to observable output and validation.
+- Preserve all source-specific systems, actors, thresholds, classifications, workflows, exceptions, channels, data objects and future-phase boundaries.
+- Respect status language inside the evidence. Text explicitly labelled Assumption, Derived, Proposed, To be confirmed, Not stated, Needs clarification, optional or future must retain that status; it is not confirmed merely because it appears in an uploaded file. Conflicting sources create an open boundary.
+- Do not invent facts. Mark architect-derived design choices as Proposed and unresolved customer decisions as open boundaries.
+- Do not create empty boilerplate modules merely to cover a standard delivery lifecycle.
+
+
+
+SOURCE: backend/app/agents/poc_writer_agent.py:1159
+NAME: prompt
+
+You are the architecture review authority for a Statement of Work.
+The draft work breakdown appears fragmented. Return JSON only in exactly the same shape as DRAFT_PLAN.
+
+CUSTOMER: {metadata.get('company_name', '')}
+PROJECT: {metadata.get('project_title', '')}
+MODE: {self.template_type}
+
+DRAFT_PLAN:
+{json.dumps(plan, indent=2, default=str)}
+
+NORMALISED REQUIREMENTS:
+{json.dumps(requirements, indent=2, default=str)}
+
+SOURCE EVIDENCE:
+{source_context or '(none)'}
+
+Review rules:
+- Merge deliverables that are merely channels, integrations, platform layers, functional capabilities, or source-table rows belonging to the same implemented and accepted solution.
+- Retain every module, requirement, source_basis item, output, dependency, qualification, and open boundary. Do not reduce coverage while merging.
+- Keep separate deliverables only for a real independent phase, release, deployment, commercial hand-off, or acceptance event; state that reason in separation_basis.
+- Do not target a particular count. A single coherent deliverable with many modules is valid; multiple deliverables are valid only when their boundaries are real.
+- Preserve evidence status. Source Assumption, Proposed, Open, To be confirmed, optional and future items must not become Confirmed.
+
+
+
+SOURCE: backend/app/agents/poc_writer_agent.py:1464
+NAME: length_instruction
+
+- No fixed word, deliverable, or module limit applies. Use the natural amount of detail needed to cover the source clearly and concisely. Do not target a fixed word count, pad sparse evidence, or repeat information.
+
+
+SOURCE: backend/app/agents/poc_writer_agent.py:764
+NAME: structure_instruction
+
+f"Return only Markdown for this deliverable, beginning with `### {display_name}`.\n"
+                "Create exactly one `#### <Module Name>` heading for every module in the supplied blueprint, in order."
+                if multiple_deliverables else
+                "Return only Markdown for the modules. Do not emit a Deliverable heading or wrapper.\n"
+                "Create exactly one `### <Module Name>` heading for every module in the supplied blueprint, in order."
+
+
+SOURCE: backend/app/agents/poc_writer_agent.py:771
+NAME: prompt
+
+You are a principal solutions architect writing one deliverable within Scope of Work.
+{structure_instruction}
+{section_editorial_contract('scope_of_work')}
+
+CUSTOMER: {metadata.get('company_name', '')}
+PROJECT: {metadata.get('project_title', '')}
+MODE: {self.template_type}
+
+EXPLICIT USER REFINEMENT INSTRUCTIONS:
+{generation_guidance}
+
+DELIVERABLE BLUEPRINT:
+{json.dumps(deliverable, indent=2, default=str)}
+
+CROSS-CUTTING DECISIONS AND OPEN BOUNDARIES:
+{json.dumps({key: plan.get(key, []) for key in ('cross_cutting_decisions', 'open_boundaries')}, indent=2, default=str)}
+
+AUTHORITATIVE REQUIREMENTS:
+{json.dumps(requirements, indent=2, default=str)}
+
+SOURCE EVIDENCE:
+{source_context or '(none)'}
+
+SOLUTION DESIGN CONTEXT:
+{getattr(self, 'solution_architecture_context', '') or '(Use the shared blueprint and authoritative requirements; no separate architecture narrative selected.)'}
+Use this design to make each module's implementation consistent with the chosen runtime, storage and integration boundaries.
+It is context, not a coverage checklist: mention an AWS service only when it clarifies that module's action or interface.
+Do not add modules or bullets merely to cover services; shared infrastructure setup belongs once in the appropriate workstream.
+Source requirements and explicit scope boundaries override any unsupported proposal in this narrative.
+
+CONSISTENCY NOTES:
+{chr(10).join(prior_summaries[-4:]) or '(none)'}
+
+For each module, think through the delivery boundary, actors, triggering inputs, architecture/functionality requirements, implementation actions, operating output, dependencies, exceptions and validation evidence. Express only direct implementation-scope actions. Do not narrate the reasoning framework, source history, client pain points or negative impacts.
+
+Module writing rules:
+- Do not create standalone or inline pseudo-sections named Proposed Approach, Proposed Implementation, Implementation Approach, Key Outputs, Dependencies, Validation Evidence, Roles, Inputs, Requirements, or similar categories.
+- Do not repeat the module heading in an opening paragraph. Include an opening sentence only when it establishes a boundary that the bullets cannot express clearly.
+- Each bullet must add a distinct scope action, business rule, integration, boundary, qualification, or acceptance-relevant outcome. Remove any bullet that merely restates another bullet in different words.
+- Every bullet must be one sentence of no more than 25 words and short enough to render in one or two lines.
+- Combine closely related actions into one bullet where separating them adds no scope clarity. For example: `- Configure platform and integration monitoring with alerts to the agreed support channels.`
+- Do not add bold summary labels before bullets. Start directly with the action and retain necessary subjects in the sentence.
+- Integrate a unique dependency, proposal status, open point, output, or validation condition into the relevant implementation bullet instead of repeating category lists at the end of every module.
+- Avoid exhaustive technology catalogues and adjectives such as comprehensive or enterprise-grade unless the evidence defines their meaning. Name an AWS service only when it represents a confirmed or clearly labelled Proposed design decision.
+- Preserve the complete source scope, but say each requirement once in the module where it naturally belongs. Do not repeat the same capability in Deliverables, module introductions, approach, outputs and validation wording.
+
+Preserve all source-specific workflows, business rules, systems, data, thresholds, roles, channels and exceptions assigned to the module. Keep unresolved decisions in Open Clarifications rather than describing missing inputs or confirmation status in scope. Do not invent facts or contractual commitments. Do not add unrelated lifecycle boilerplate. Use British Indian English and standard unordered Markdown bullets, not numbered lists. Tables are optional and only for genuinely comparable source requirements.
+
+
+
+SOURCE: backend/app/agents/poc_writer_agent.py:684
+NAME: retry_prompt
+
+prompt
+                    + "\n\nSelf-review the previous draft. The deterministic validator found: "
+                    + detected
+                    + ". Rewrite it as exactly two short factual prose paragraphs. "
+                    "Describe only the company; remove headings, bullets, project context, engagement "
+                    "language, disclaimers and unsupported claims. Silently verify that every finding "
+                    "is resolved, then return only the two corrected paragraphs.\n\n"
+                    + content[:4000]
+
+
+SOURCE: backend/app/agents/poc_writer_agent.py:848
+NAME: retry_prompt
+
+prompt
+                    + "\n\nThe previous draft omitted or misformatted: "
+                    + ", ".join(omissions)
+                    + f". Rewrite this deliverable completely, {retry_structure}, "
+                    "and include every supplied module exactly once using the requested heading levels.\n\n"
+                    + block[:12000]
+
+
+SOURCE: backend/app/agents/poc_writer_agent.py:875
+NAME: compact_prompt
+
+prompt
+                    + "\n\nRewrite the draft to remove these structural problems: "
+                    + "; ".join(structure_issues)
+                    + ". Preserve every source-backed scope item and every module, but remove repetition "
+                    "and integrate status, dependencies, outputs and validation into the relevant direct bullets.\n\n"
+                    + block[:16000]
+
+
+SOURCE: backend/app/agents/poc_writer_agent.py:898
+NAME: concise_prompt
+
+section_editorial_contract('scope_of_work')
+                    + "\n\nRewrite the draft below without changing or omitting any deliverable or "
+                    "module heading. Preserve every material scope commitment, name, value and boundary. "
+                    "Remove background, pain-point narratives, rationale and repetition. Beneath each "
+                    "module, use direct action bullets only; every bullet must be one sentence of no "
+                    "more than 25 words. The deterministic style check found: "
+                    + "; ".join(concise_issues)
+                    + ". Return only the revised Markdown.\n\nDRAFT:\n"
+                    + block[:18000]

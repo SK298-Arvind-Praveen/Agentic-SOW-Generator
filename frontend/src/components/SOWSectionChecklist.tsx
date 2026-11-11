@@ -1,7 +1,7 @@
 import { GripVertical } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import './SOWSectionChecklist.css';
-export type GeneratorMode = 'poc' | 'production' | 'poc-to-production';
+export type GeneratorMode = 'poc' | 'production';
 
 export type SectionOption = {
   id: string;
@@ -11,7 +11,7 @@ export type SectionOption = {
   custom?: boolean;
 };
 
-const ALL_MODES: GeneratorMode[] = ['poc', 'production', 'poc-to-production'];
+const ALL_MODES: GeneratorMode[] = ['poc', 'production'];
 
 export const SOW_SECTION_OPTIONS: SectionOption[] = [
   { id: 'service_agreement', label: 'Service Agreement', modes: ALL_MODES },
@@ -53,7 +53,7 @@ interface SOWSectionChecklistProps {
 const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selected, onChange, timelineFormat = 'table', onTimelineFormatChange }) => {
   const sections = [
     ...SOW_SECTION_OPTIONS.filter(option => option.modes.includes(mode)),
-    { id: 'conceptual_flow_diagram', label: 'Conceptual flow diagram', modes: ALL_MODES },
+    { id: 'conceptual_flow_diagram', label: 'Conceptual Flow Diagram', modes: ALL_MODES },
   ];
   const [dragId, setDragId] = useState<string | null>(null);
   useEffect(() => {
@@ -73,7 +73,7 @@ const SOWSectionChecklist: React.FC<SOWSectionChecklistProps> = ({ mode, selecte
     <>
       <section className="sow-section-checklist" aria-label="Customise SOW sections">
         <div className="field-label">Customise SOW sections</div>
-        <p className="checklist-help">Standard sections are included by default; Conceptual flow diagram is optional. Click or drag sections between the boxes to include or exclude them.</p>
+        <p className="checklist-help">Standard sections are included by default; Conceptual Flow Diagram is optional. Click or drag sections between the boxes to include or exclude them.</p>
         <div className="checklist-two-panel">
           {[true, false].map(include => (
             <div className="checklist-panel" key={String(include)}>

@@ -49,6 +49,29 @@ class _PricedService(AwsPricingService):
 
 
 class AwsPricingTests(unittest.TestCase):
+    def test_zero_calculator_total_is_retried_and_logged_not_accepted(self):
+        from unittest.mock import patch
+        client = _Client()
+        mapped = {'config': {'monthlyRequests': '100000'}, 'missing_inputs': []}
+        service = _PricedService(self.config, llm=_LLM(self.plan, mapped), client_factory=lambda: client)
+        with patch.object(service, '_read_cost', return_value={'monthlyCost': 0}) as read:
+            result = service.generate(self.requirements, {'pricing_region': 'ap-south-1'}, '')
+        self.assertEqual(read.call_count, 2)
+        self.assertIsNone(result['monthly_cost'])
+        self.assertEqual(result['calculator_monthly_cost'], 0)
+        self.assertEqual(len(result['cost_read_attempts']), 2)
+        self.assertNotIn('| 0.00 |', render_aws_pricing_section(result))
+
+    def test_transient_zero_recovers_positive_calculator_total(self):
+        from unittest.mock import patch
+        client = _Client()
+        mapped = {'config': {'monthlyRequests': '100000'}, 'missing_inputs': []}
+        service = _PricedService(self.config, llm=_LLM(self.plan, mapped), client_factory=lambda: client)
+        with patch.object(service, '_read_cost', side_effect=[{'monthlyCost': 0}, {'monthlyCost': 12.5}]):
+            result = service.generate(self.requirements, {'pricing_region': 'ap-south-1'}, '')
+        self.assertEqual(result['monthly_cost'], 12.5)
+        self.assertEqual(result['status'], 'priced')
+
     def setUp(self):
         self.config = SimpleNamespace(
             AWS_PRICING_ENABLED=True,

@@ -69,11 +69,11 @@ def build_graph(spec, config, direction='RIGHT', flow_direction=None, compact=Fa
                 parent['layoutOptions']['elk.aspectRatio'] = '3'
                 parent['layoutOptions']['elk.padding'] = '[top=44,left=24,bottom=24,right=24]'
             if scope in {'vpc', 'az'}:
-                parent = group(boundary_id('__vpc', node.account, node.region, node.vpc), node.vpc or 'VPC', parent)
+                parent = group(boundary_id('__vpc', node.account, node.region, node.vpc), 'VPC', parent)
                 # Only show an AZ explicitly present in the plan; never invent HA/subnets.
                 if node.availability_zone:
                     zone = str(node.availability_zone)
-                    parent = group(parent['id'] + '__elk_az_' + zone, 'Availability Zone ' + zone, parent)
+                    parent = group(parent['id'] + '__elk_az_' + zone, 'Availability Zone', parent)
                 if node.subnet in {'public', 'private', 'isolated'}:
                     parent = group(parent['id'] + '_' + node.subnet, node.subnet.title() + ' subnet', parent)
             # flow_id guides placement only; it does not establish a boundary.

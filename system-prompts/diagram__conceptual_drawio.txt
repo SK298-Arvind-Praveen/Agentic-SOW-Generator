@@ -1,0 +1,6 @@
+
+
+SOURCE: backend/app/diagram/conceptual_drawio.py:123
+NAME: prompt
+
+Path(__file__).resolve().parents[2].joinpath('templates/conceptual_flow_prompt.md').read_text(encoding='utf-8')

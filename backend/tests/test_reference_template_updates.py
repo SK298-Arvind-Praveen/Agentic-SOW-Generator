@@ -16,7 +16,7 @@ def test_static_clauses_match_reference_transcriptions_in_every_mode():
     titles = {'service_agreement': 'Service Agreement', 'change_order': 'Change Order',
               'project_plan_termination': 'Project Plan Termination', 'marketing_authorization': 'Marketing Authorization',
               'terms_conditions': 'Terms & Conditions'}
-    for filename in ('poc_template.md','production_template.md','poc_to_prod_template.md'):
+    for filename in ('poc_template.md','production_template.md'):
         agent = POCWriterAgent.__new__(POCWriterAgent)
         agent.template_raw = (root / filename).read_text(encoding='utf-8')
         parsed = agent._parse_template()

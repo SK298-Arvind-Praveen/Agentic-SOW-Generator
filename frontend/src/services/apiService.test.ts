@@ -30,6 +30,31 @@ describe('authentication outage and session races', () => {
 
 describe('finalization readiness', () => {
   afterEach(() => jest.restoreAllMocks());
+  it.each(['AWS_PRICING_STALE', 'ARCHITECTURE_REGENERATION_REQUIRED'])(
+    'preserves the server explanation and code for %s without retrying', async code => {
+      const error = 'Resolve this preview validation issue before finalizing.';
+      const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ success: false, code, error }), { status: 409, statusText: 'CONFLICT' })
+      );
+      expect(await apiService.finalizeSOW('p1')).toMatchObject({ success: false, code, error });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }
+  );
+  it('waits for a background save over HTTP and then finalizes the same preview', async () => {
+    jest.spyOn(apiService as any, 'delay').mockResolvedValue(undefined);
+    const fetchMock = jest.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, processing: true, status: 'processing' }), { status: 202 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, document_id: 'd1', s3_url: 'https://files/final.docx' }), { status: 200 }));
+    expect(await apiService.finalizeSOW('p1')).toMatchObject({ success: true, document_id: 'd1' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, options] of fetchMock.mock.calls) {
+      expect(JSON.parse(String(options?.body))).toEqual({ preview_id: 'p1' });
+    }
+  });
+  it('falls back to the HTTP error for non-JSON failures', async () => {
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('unavailable', { status: 503, statusText: 'Unavailable' }));
+    expect(await apiService.finalizeSOW('p1')).toMatchObject({ success: false, error: 'HTTP 503: Unavailable' });
+  });
   it('waits through processing responses instead of reporting a save', async () => {
     const request = jest.spyOn(apiService as any, 'makeRequestJSON')
       .mockResolvedValueOnce({ success: true, processing: true })
@@ -234,12 +259,12 @@ describe('account registration transport', () => {
 });
 
 describe('semantic SOW search transport', () => {
-  it.each(['poc', 'poc-to-production'] as const)('transmits Gantt selection for %s', async (mode) => {
+  it.each(['poc', 'production'] as const)('transmits Gantt selection for %s', async (mode) => {
     const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       success: true, preview_id: 'timeline-preview',
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     await apiService.generatePreview('Author', 'Client', mode, 'Delivery plan', 'Project',
-      mode === 'poc-to-production' ? new File(['source'], 'poc.docx') : undefined,
+      undefined,
       [], undefined, undefined, ['timelines_deliverables'], 'GenAI', undefined, undefined, 'gantt');
     const form = fetchMock.mock.calls[0][1]?.body as FormData;
     expect(form.get('timeline_format')).toBe('gantt');

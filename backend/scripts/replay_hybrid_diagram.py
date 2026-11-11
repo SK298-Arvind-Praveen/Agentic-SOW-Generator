@@ -16,14 +16,22 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--review',action='store_true')
     parser.add_argument('--inspect-candidates',action='store_true')
+    parser.add_argument('--normalize',action='store_true',help='Apply current production icon and boundary normalization')
     args=parser.parse_args()
     previous=json.loads(args.asset.read_text(encoding='utf-8'))
     raw=previous['spec']
+    service=DiagramService(Config())
+    if args.normalize:
+        from app.diagram.aws_icons import IconCandidate
+        candidates={n['icon_key']:IconCandidate(n['icon_key'],n['label'],
+            n['icon_key'].split('.')[2], '',n.get('selection','inferred'),n.get('evidence',''))
+            for n in raw['nodes'] if n.get('icon_key')}
+        raw=service._enrich_diagram(raw,'architecture_overview',candidates)
+        raw.get('architecture_plan',{}).pop('review_composition',None)
     spec=DiagramSpec(raw['title'],tuple(Node(**n) for n in raw['nodes']),
         tuple(Edge(**e) for e in raw['edges']),groups=tuple(Group(**g) for g in raw.get('groups',[])),
         architecture_plan=raw.get('architecture_plan',{}))
     spec=replace(spec,nodes=tuple(replace(n,subtitle='') for n in spec.nodes))
-    service=DiagramService(Config())
     asset=service._asset('architecture_overview','Solution Architecture',spec,{},previous['used_fallback'])
     if args.review:
         from app.agents.architecture_reviewer_agent import review_architecture

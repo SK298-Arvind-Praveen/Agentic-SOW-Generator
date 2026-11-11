@@ -93,7 +93,7 @@ def test_gantt_stays_one_table_with_coloured_cells():
     assert table.cell(1, 2).text == ''
 
 
-@pytest.mark.parametrize('filename', ['poc_template.md', 'production_template.md', 'poc_to_prod_template.md'])
+@pytest.mark.parametrize('filename', ['poc_template.md', 'production_template.md'])
 def test_every_template_has_formats_and_source_backed_success_contract(filename):
     text = (Path(__file__).parents[1] / 'templates' / filename).read_text(encoding='utf8')
     assert '## Project Timeline' in text

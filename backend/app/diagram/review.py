@@ -141,19 +141,18 @@ def connector_report(positions, paths):
 
 def layout_quality(metrics):
     """Lower is better. Routing preference only; font size is not a criterion."""
-    return (metrics.get('connector_crossings', 0)*4
+    return (metrics.get('connector_crossings', 0)*8
             + metrics.get('ambiguous_connector_pairs', 0)*24
-            + metrics.get('connector_length_normalized', 0)*2
-            + metrics.get('connector_bends', 0)*.18
-            + metrics.get('long_connector_count', 0)*2
-            + max(0, metrics.get('longest_connector_fraction', 0)-.5)**2*8
-            # Relative detour alone over-penalises a short branch around an icon
-            # caption and can select much longer page-spanning straight routes.
-            # Absolute length and longest-path penalties above remain decisive.
-            + metrics.get('detouring_connector_count', 0)*.5)
+            + metrics.get('connector_length_normalized', 0)*8
+            + metrics.get('connector_bends', 0)*4
+            + metrics.get('long_connector_count', 0)*100
+            + max(0, metrics.get('longest_connector_fraction', 0)-.5)**2*80
+            + metrics.get('detouring_connector_count', 0)*5
+            + metrics.get('canvas_area_per_node', 0)/10000*4)
 
 
-def local_routes(spec, positions, boxes, parents, width, height, deadline=None, captions=None, iconic=False):
+
+def local_routes(spec, positions, boxes, parents, width, height, deadline=None, captions=None, iconic=False, icon_bottom=False, max_terminal_gap=None, boundary_transit=False, terminal_sides=None, edge_obstacles=None):
     """Shortest orthogonal visibility-grid routes, with ports chosen by proximity.
 
     Keep every edge and real boundary. Unrelated containers and all boundary
@@ -165,9 +164,14 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
         x, y, w, h = rect
         if icon:
             # Route outside the whole label footprint, then join the visible icon.
-            return { (x-gap,y+37+offset): (x+w/2-32,y+37+offset),
+            result = { (x-gap,y+37+offset): (x+w/2-32,y+37+offset),
                      (x+w+gap,y+37+offset): (x+w/2+32,y+37+offset),
                      (x+w/2+offset,y-gap): (x+w/2+offset,y+5) }
+            if icon_bottom:
+                # A downward story exits below the service's own caption. Never
+                # draw through that caption to reach the icon above it.
+                result[(x+w/2+offset,y+h+gap)] = (x+w/2+offset,y+h)
+            return result
         return { (x-gap,y+h/2+offset): (x,y+h/2+offset),
                  (x+w+gap,y+h/2+offset): (x+w,y+h/2+offset),
                  (x+w/2+offset,y-gap): (x+w/2+offset,y),
@@ -190,6 +194,12 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
     def crossing_cost(a, b):
         penalty = 0
         for path in result:
+            # A wire touching another arrowhead reads as a new relationship,
+            # even when it is not a strict segment crossing. Keep a clear gap
+            # around both attachment points, not just parallel route tracks.
+            for px,py in (path[0],path[-1]):
+                if hits_box(a,b,(px-10,py-10,20,20)):
+                    penalty += 4000
             for c, d in zip(path, path[1:]):
                 # Grid vertices often land exactly on an existing connector.
                 # Strict segment intersection would miss these until simplification.
@@ -200,9 +210,9 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
                     penalty += 180 * (min(c[1],d[1]) < a[1] < max(c[1],d[1])
                                       and min(a[0],b[0]) <= c[0] <= max(a[0],b[0]))
                 elif a[0] == b[0] == c[0] == d[0]:
-                    penalty += max(0,min(max(a[1],b[1]),max(c[1],d[1]))-max(min(a[1],b[1]),min(c[1],d[1])))*2
+                    penalty += max(0,min(max(a[1],b[1]),max(c[1],d[1]))-max(min(a[1],b[1]),min(c[1],d[1])))*12
                 elif a[1] == b[1] == c[1] == d[1]:
-                    penalty += max(0,min(max(a[0],b[0]),max(c[0],d[0]))-max(min(a[0],b[0]),min(c[0],d[0])))*2
+                    penalty += max(0,min(max(a[0],b[0]),max(c[0],d[0]))-max(min(a[0],b[0]),min(c[0],d[0])))*12
                 elif a[1] == b[1] and c[1] == d[1] and abs(a[1]-c[1]) < 20:
                     # Parallel tracks a few pixels apart look like a single
                     # wire at document scale, even without a mathematical cross.
@@ -214,20 +224,22 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
         return penalty
     incident = {key: [i for i,e in enumerate(spec.edges) if key in (e.source,e.target)] for key in positions}
     for edge_index, edge in enumerate(spec.edges):
+        if deadline is not None and time.monotonic() > deadline:
+            raise TimeoutError('Local connector routing exceeded layout budget')
         def terminals(key):
             x,y,w,h = positions[key]
-            cy = y+37 if key in icon_nodes else y+h/2
-            def preferred_side(index):
-                connection = spec.edges[index]
-                peer = connection.target if connection.source == key else connection.source
-                px,py,pw,ph = positions[peer]
-                dx,dy = px+pw/2-(x+w/2), py+(37 if peer in icon_nodes else ph/2)-cy
-                return ('left' if dx < 0 else 'right') if abs(dx)>=abs(dy) else ('top' if dy<0 else 'bottom')
             result_ports = {}
             for side_index,side in enumerate(('left','right','top','bottom')):
-                if key in icon_nodes and side == 'bottom':
+                preferred = (terminal_sides or {}).get((edge.source, edge.target), {})
+                if preferred.get(key) and side not in preferred[key]:
                     continue
-                peers = [i for i in incident[key] if preferred_side(i) == side or i == edge_index]
+                if key in icon_nodes and side == 'bottom' and not icon_bottom:
+                    continue
+                # Every edge can choose any port during A*. Assign unique slots
+                # across all incidents, not only those predicted to prefer this
+                # side; otherwise two top-bound edges may both choose the same
+                # right-side terminal and silently share their first segment.
+                peers = list(incident[key])
                 def peer_coordinate(index):
                     connection = spec.edges[index]
                     peer = connection.target if connection.source == key else connection.source
@@ -246,6 +258,8 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
                     # Separate the final approach tracks as well as arrowheads.
                     # Otherwise all bends reuse x-16 and create a false T-junction.
                     gap += (len(peers)-1-peers.index(edge_index))*22
+                if max_terminal_gap is not None:
+                    gap = min(gap, max_terminal_gap)
                 port,anchor = list(ports(positions[key],key in icon_nodes,offset,gap).items())[side_index]
                 if not (8 <= port[0] <= width-8 and 8 <= port[1] <= height-8):
                     continue
@@ -253,13 +267,81 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
             return result_ports
         start_ports, end_ports = terminals(edge.source), terminals(edge.target)
         starts, ends = list(start_ports), list(end_ports)
+        if not starts or not ends:
+            raise ValueError('No unobstructed terminal for '+edge.source+' -> '+edge.target)
         allowed = ancestors(edge.source) | ancestors(edge.target)
         # Border-following paths are invisible after the cards are painted and
         # look like connections to unrelated boxes. Keep an explicit clearance.
         obstacles = [(x-8,y-8,w+16,h+16) for x,y,w,h in positions.values()]
-        obstacles += [rect if key not in allowed else (rect[0], rect[1],
+        # Physical boundaries describe ownership, not impenetrable routing walls.
+        # A connector may cross an empty sibling subnet corridor without moving
+        # either endpoint into that subnet. Its header and every card stay protected.
+        obstacles += [rect if key not in allowed and not boundary_transit else (rect[0], rect[1],
                       min(rect[2], len((captions or {}).get(key, key))*9+54), 39)
                       for key, rect in boxes.items()]
+        obstacles += (edge_obstacles or {}).get((edge.source, edge.target), [])
+        # Prefer a single horizontal segment between visible faces. Independent
+        # fan-out port offsets can otherwise introduce a tiny two-bend jog even
+        # when adjacent icons have a completely clear, aligned corridor.
+        def visible(key, rect):
+            x,y,w,h = rect
+            return (x+w/2-32,y+5,64,64) if key in icon_nodes else rect
+        ax,ay,aw,ah = visible(edge.source,positions[edge.source])
+        bx,by,bw,bh = visible(edge.target,positions[edge.target])
+        low,high = max(ay,by)+8,min(ay+ah,by+bh)-8
+        if low <= high and (ax+aw < bx or bx+bw < ax):
+            centre = (low+high)/2
+            tracks = [centre,centre-12,centre+12,centre-24,centre+24]
+            clear_obstacles = [(x-8,y-8,w+16,h+16) for key,(x,y,w,h) in positions.items()
+                               if key not in {edge.source,edge.target}]
+            clear_obstacles += obstacles[len(positions):]
+            straight = None
+            for y in tracks:
+                if not low <= y <= high:
+                    continue
+                a,b = ((ax+aw,y),(bx,y)) if ax < bx else ((ax,y),(bx+bw,y))
+                if any(hits_box(a,b,box) for box in clear_obstacles):
+                    continue
+                if any(_ambiguous_contact([a,b],path) or any(crosses(a,b,c,d)
+                       for c,d in zip(path,path[1:])) for path in result):
+                    continue
+                # Keep separate arrowheads visibly separated at shared icons.
+                if any(abs(p[0]-q[0])+abs(p[1]-q[1]) < 9
+                       for p in (a,b) for path in result for q in (path[0],path[-1])):
+                    continue
+                straight = [a,b]
+                break
+            if straight:
+                result.append(straight)
+                continue
+        # The same preference applies vertically: attachment slots alone must
+        # not add a dogleg between a top actor and an unobstructed group/card.
+        def vertical_face(key):
+            x,y,w,h=positions[key]
+            return (x+w/2-32,y+5,64,h-5) if key in icon_nodes else (x,y,w,h)
+        ax,ay,aw,ah=vertical_face(edge.source)
+        bx,by,bw,bh=vertical_face(edge.target)
+        low,high=max(ax,bx)+8,min(ax+aw,bx+bw)-8
+        downward=ay+ah<by
+        upward=by+bh<ay
+        can_exit=(edge.source not in icon_nodes or icon_bottom) if downward else (edge.target not in icon_nodes or icon_bottom)
+        if low<=high and (downward or upward) and can_exit:
+            centre=(low+high)/2
+            clear_obstacles=[(x-8,y-8,w+16,h+16) for key,(x,y,w,h) in positions.items()
+                             if key not in {edge.source,edge.target}]+obstacles[len(positions):]
+            straight=None
+            for x in (centre,centre-12,centre+12,centre-24,centre+24):
+                if not low<=x<=high:continue
+                a,b=((x,ay+ah),(x,by)) if downward else ((x,ay),(x,by+bh))
+                if any(hits_box(a,b,box) for box in clear_obstacles):continue
+                if any(_ambiguous_contact([a,b],path) or any(crosses(a,b,c,d)
+                       for c,d in zip(path,path[1:])) for path in result):continue
+                if any(abs(p[0]-q[0])+abs(p[1]-q[1])<9
+                       for p in (a,b) for path in result for q in (path[0],path[-1])):continue
+                straight=[a,b];break
+            if straight:
+                result.append(straight)
+                continue
         xs, ys = {8, width-8}, {8, height-8}
         for x, y, w, h in obstacles:
             xs.update((max(8, x-12), min(width-8, x+w+12)))
@@ -267,6 +349,14 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
         for x, y in starts+ends:
             xs.add(x)
             ys.add(y)
+        # Give subsequent edges actual alternate tracks. Penalising an overlap
+        # alone cannot separate lines when the grid contains only one corridor.
+        for path in result:
+            for a,b in zip(path,path[1:]):
+                if a[0] == b[0]:
+                    xs.update(v for v in (a[0]-24,a[0]+24) if 8 <= v <= width-8)
+                else:
+                    ys.update(v for v in (a[1]-24,a[1]+24) if 8 <= v <= height-8)
         xs, ys = sorted(xs), sorted(ys)
         lookup_x, lookup_y = {v:i for i,v in enumerate(xs)}, {v:i for i,v in enumerate(ys)}
         goals = {(lookup_x[x], lookup_y[y]) for x,y in ends}
@@ -300,7 +390,7 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
                 step = segment_costs[key]
                 if step is None:
                     continue
-                candidate = cost+step+(24 if direction != -1 and nd != direction else 0)
+                candidate = cost+step+(48 if direction != -1 and nd != direction else 0)
                 nxt = (ni,nj,nd)
                 if candidate < costs.get(nxt, float('inf')):
                     costs[nxt] = candidate

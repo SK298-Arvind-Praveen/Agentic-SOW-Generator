@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+  <title>Availability Zone</title>
+  <desc>Application-authored AZ boundary badge; not an official AWS product icon.</desc>
+  <rect width="40" height="40" fill="#147EBA"/>
+  <text x="20" y="27" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="20" font-weight="bold">AZ</text>
+</svg>

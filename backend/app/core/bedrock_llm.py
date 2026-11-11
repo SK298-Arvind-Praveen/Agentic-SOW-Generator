@@ -90,11 +90,25 @@ def _normalised_usage(payload: Dict[str, Any]) -> tuple[int, int]:
 
 def _supports_temperature(model_id: str) -> bool:
     """Application profiles may target models that reject legacy sampling fields."""
-    return "application-inference-profile/" not in str(model_id).casefold()
+    return "application-inference-profile/" not in str(model_id).casefold() and not _is_opus_55(model_id)
+
+
+def _is_opus_55(model_id: str) -> bool:
+    identifier = str(model_id).casefold()
+    # This opaque application profile was verified through GetInferenceProfile.
+    return "claude-opus-5-5" in identifier or identifier.endswith("application-inference-profile/r0bnzxkwcgud")
 
 
 def _additional_model_request_fields(model_id: str) -> Dict[str, Any]:
-    """Keep Sonnet 5 profile calls fast and reserve output tokens for final JSON/text."""
+    """Preserve legacy settings; Opus 5.5 requires always-on adaptive thinking."""
+    if str(model_id).casefold().endswith("application-inference-profile/hlc2w29214np"):
+        # Sonnet 5.5 profile: use model defaults, verified with a live Converse call.
+        effort = os.getenv('BEDROCK_DIAGRAM_EFFORT', '').strip().lower()
+        if effort and effort not in {'low','medium','high','xhigh','max'}:
+            raise ValueError('BEDROCK_DIAGRAM_EFFORT must be low, medium, high, xhigh or max')
+        return {'output_config': {'effort': effort}} if effort else {}
+    if _is_opus_55(model_id):
+        return {"thinking": {"type": "adaptive"}}
     if "application-inference-profile/" in str(model_id).casefold():
         return {"thinking": {"type": "disabled"}}
     return {}
@@ -152,6 +166,9 @@ def _native_request(model_id: str, prompt: str, max_tokens: int, temperature: fl
     return request
 
 
+from app.preview.cancellation import cancellable_call
+
+
 class BedrockLLM:
     """Call multiple Bedrock model families through one stable interface."""
 
@@ -173,10 +190,41 @@ class BedrockLLM:
         retry_on_truncation: bool = True,
     ) -> BedrockTextResult:
         primary = model_id or model_for_task(self.config, task)
+        from app.diagram.reliability import pipeline_attempt, model_attempts
+        architecture_attempt = pipeline_attempt.get()
+        if architecture_attempt:
+            # One retry owner for the architecture pipeline, including truncated
+            # output. The corrective pass has a larger bounded output allowance.
+            retry_on_truncation = False
+            fallback_model_id = None
+            ledger = model_attempts.get()
+            stage_attempt = architecture_attempt
+            if ledger is not None:
+                # A transport retry of initial planning must not spend the
+                # separate semantic correction stage's allowance.
+                stage = call_name
+                stage_attempt = ledger.get(stage, 0) + 1
+                # Two image candidates may each need an initial review and one
+                # transport retry. A failed socket must not consume the revised
+                # image's entire review allowance.
+                stage_limit = 4 if image_bytes and any(k in call_name.lower() for k in ('review','check')) else 2
+                if stage_attempt > stage_limit:
+                    raise RuntimeError(f'{call_name} already used its one corrective retry')
+                ledger[stage] = stage_attempt
+            if stage_attempt == 2:
+                max_tokens *= 2
         # Honour the task-specific budget. The former unconditional 32K minimum
         # encouraged compact extraction and authoring tasks to expand until
         # they became slow or reached provider output limits.
-        max_tokens = max(256, min(32768, int(max_tokens)))
+        model_limit = 32768
+        if (task == 'diagram' or image_bytes is not None) and (primary.endswith('application-inference-profile/hlc2w29214np') or _is_opus_55(primary)):
+            # Adaptive reasoning shares the output allowance with final JSON.
+            # Start with enough reasoning headroom and expand on retry, rather
+            # than reserving the provider's entire 128K ceiling for every call.
+            model_limit = 128000
+            max_tokens = max(32768, int(max_tokens),
+                65536 if architecture_attempt and stage_attempt == 2 else 0)
+        max_tokens = max(256, min(model_limit, int(max_tokens)))
         try:
             return self._generate_once(
                 primary, prompt, max_tokens=max_tokens,
@@ -187,13 +235,13 @@ class BedrockLLM:
                 if not retry_on_truncation:
                     raise
                 expanded_tokens = min(
-                    32768,
+                    model_limit,
                     max(max_tokens * 2, max_tokens + 1024),
                 )
                 if expanded_tokens <= max_tokens:
                     raise
                 print(
-                    f"   ↻ {call_name} reached {max_tokens:,} output tokens; "
+                    f"   Retry: {call_name} reached {max_tokens:,} output tokens; "
                     f"retrying once with {expanded_tokens:,}",
                     flush=True,
                 )
@@ -222,6 +270,7 @@ class BedrockLLM:
                 )
             raise
 
+    @cancellable_call
     def _generate_once(
         self,
         model_id: str,
@@ -233,6 +282,8 @@ class BedrockLLM:
         image_bytes: Optional[bytes] = None,
     ) -> BedrockTextResult:
         # Converse is provider-neutral. A native InvokeModel fallback keeps unit
+        from app.preview.cancellation import check_cancelled
+        check_cancelled()
         # tests and older SDK-compatible deployments working.
         converse = getattr(self.client, "converse", None)
         if callable(converse):
@@ -244,6 +295,9 @@ class BedrockLLM:
                 "messages": [{"role": "user", "content": [{"text": prompt}]}],
                 "inferenceConfig": inference_config,
             }
+            system_prompt = getattr(self, 'system_prompt', None)
+            if system_prompt:
+                request['system'] = [{'text': system_prompt}]
             additional_fields = _additional_model_request_fields(model_id)
             if image_bytes:
                 request["messages"][0]["content"].append({
@@ -251,10 +305,44 @@ class BedrockLLM:
                 })
             if additional_fields:
                 request["additionalModelRequestFields"] = additional_fields
-            payload = converse(
-                **request,
-            )
+            stream_call = getattr(self.client, 'converse_stream', None)
+            from app.diagram.reliability import model_attempts
+            transport = os.getenv('BEDROCK_DIAGRAM_TRANSPORT', 'converse').lower()
+            attempt = (model_attempts.get() or {}).get(call_name, 1)
+            # Retry via the non-streaming API when the streaming connection is
+            # unreliable. Keep the same model, prompt and validation contract.
+            use_stream = transport == 'stream' or (transport == 'auto' and attempt % 2 == 1)
+            if callable(stream_call) and use_stream and model_id.endswith('application-inference-profile/hlc2w29214np'):
+                from botocore.exceptions import ClientError
+                chunks, usage, stop = [], {}, ''
+                stream = stream_call(**request)['stream']
+                try:
+                    for event in stream:
+                        check_cancelled()
+                        delta = event.get('contentBlockDelta', {}).get('delta', {})
+                        if 'text' in delta:
+                            chunks.append(delta['text'])
+                        if 'metadata' in event:
+                            usage = event['metadata'].get('usage', {})
+                        if 'messageStop' in event:
+                            stop = event['messageStop'].get('stopReason', '')
+                        for key, detail in event.items():
+                            if key.endswith('Exception'):
+                                raise ClientError({'Error': {'Code':key[0].upper()+key[1:],
+                                    'Message':detail.get('message',key)}}, 'ConverseStream')
+                    if not stop:
+                        raise BedrockOutputTruncatedError('Diagram response stream ended without a completion event')
+                finally:
+                    close = getattr(stream, 'close', None)
+                    if close:
+                        close()
+                payload = {'output':{'message':{'content':[{'text':''.join(chunks)}]}},
+                           'usage':usage, 'stopReason':stop}
+            else:
+                payload = converse(**request)
         else:
+            if getattr(self, "system_prompt", None):
+                raise RuntimeError("Architecture system prompts require Bedrock Converse support")
             if image_bytes:
                 raise RuntimeError("Visual diagram review requires Bedrock Converse image support")
             response = self.client.invoke_model(
@@ -263,12 +351,18 @@ class BedrockLLM:
             )
             payload = json.loads(response["body"].read())
 
+        check_cancelled()
         text = _extract_text(payload)
-        _save_raw_output(call_name, text)
-        if not text:
-            raise RuntimeError(f"Bedrock model {model_id} returned no text")
+        raw_path = _save_raw_output(call_name, text)
         input_tokens, output_tokens = _normalised_usage(payload)
         stop_reason = _stop_reason(payload)
+        if raw_path.is_file():
+            raw_path.with_suffix('.metadata.json').write_text(json.dumps({
+                'call_name': call_name, 'model_id': model_id,
+                'requested_max_tokens': max_tokens, 'input_tokens': input_tokens,
+                'output_tokens': output_tokens, 'stop_reason': stop_reason,
+                'response_characters': len(text),
+            }, indent=2), encoding='utf-8')
 
         try:
             from app.core.nodes import _track_tokens
@@ -287,6 +381,8 @@ class BedrockLLM:
                 f"{call_name} was truncated after {output_tokens:,} output tokens "
                 f"(stop reason: {stop_reason}). Generation halted."
             )
+        if not text:
+            raise RuntimeError(f"Bedrock model {model_id} returned no text (stop reason: {stop_reason})")
         return BedrockTextResult(
             text=text,
             model_id=model_id,

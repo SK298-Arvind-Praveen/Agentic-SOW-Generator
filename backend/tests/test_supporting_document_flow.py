@@ -225,6 +225,16 @@ class SupportingDocumentFlowTests(unittest.TestCase):
         self.assertIn("Supporting document corpus", requirements["source_basis"])
         self.assertNotIn("generic AWS", requirements["project_overview"])
 
+    def test_uploaded_review_workbench_retains_analyzed_ui_requirement(self):
+        with patch("app.core.nodes.ObjectiveAgent") as agent:
+            agent.return_value.analyze_objective.return_value = {
+                "ui_required": True, "key_deliverables": ["Clinical review workbench"]}
+            agent.return_value.evaluate_input_quality.return_value = {"accepted": True}
+            result = analyze_objective_node({"objective": "", "metadata": {},
+                "supporting_context": "Named clinical reviewers correct extracted fields in a review workbench."})
+        self.assertTrue(result["metadata"]["ui_required"])
+        self.assertTrue(result["analyzed_requirements"]["ui_required"])
+
     def test_objective_quality_gate_rejects_unrelated_input_without_evidence(self):
         result = ObjectiveAgent.evaluate_input_quality({
             "input_assessment": {
@@ -295,7 +305,7 @@ class SupportingDocumentFlowTests(unittest.TestCase):
 
         captured = {}
 
-        def capture_async(_preview_id, initial_state, _use_fast_mode, on_complete=None):
+        def capture_async(_preview_id, initial_state, _use_fast_mode, on_complete=None, on_cancel=None):
             self.assertTrue(callable(on_complete))
             captured.update(initial_state)
             return None

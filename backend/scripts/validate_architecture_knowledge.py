@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 from urllib.robotparser import RobotFileParser
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app.diagram.knowledge import load_library, select_patterns, reference_context, reference_image_path
+from app.diagram.knowledge import load_library, select_patterns, reference_context, reference_image_path, MAX_REFERENCE_CHARS
 
 
 class Page(HTMLParser):
@@ -85,7 +85,7 @@ def audit(online=False):
     start = time.perf_counter()
     for _ in range(100):
         context = reference_context({'features': ['Knowledge base', 'Fargate', 'AgentCore']})
-        assert len(context) <= 5000
+        assert len(context) <= MAX_REFERENCE_CHARS
     result['retrieval_mean_ms'] = (time.perf_counter() - start) * 10
     result['pattern_count'] = len(result['patterns'])
     return result

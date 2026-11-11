@@ -1,0 +1,76 @@
+
+
+SOURCE: backend/app/pricing/service.py:478
+NAME: prompt
+
+Create a loose non-binding AWS monthly planning estimate from business volumetrics. Return JSON only.
+
+SOURCE-BACKED WORKLOAD METRICS:
+{json.dumps(workload_rows, default=str)}
+
+PROPOSED AWS SERVICES:
+{json.dumps(candidate_services)}
+
+Return {"monthly_low":number,"monthly_base":number,"monthly_high":number,"basis":["brief calculation assumption"]}.
+
+Rules:
+- Currency is USD.
+- Use the supplied workload values as the scale driver; do not invent another traffic volume.
+- Include application runtime, integration, storage, observability and AI consumption only where the proposed services warrant them.
+- Keep uncertainty broad and the base inside the low/high range.
+- Do not include implementation fees, taxes, support plans, discounts, telephony carrier charges or commitments.
+
+
+
+SOURCE: backend/app/pricing/service.py:551
+NAME: prompt
+
+Extract an AWS pricing input plan. Return JSON only.
+
+ALLOWED SERVICES (do not add others):
+{json.dumps(services)}
+
+NORMALISED REQUIREMENTS:
+{json.dumps(requirements, default=str)[:18000]}
+
+AUTHORITATIVE SOURCE TEXT:
+{pricing_evidence or '(none)'}
+
+Return:
+{"region": null, "environments": [], "volume_metrics":[{"metric":"business sizing metric", "value":"source value with unit", "evidence_quote":"short exact source quote"}], "services": [{"service_name":"exact allowed service", "environment":"name or Shared", "usage_facts":{"source label":"source value"}, "evidence_quote":"short exact quote supporting the service or its usage"}], "missing_inputs":[]}
+
+Rules:
+- Extract only numeric or categorical usage facts explicitly present in the source text.
+- Capture cross-service business sizing facts such as annual/monthly interactions, turns per interaction, AI-routing percentages, handover percentage, API calls, users, concurrency and retention in volume_metrics.
+- Exclude regulatory TAT, escalation/reminder deadlines, ticket reopen windows and inbox pagination sizes: these are workflow/UI rules, not workload volumes or pricing inputs.
+- evidence_quote must be a short verbatim excerpt from the source text. Never fabricate a quote.
+- A service's usage facts may combine values from separate source passages; each numeric value must still occur somewhere in the authoritative source.
+- A proposed AWS service may be listed, but it needs source-backed usage facts before pricing.
+- Do not create defaults, estimates, instance sizes, traffic, storage, retention, utilisation, redundancy or regions.
+- User guidance may exclude/defer services but may not manufacture a sizing fact.
+- missing_inputs may contain only rate-driving AWS consumption or configuration fields for an allowed service.
+
+
+
+SOURCE: backend/app/pricing/service.py:1002
+NAME: prompt
+
+Map source-backed usage facts to live AWS Pricing Calculator fields. Return JSON only.
+
+SERVICE PLAN:
+{json.dumps(service, default=str)}
+
+SELECTED REGION:
+{region}
+
+LIVE CALCULATOR FIELD CONTRACT:
+{json.dumps(fields, default=str)[:30000]}
+
+Return {"config":{"exactFieldId":"valid value"},"missing_inputs":[{"field":"label","basis":"known value or blank","reason":"what must be confirmed"}]}.
+
+Use only exact field IDs and allowed value shapes from the live contract. Map only facts present in
+SERVICE PLAN, including explicitly labelled planning facts derived deterministically from global
+volumetrics. Catalogue examples and minimalConfig values explain shape but are not customer sizing
+evidence and must not be copied unless the same value is explicitly present in SERVICE PLAN. If any
+rate-driving required field cannot be populated, return it in missing_inputs and do not guess.
+

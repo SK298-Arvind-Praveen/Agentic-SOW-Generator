@@ -101,7 +101,7 @@ class DynamoDBHandlerOptimized:
         Args:
             company_name: Customer name
             project_name: Project name
-            mode: POC, PROD, or POC_TO_PROD
+            mode: POC or PROD
             
         Returns:
             str: Next version (e.g., "v1", "v2", "v3")
@@ -129,7 +129,17 @@ class DynamoDBHandlerOptimized:
                         ':m': mode_upper
                     }
                 )
-                items = response.get('Items', [])
+                items = list(response.get('Items', []))
+                while response.get('LastEvaluatedKey'):
+                    response = self.table.query(
+                        IndexName='project-index',
+                        KeyConditionExpression='project_name_lower = :pn',
+                        FilterExpression='customer_name_lower = :cn AND #mode = :m',
+                        ExpressionAttributeNames={'#mode': 'mode'},
+                        ExpressionAttributeValues={':pn': project_name_lower, ':cn': company_name_lower, ':m': mode_upper},
+                        ExclusiveStartKey=response['LastEvaluatedKey'],
+                    )
+                    items.extend(response.get('Items', []))
                 
             except ClientError as e:
                 # Fallback to scan if GSI doesn't exist
@@ -143,7 +153,15 @@ class DynamoDBHandlerOptimized:
                         ':m': mode_upper
                     }
                 )
-                items = response.get('Items', [])
+                items = list(response.get('Items', []))
+                while response.get('LastEvaluatedKey'):
+                    response = self.table.scan(
+                        FilterExpression='project_name_lower = :pn AND customer_name_lower = :cn AND #mode = :m',
+                        ExpressionAttributeNames={'#mode': 'mode'},
+                        ExpressionAttributeValues={':pn': project_name_lower, ':cn': company_name_lower, ':m': mode_upper},
+                        ExclusiveStartKey=response['LastEvaluatedKey'],
+                    )
+                    items.extend(response.get('Items', []))
 
             # Extract version numbers
             versions = []
@@ -171,8 +189,8 @@ class DynamoDBHandlerOptimized:
 
         except Exception as e:
             print(f"   ❌ Error calculating version: {e}")
-            # Default to v1 on error
-            return "v1"
+            # Never silently reuse a version when the database lookup fails.
+            raise
 
     def validate_required_fields(self, metadata, s3_url):
         """Validate that all essential fields are present"""
@@ -655,6 +673,8 @@ class DynamoDBHandlerOptimized:
                 company = item.get('customer_name', 'Unknown')
                 project = item.get('project_name', 'Unknown Project')
                 mode = item.get('mode', 'UNKNOWN')
+                if mode not in ('POC', 'PROD'):
+                    continue
                 version = item.get('version', 'v1')
                 
                 # Initialize company if not exists
@@ -671,7 +691,6 @@ class DynamoDBHandlerOptimized:
                         'project_name': project,
                         'POC': [],
                         'PROD': [],
-                        'POC_TO_PROD': []
                     }
                 
                 # Add version to the appropriate mode
@@ -689,7 +708,7 @@ class DynamoDBHandlerOptimized:
             # Sort versions for each project/mode
             for company in grouped.values():
                 for project in company['projects'].values():
-                    for mode in ['POC', 'PROD', 'POC_TO_PROD']:
+                    for mode in ['POC', 'PROD']:
                         if project[mode]:
                             project[mode] = dict(sorted(
                                 project[mode].items(),

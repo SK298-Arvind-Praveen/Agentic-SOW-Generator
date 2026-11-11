@@ -15,7 +15,6 @@ CREDENTIALS_FILE = 'credentials.json'
 FOLDER_MAPPING = {
     'poc': 'poc',
     'production': 'production',
-    'poc_to_prod': 'poc_to_prod'
 }
 
 def authenticate():
@@ -228,7 +227,7 @@ def upload_generated_document(output_file_path, folder_name='poc'):
     
     Args:
         output_file_path: Path returned from DocumentBuilder.build_document()
-        folder_name: Google Drive folder name (supports: 'poc', 'production', 'poc_to_prod')
+        folder_name: Google Drive folder name (supports: 'poc', 'production')
     
     Returns:
         dict: Upload result info or None

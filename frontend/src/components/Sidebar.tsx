@@ -32,7 +32,7 @@ const NAV_ITEMS: NavItem[] = [
     description: 'Generate and track SOW documents',
     icon: FileText,
     color: '#2563eb',
-    isActive: (p) => p.startsWith('/dashboard') || p.startsWith('/documents') || p.startsWith('/production')
+    isActive: (p) => p.startsWith('/dashboard') || p.startsWith('/production')
   },
   {
     path: '/sow-records',

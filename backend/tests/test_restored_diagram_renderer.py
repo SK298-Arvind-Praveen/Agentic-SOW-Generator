@@ -11,6 +11,15 @@ from app.diagram.aws_icons import AwsIconRegistry
 from app.diagram.service import DiagramService, validate_spec
 
 
+def test_solution_architecture_loads_exact_system_prompt():
+    config = SimpleNamespace(ASSETS_DIR=Path(__file__).parents[1] / 'assets')
+    service = DiagramService(config, bedrock=object())
+    expected = (Path(__file__).parents[1] / 'templates/architecture_system_prompt.txt').read_text(encoding='utf-8')
+    assert service.llm.system_prompt == expected
+    assert expected.startswith('# SYSTEM PROMPT: PROFESSIONAL AWS ENTERPRISE ARCHITECTURE DIAGRAM GENERATOR')
+    assert 'CLIENT-FACING OVERVIEW PROFILE' not in service.llm.system_prompt
+
+
 @pytest.mark.parametrize('old_engine', [None, 'legacy', 'mcp', 'graphviz'])
 def test_all_generations_use_builtin_renderer(monkeypatch, old_engine):
     monkeypatch.setenv('ARCHITECTURE_DIAGRAM_ENGINE', 'builtin')
@@ -57,3 +66,31 @@ def test_retired_dependencies_are_not_part_of_docker_build():
     assert 'if [ "$INSTALL_AWS_ARCH_KIT" = "true" ]' in dockerfile
     assert 'INSTALL_DIAGRAM_MCP' not in dockerfile
     assert 'requirements_diagram_mcp' not in dockerfile
+
+
+@pytest.mark.parametrize('failure', ['planner', 'renderer', 'validation', 'fallback_plan', 'reviewer'])
+def test_diagram_failures_still_produce_an_editable_image(monkeypatch, failure):
+    monkeypatch.setenv('ARCHITECTURE_DIAGRAM_ENGINE', 'builtin')
+    service = DiagramService.__new__(DiagramService)
+    service.config = SimpleNamespace(ASSETS_DIR=Path(__file__).parents[1] / 'assets')
+    service.icon_registry = AwsIconRegistry(service.config.ASSETS_DIR)
+    spec = validate_spec({'title': 'Help Desk', 'nodes': [
+        {'id': 'user', 'label': 'Employee', 'kind': 'actor'},
+        {'id': 'app', 'label': 'Help Desk', 'kind': 'application'}],
+        'edges': [{'source': 'user', 'target': 'app'}]}, 'Help Desk', {})
+    def fail(*args, **kwargs):
+        raise ValueError('Validation or rendering failed')
+    monkeypatch.setattr(service, '_generate_specs', fail if failure == 'planner' else
+                        lambda *args: ([('architecture_overview', 'Solution Architecture', spec)], failure == 'fallback_plan'))
+    if failure == 'renderer':
+        monkeypatch.setattr(service, '_asset', fail)
+    if failure == 'validation':
+        monkeypatch.setattr('app.diagram.reliability.publication_issues', lambda asset: ['Unresolved architecture findings'])
+    if failure == 'reviewer':
+        service.bedrock = object()
+        monkeypatch.setattr('app.agents.architecture_reviewer_agent.review_architecture', fail)
+    asset = service.generate_assets({'aws_services': ['Amazon S3']}, {'project_title': 'Help Desk'}, '')[0]
+    assert asset['status'] == 'review_required'
+    assert asset['drawio_xml'] and asset['validation_warnings']
+    with Image.open(io.BytesIO(base64.b64decode(asset['image_base64']))) as image:
+        image.verify()

@@ -11,7 +11,6 @@ import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import Dashboard from './components/Dashboard';
 import Production from './components/Production';
-import Documents from './components/Documents';
 import Accounts from './components/Accounts';
 import AccountDetail from './components/AccountDetail';
 import ProjectDetail from './components/ProjectDetail';
@@ -84,7 +83,6 @@ const App: React.FC = () => {
               {/* Legacy Routes */}
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/production" element={<Production />} />
-              <Route path="/documents" element={<Documents />} />
             </Route>
 
             {/* Default Route - Redirect to Accounts */}

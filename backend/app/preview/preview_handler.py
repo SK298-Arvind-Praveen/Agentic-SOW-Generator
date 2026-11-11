@@ -70,7 +70,7 @@ def store_preview_data(preview_id: str, content: Dict[str, Any], metadata: Dict[
         preview_id: Unique preview identifier
         content: Generated content structure
         metadata: Document metadata
-        mode: POC, PROD, or POC_TO_PROD
+        mode: POC or PROD
     """
     with preview_lock:
         # Check limits and cleanup if needed (already inside lock)

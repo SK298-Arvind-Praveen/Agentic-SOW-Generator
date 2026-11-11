@@ -12,6 +12,8 @@ fetchCostFromDOM(url)
       monthlyCost: result.monthlyCost,
       monthlyByService: Object.fromEntries(result.monthlyByService),
       configByService: Object.fromEntries(result.configByService),
+      error: result.error,
+      diagnostics: result.diagnostics,
     }));
   })
   .catch(error => {

@@ -54,7 +54,7 @@ CAPABILITY_MAP = {
     "sentiment": "Amazon Bedrock",
     "attachments": "Amazon Simple Storage Service",
     "migration": "AWS Step Functions",
-    "data migration": "AWS Glue",
+    "database migration": "AWS Database Migration Service",
     "extract transform": "AWS Glue",
     "integration": "AWS Lambda",
     "api": "Amazon API Gateway",
@@ -73,6 +73,9 @@ CAPABILITY_MAP = {
 }
 
 SERVICE_SYNONYMS = {
+    "dms": "AWS Database Migration Service",
+    "iam identity center": "AWS IAM Identity Center",
+    "identity center": "AWS IAM Identity Center",
     "s3": "Amazon Simple Storage Service",
     "rds": "Amazon RDS",
     "dynamodb": "Amazon DynamoDB",
@@ -90,6 +93,13 @@ SERVICE_SYNONYMS = {
     "internet gateway": "Amazon VPC Internet Gateway",
     "nat gateway": "Amazon VPC NAT Gateway",
     "vpc endpoint": "Amazon VPC Endpoints",
+    "gateway endpoint": "Amazon VPC Endpoints",
+    "s3 gateway endpoint": "Amazon VPC Endpoints",
+    "s3 gateway vpc endpoint": "Amazon VPC Endpoints",
+    "aurora postgresql": "Amazon Aurora PostgreSQL Instance",
+    "vpc": "Amazon Virtual Private Cloud",
+    "application load balancer": "Elastic Load Balancing Application Load Balancer",
+    "alb": "Elastic Load Balancing Application Load Balancer",
     "waf": "AWS WAF",
     "contact lens": "Amazon Connect",
     "connect wisdom": "Amazon Connect",
@@ -125,6 +135,12 @@ class AwsIconRegistry:
             yield alias
 
     def match(self, query: str) -> Optional[Dict[str, Any]]:
+        # Normalization removes 'service', making ECS and its Service resource
+        # tie. An exact product name must win before fuzzy resource matching.
+        exact = str(query).strip().casefold()
+        for item in self.entries:
+            if item['label'].casefold() == exact:
+                return item
         # The leading service owns its icon; a parenthetical implementation
         # detail must not turn "AWS Batch (GPU, EC2 G6)" into an EC2 icon.
         needle = _norm(re.split(r'\s*\(', str(query), maxsplit=1)[0])
@@ -136,6 +152,9 @@ class AwsIconRegistry:
         for synonym, canonical in sorted(SERVICE_SYNONYMS.items(), key=lambda pair: len(pair[0]), reverse=True):
             if re.search(rf"\b{re.escape(synonym)}\b", needle):
                 needle = _norm(canonical)
+                for item in self.entries:
+                    if item['label'].casefold() == canonical.casefold():
+                        return item
                 break
         best, best_score = None, 0
         needle_tokens = set(needle.split())
@@ -163,6 +182,26 @@ class AwsIconRegistry:
             return None
         return IconCandidate(item["key"], item["label"], item.get("category", "Other"),
                              item["path"], selection, evidence, 100 if selection == "explicit" else 70)
+
+    def named_service(self, label: str) -> Optional[IconCandidate]:
+        """Resolve a named product, without inferring a product from a UI feature.
+
+        A proposed architecture may choose services absent from a vendor-neutral
+        BRD. Icon availability must not turn those choices into client mandates.
+        """
+        if re.search(r'\bconnect\s+crm\b', label, re.I) and not re.search(r'\bamazon\s+connect\b', label, re.I):
+            return None
+        candidate = self.candidate(label, "inferred", "Proposed implementation service: " + label)
+        if not candidate or not candidate.key.startswith(('aws.service.', 'aws.resource.')):
+            return None
+        normalized = _norm(label)
+        aliases = [_norm(candidate.label)] + [
+            synonym for synonym, canonical in SERVICE_SYNONYMS.items()
+            if _norm(canonical) == _norm(candidate.label)
+        ]
+        if any(alias and re.search(rf"\b{re.escape(alias)}\b", normalized) for alias in aliases):
+            return candidate
+        return None
 
     def candidates(self, requirements: Dict[str, Any], narrative: str, limit: int = 40) -> List[IconCandidate]:
         found: Dict[str, IconCandidate] = {}
@@ -217,7 +256,17 @@ class AwsIconRegistry:
                 value.key, value.label, value.category, value.path, 'inferred',
                 'Implementation option; not a confirmed client mandate. ' + value.evidence, 70))
                 for key, value in found.items()}
-        return sorted(found.values(), key=lambda c: (-c.score, c.category, c.label))[:limit]
+        ranked = sorted(found.values(), key=lambda c: (-c.score, c.category, c.label))[:limit]
+        # Retrieval truncation must not remove an approved service or a required
+        # deployment resource such as the ALB icon while retaining generic icons.
+        required = list(DEPLOYMENT_OPTIONS) + [s['name'] for s in
+            (requirements.get('service_design') or {}).get('services', []) if s.get('name')]
+        retained = {c.key:c for c in ranked}
+        for name in required:
+            candidate = self.candidate(name, 'inferred', 'Available implementation option; deployment must be source justified')
+            if candidate:
+                retained.setdefault(candidate.key, candidate)
+        return list(retained.values())
 
     def svg_data_uri(self, key: str) -> Optional[str]:
         item = self.by_key.get(key) or self.group_by_key.get(key)

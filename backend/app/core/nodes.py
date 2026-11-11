@@ -163,158 +163,6 @@ def _clean_final_content(text: str) -> str:
     
     return remove_client_facing_meta_language(text)
 
-def poc_ingestion_node(state: AgentState) -> AgentState:
-    """
-    Ingest existing POC file (PDF/DOCX) for POC_TO_PROD mode
-    ENHANCED: Uses improved doc_reader with OCR support and LLM metadata extraction
-    FIXED: Now properly extracts requirements when content extraction succeeds
-    Preserves the uploaded document as supporting context for generation.
-    """
-    print(f"\n--- Step: Ingesting POC Document ---")
-    source_file = state.get('source_file')
-    if not source_file:
-        raise ValueError("POC_TO_PROD requires an existing POC document as source_file")
-    
-    try:
-        # Enhanced file-based ingestion using improved doc_reader
-        print(f"📖 Reading file with enhanced extraction: {source_file}")
-        content = read_document(source_file)
-        
-        # Initialize variables that will be set in both branches
-        extracted_metadata = None
-        requirements = None
-        
-        # Handle case where extraction returns empty content
-        if not content or len(content.strip()) < 20:
-            print(f"⚠️  Document extraction yielded minimal content ({len(content)} chars)")
-            print(f"   This may be an image-based document or have complex formatting")
-            print(f"   Proceeding with default metadata extraction...")
-            
-            # Use default metadata when content extraction fails
-            extracted_metadata = {
-                'company_name': 'Unknown Company',
-                'project_title': 'Unknown Project',
-                'author_name': 'Unknown Author',
-                'author_org': 'Shellkode',
-                'objective': 'Project Implementation',
-                'document_date': datetime.now().strftime("%d %B %Y"),
-                'version': '2.0',
-                'start_date': '',
-                'end_date': '',
-                'timezone': 'IST'
-            }
-            
-            # Use basic requirements structure
-            requirements = {
-                "project_overview": "Document conversion from POC to Production",
-                "key_features": [],
-                "aws_services": [],
-                "technical_stack": [],
-                "success_metrics": [],
-                "architecture_components": [],
-                "integrations": [],
-                "business_impact": None,
-                "timeline": None,
-                "scope": None,
-            }
-        else:
-            print(f"✅ Successfully extracted {len(content)} characters from document")
-            
-            # Extract metadata using LLM
-            print(f"\n📋 Extracting metadata using LLM...")
-            extracted_metadata = _extract_metadata_with_llm(content)
-            
-            if extracted_metadata:
-                print(f"✅ LLM metadata extraction successful:")
-                print(f"   Company: {extracted_metadata.get('company_name', 'N/A')}")
-                print(f"   Project: {extracted_metadata.get('project_title', 'N/A')}")
-                print(f"   Author: {extracted_metadata.get('author_name', 'N/A')}")
-                print(f"   Date: {extracted_metadata.get('document_date', 'N/A')}")
-            
-            # Extract detailed requirements from document using LLM
-            print(f"\n📋 Extracting detailed requirements using LLM...")
-            requirements = _extract_requirements_with_llm(content)
-            
-            if requirements:
-                print(f"✅ Requirements extraction successful:")
-                print(f"   Features: {len(requirements.get('key_features', []))}")
-                print(f"   AWS Services: {len(requirements.get('aws_services', []))}")
-                print(f"   Tech Stack: {len(requirements.get('technical_stack', []))}")
-        
-        # Build final metadata (merge with any existing metadata from state)
-        # PRIORITY: User-provided values (from form) > LLM-extracted values > defaults
-        existing_metadata = state.get('metadata', {})
-
-        def _pick_best(field, extracted_val, existing_val, default_val):
-            """Pick best value: user-provided (existing) wins over LLM-extracted if valid."""
-            placeholder_values = [
-                'unknown company', 'unknown project', 'unknown author',
-                'to be extracted from document', 'unknown', ''
-            ]
-            # If user provided a valid value in the form, use it
-            if existing_val and str(existing_val).strip().lower() not in placeholder_values:
-                return existing_val
-            # Otherwise use LLM-extracted value if valid
-            if extracted_val and str(extracted_val).strip().lower() not in placeholder_values:
-                return extracted_val
-            # Fall back to default
-            return default_val
-
-        final_metadata = {
-            'company_name': _pick_best('company_name',
-                extracted_metadata.get('company_name'),
-                existing_metadata.get('company_name'),
-                'Unknown Company'),
-            'project_title': _pick_best('project_title',
-                extracted_metadata.get('project_title'),
-                existing_metadata.get('project_title'),
-                'Unknown Project'),
-            'author_name': _pick_best('author_name',
-                extracted_metadata.get('author_name'),
-                existing_metadata.get('author_name'),
-                'Unknown Author'),
-            'author_org': extracted_metadata.get('author_org', 'Shellkode'),
-            'author_org_description': 'Shellkode specializes in developing advanced data and AI solutions for businesses.',
-            'objective': _pick_best('objective',
-                extracted_metadata.get('objective'),
-                existing_metadata.get('objective'),
-                'Project Implementation'),
-            'document_date': existing_metadata.get('document_date') or extracted_metadata.get('document_date', datetime.now().strftime("%d %B %Y")),
-            'version': extracted_metadata.get('version', '2.0'),  # Production version
-            # Dates in the source POC may be historical. Do not convert them into
-            # production commitments unless the user explicitly supplied new dates.
-            'start_date': existing_metadata.get('start_date') or '',
-            'end_date': existing_metadata.get('end_date') or '',
-            'timezone': extracted_metadata.get('timezone', 'IST')
-        }
-        
-        # Print final extraction summary
-        print(f"\n📋 FINAL EXTRACTED INFORMATION:")
-        print(f"   ✓ Company: {final_metadata['company_name']}")
-        print(f"   ✓ Project: {final_metadata['project_title']}")
-        print(f"   ✓ Author: {final_metadata['author_name']}")
-        print(f"   ✓ Organization: {final_metadata['author_org']}")
-        print(f"   ✓ Date: {final_metadata['document_date']}")
-        print(f"   ✓ Content length: {len(content)} characters")
-        
-        # Return extracted requirements and the original source evidence
-        state_update = {
-            "metadata": final_metadata,
-            "analyzed_requirements": requirements,
-            "objective": final_metadata['objective'],
-            "current_step": "ingest",
-            "poc_original_content": content,
-            "production_enhancements": {},
-            "supporting_context": "\n\n".join(filter(None, [state.get("supporting_context"), content]))
-        }
-        
-        return state_update
-        
-    except Exception as e:
-        print(f"❌ Error in POC ingestion: {e}")
-        import traceback
-        traceback.print_exc()
-        return {"errors": [str(e)]}
 
 
 def _extract_company_name_regex(text_content: str) -> str:
@@ -1029,96 +877,6 @@ def _extract_author_name_regex(text_content: str, company_name: str = "") -> str
     return None
 
 
-def _extract_requirements_with_llm(text_content: str) -> dict:
-    """Extract the complete POC in overlapping chunks and merge source evidence."""
-    if not text_content:
-        return normalize_requirements({}, "", "POC_TO_PROD")
-    try:
-        bedrock = boto3.client(
-            service_name='bedrock-runtime',
-            region_name=config.BEDROCK_REGION,
-            config=config.BOTO_CONFIG
-        )
-        chunk_size, overlap = 14000, 1200
-        chunks = []
-        start = 0
-        while start < len(text_content):
-            end = min(len(text_content), start + chunk_size)
-            chunks.append(text_content[start:end])
-            if end == len(text_content):
-                break
-            start = end - overlap
-
-        extractions = []
-        for index, chunk in enumerate(chunks, 1):
-            prompt = f"""Extract source evidence from part {index} of {len(chunks)} of an existing POC SOW.
-
-DOCUMENT EXCERPT:
-{chunk}
-
-Return JSON only. Use [] or null when absent. Do not infer production requirements or invent results.
-{{
-  "project_overview": null,
-  "current_state": [],
-  "key_features": [],
-  "functional_requirements": [],
-  "non_functional_requirements": [],
-  "confirmed_aws_services": [],
-  "aws_services": [],
-  "technical_stack": [],
-  "architecture_components": [],
-  "workflow_steps": [],
-  "data_sources": [],
-  "data_characteristics": {{}},
-  "integration_details": [],
-  "security_requirements": [],
-  "compliance_requirements": [],
-  "success_metrics": [],
-  "test_evidence": [],
-  "key_deliverables": [],
-  "assumptions": [],
-  "out_of_scope": [],
-  "risks_and_mitigations": [],
-  "known_limitations": [],
-  "timeline": null,
-  "duration_weeks": null,
-  "business_impact": null,
-  "poc_evidence": [],
-  "open_clarifications": []
-}}"""
-            raw = BedrockLLM(config, bedrock).generate(
-                prompt,
-                task="analysis",
-                max_tokens=4096,
-                temperature=0.0,
-                call_name=f"Requirements Extraction {index}/{len(chunks)}",
-                fallback_model_id=config.WRITER_MODEL_ID,
-            ).text
-            match = re.search(r'\{.*\}', raw, re.DOTALL)
-            if match:
-                try:
-                    extractions.append(json.loads(match.group(0)))
-                except json.JSONDecodeError as parse_error:
-                    print(f"⚠️ Chunk {index} extraction JSON invalid: {parse_error}")
-
-        merged = merge_requirement_extractions(extractions)
-        merged["source_basis"] = ["Uploaded POC document"]
-        merged["requirements_provenance"] = {
-            "confirmed_aws_services": "confirmed",
-            "poc_evidence": "confirmed",
-            "success_metrics": "confirmed",
-        }
-        merged["confirmed_aws_services"] = merged.get("confirmed_aws_services") or merged.get("aws_services", [])
-        merged["proposed_aws_services"] = []
-        requirements = normalize_requirements(merged, merged.get("project_overview") or "", "POC_TO_PROD")
-        print(f"✅ Merged requirements from {len(extractions)}/{len(chunks)} document chunks")
-        return requirements
-    except Exception as e:
-        print(f"❌ Requirements extraction error: {e}")
-        return normalize_requirements({
-            "source_basis": ["Uploaded POC document"],
-            "open_clarifications": ["The POC document could not be fully analyzed; production scope requires source review."],
-        }, "", "POC_TO_PROD")
 
 
 def research_node(state: AgentState) -> AgentState:
@@ -1153,20 +911,6 @@ def research_node(state: AgentState) -> AgentState:
 def analyze_objective_node(state: AgentState) -> AgentState:
     """Analyze project objective"""
     _report_progress(state, 30, "Extracting requirements from supplied evidence")
-    if state.get('mode') == 'POC_TO_PROD' and state.get('analyzed_requirements'):
-        print(f"\n--- Step: Using Enhanced POC Requirements for Production ---")
-        analyzed_requirements = state.get('analyzed_requirements')
-        
-        if isinstance(analyzed_requirements, dict) and 'project_overview' in analyzed_requirements:
-            print(f"✅ Using detailed requirements from document ingestion")
-            print(f"   Features: {len(analyzed_requirements.get('key_features', []))}")
-            print(f"   AWS Services: {len(analyzed_requirements.get('aws_services', []))}")
-            print(f"   Tech Stack: {len(analyzed_requirements.get('technical_stack', []))}")
-        else:
-            print(f"✅ Using extracted requirements for production conversion")
-        
-        _report_progress(state, 45, "Requirements extracted from source document")
-        return {"current_step": "analyze"}
 
     print(f"\n--- Step: Analyzing Objective ---")
     objective = (state.get('additional_details') or state.get('objective') or '').strip()
@@ -1219,7 +963,7 @@ def analyze_objective_node(state: AgentState) -> AgentState:
     objective_lower = f"{objective}\n{supporting_context}".lower()
     ui_keywords = [
         "user interface", "ui", "frontend", "web interface", "dashboard", 
-        "web application", "portal", "screen", "screens", "visualization"
+        "web application", "portal", "screen", "screens", "visualization", "workbench", "review console"
     ]
     negative_indicators = [
         "no user interface", "without user interface", "no frontend", "without frontend",
@@ -1247,7 +991,7 @@ def analyze_objective_node(state: AgentState) -> AgentState:
     # Check for other UI keywords
     ui_keywords_no_ui = [
         "user interface", "frontend", "web interface", "dashboard", 
-        "web application", "portal", "screen", "screens", "visualization"
+        "web application", "portal", "screen", "screens", "visualization", "workbench", "review console"
     ]
     if any(keyword in objective_lower for keyword in ui_keywords_no_ui):
         has_ui_keywords = True
@@ -1290,6 +1034,29 @@ def rule_validation_node(state: AgentState) -> AgentState:
     
     _report_progress(state, 58, "Requirements validation complete")
     return {"validated_requirements": validated_requirements, "current_step": "validate"}
+
+
+def solution_design_node(state: AgentState) -> AgentState:
+    """One capability/service baseline shared by scope, pricing and drawings."""
+    from app.diagram.service_design import ensure_service_design
+    requirements = normalize_requirements(
+        state.get('validated_requirements') or {},
+        '' if state.get('supporting_context') else state.get('objective') or '',
+        state.get('mode', 'POC'))
+    analyzed = state.get('analyzed_requirements') or {}
+    for field in ('duration_weeks', 'timeline', 'aws_services', 'confirmed_aws_services',
+                  'proposed_aws_services', 'document_volume', 'ui_required'):
+        if field in analyzed:
+            requirements[field] = analyzed[field]
+    _report_progress(state, 57, 'Selecting services against project capabilities')
+    service = DiagramService(config)
+    try:
+        requirements['service_design'] = ensure_service_design(
+            service.llm, requirements, state.get('metadata') or {},
+            state.get('supporting_context') or state.get('objective') or '')
+    finally:
+        service.bedrock.close()
+    return {'validated_requirements': requirements, 'current_step': 'solution_design'}
 
 
 def aws_pricing_node(state: AgentState) -> AgentState:
@@ -1397,7 +1164,7 @@ def content_generation_node(state: AgentState) -> AgentState:
     metadata = state['metadata']
     mode = state.get('mode', 'POC')
     
-    template_type = mode if mode in ["POC", "PROD", "POC_TO_PROD"] else "POC"
+    template_type = mode if mode in ["POC", "PROD"] else "POC"
     print(f"✅ Using Template: {template_type}")
     print(f"   Company: {metadata.get('company_name', 'N/A')}")
     print(f"   Project: {metadata.get('project_title', 'N/A')}")
@@ -1493,32 +1260,47 @@ def content_generation_node(state: AgentState) -> AgentState:
             diagram_requirements = dict(final_requirements)
             diagram_requirements['architecture_source_context'] = state.get('supporting_context') or state.get('objective') or ''
             diagram_requirements['scope_boundaries'] = boundary_summary(state.get('scope_architecture_plan') or {})
-            diagram_assets = DiagramService(config).generate_assets(
-                diagram_requirements, metadata, str(architecture_narrative))
+            diagram_service = DiagramService(config)
+            try:
+                diagram_assets = diagram_service.generate_assets(
+                    diagram_requirements, metadata, str(architecture_narrative))
+                from app.diagram.architecture_text import synchronize
+                synchronize(diagram_service.llm, poc_content, diagram_assets, final_requirements)
+            finally:
+                diagram_service.bedrock.close()
             poc_content[ARCHITECTURE_ASSETS_KEY] = diagram_assets
             ready_count = sum(bool(asset.get('image_base64')) for asset in diagram_assets)
-            print(f"   [DIAGRAM] {ready_count} validated image(s); recovery available in preview")
+            print(f"   [DIAGRAM] {ready_count} quality-checked rendered image(s)")
         except Exception as exc:
-            # Keep all text and a recovery control even when planning/rendering fails.
-            print(f"   ⚠ Architecture diagram requires regeneration: {exc}")
-            from app.diagram.reliability import unavailable_asset
-            poc_content[ARCHITECTURE_ASSETS_KEY] = [unavailable_asset(str(exc))]
+            # Keep the SOW usable even when the model or external renderer fails.
+            print(f"   ⚠ Architecture diagram unavailable; preserving SOW: {exc}")
+            from app.diagram.service import local_fallback_asset
+            poc_content[ARCHITECTURE_ASSETS_KEY] = [local_fallback_asset(
+                config, final_requirements, metadata, str(exc))]
 
     if selected_sections and 'conceptual_flow_diagram' in selected_sections:
-        from app.diagram.conceptual_drawio import generate as generate_conceptual
         _report_progress(state, 95, 'Generating conceptual flow diagram')
-        service = DiagramService(config)
         try:
-            poc_content['conceptual_flow_asset'] = generate_conceptual(
-                service.llm, config, final_requirements,
+            from app.diagram.conceptual_safe import generate_optional
+            conceptual_requirements = dict(final_requirements)
+            for architecture_asset in poc_content.get(ARCHITECTURE_ASSETS_KEY, []):
+                if architecture_asset.get('image_base64') and architecture_asset.get('spec'):
+                    selected_spec = architecture_asset['spec']
+                    conceptual_requirements['_conceptual_selected_architecture'] = {
+                        'nodes': selected_spec.get('nodes', []),
+                        'service_design': selected_spec.get('architecture_plan', {}).get('service_design', {})}
+                    break
+            poc_content['conceptual_flow_asset'] = generate_optional(
+                config, conceptual_requirements,
                 state.get('supporting_context') or state.get('objective') or '',
-                state.get('scope_architecture_plan') or {})
-            poc_content['conceptual_flow_asset']['following_sections'] = selected_sections[
-                selected_sections.index('conceptual_flow_diagram') + 1:]
+                state.get('scope_architecture_plan') or {}, selected_sections[
+                    selected_sections.index('conceptual_flow_diagram') + 1:])
         except Exception as exc:
-            print(f'[CONCEPTUAL FLOW] generation failed: {exc}', flush=True)
+            # Final containment boundary includes imports/client setup too.
+            print(f'[CONCEPTUAL FLOW] unavailable; continuing SOW generation: {exc}', flush=True)
             poc_content['conceptual_flow_asset'] = {
-                'image_base64': '', 'error': 'Conceptual flow generation failed. Generate a new preview to retry.'}
+                'diagram_type':'conceptual_flow', 'status':'unavailable', 'image_base64':'',
+                'warning':'Conceptual diagram unavailable. SOW content was preserved.', 'errors':[str(exc)]}
     print(f"✅ Content generation completed")
     
     return {"poc_content": poc_content, "current_step": "generate"}
@@ -1590,7 +1372,7 @@ def pdf_build_node(state: AgentState) -> AgentState:
                 
                 # Move document to permanent temp location for upload
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                suffix = "PROD" if mode in ["PROD", "POC_TO_PROD"] else "POC"
+                suffix = "PROD" if mode in ["PROD"] else "POC"
                 
                 # Create temp file for upload (preserves extension)
                 file_ext = doc_output_path.suffix  # .docx or .pdf
@@ -1632,7 +1414,7 @@ def pdf_build_node(state: AgentState) -> AgentState:
         try:
             import tempfile
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            suffix = "PROD" if mode in ["PROD", "POC_TO_PROD"] else "POC"
+            suffix = "PROD" if mode in ["PROD"] else "POC"
             
             # Create emergency temp file
             emergency_path = tempfile.mktemp(suffix='.pdf', prefix=f'EMERGENCY_{suffix}_')

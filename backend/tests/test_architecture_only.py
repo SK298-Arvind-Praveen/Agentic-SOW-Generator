@@ -23,7 +23,8 @@ def test_workflow_keywords_never_enable_extra_views():
     ) == ['architecture_overview']
 
 
-def test_llm_extra_flowcharts_are_ignored():
+def test_llm_extra_flowcharts_are_ignored(monkeypatch):
+    monkeypatch.setattr('app.diagram.service_design.ensure_service_design', lambda *a: {})
     instance = service()
     diagram = {'nodes': [{'id': 'a', 'label': 'Client', 'kind': 'external', 'layer': 0},
                          {'id': 'b', 'label': 'Processing', 'kind': 'process', 'layer': 1}],
@@ -37,7 +38,7 @@ def test_llm_extra_flowcharts_are_ignored():
     assert not fallback
     assert [plan[0] for plan in plans] == ['architecture_overview']
     prompt = instance.llm.generate.call_args.args[0]
-    assert 'Do not generate separate flowcharts' in prompt
+    assert 'Design ONE client-facing AWS solution architecture overview' in prompt
 
 
 def test_fallback_does_not_create_flowcharts():

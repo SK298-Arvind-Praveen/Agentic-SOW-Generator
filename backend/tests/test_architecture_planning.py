@@ -37,6 +37,7 @@ def test_application_fanout_and_shared_store_dependencies_are_not_pruned():
 
 
 def test_compact_plan_is_not_expanded_to_fill_icon_quota(monkeypatch):
+    monkeypatch.setattr('app.diagram.service_design.ensure_service_design', lambda *a: {})
     service = DiagramService.__new__(DiagramService)
     service.config = SimpleNamespace(WRITER_MODEL_ID=None)
     service.icon_registry = AwsIconRegistry(Path(__file__).resolve().parents[1] / 'assets')

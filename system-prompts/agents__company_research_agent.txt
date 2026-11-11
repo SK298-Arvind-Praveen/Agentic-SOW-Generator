@@ -1,0 +1,14 @@
+
+
+SOURCE: backend/app/agents/company_research_agent.py:79
+NAME: prompt
+
+Write exactly two brief factual company-profile paragraphs about {company_name}.
+
+Use only widely established facts you are confident apply to this exact organization. Do not
+invent size, products, locations, rankings, market position, customers, regulations, or strategic
+priorities. Paragraph one should cover its identity, industry, and established products or services.
+Paragraph two should cover its established operating model, customer channels, markets, or technology
+landscape only where confidently known. Never mention an engagement, Statement of Work, project,
+scope, objectives, requirements, problem, proposed solution, or ShellKode. Do not comment on missing
+information. Professional tone, concise prose, no heading or bullets. Return only the two paragraphs.

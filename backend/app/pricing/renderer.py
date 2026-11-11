@@ -137,12 +137,13 @@ def render_aws_pricing_section(result: Dict[str, Any]) -> str:
         rows.append((item, amount, qualifier))
     elif status == "partial_priced":
         # A partial calculator subtotal must never masquerade as the whole workload.
-        rows.append(("Calculator-priced components only", _money(result.get("calculator_monthly_cost")), link))
+        subtotal = result.get('calculator_monthly_cost')
+        rows.append(("Calculator-priced components only", _money(subtotal) if subtotal and Decimal(str(subtotal)) > 0 else '', link))
         rows.append((item + " total", "", ""))
     elif status in {"priced", "url_only"}:
         rows.append((item, _money(result.get("monthly_cost")), link))
     else:
-        rows.append((item, "", ""))
+        rows.append((item, "", _safe(result.get('error') or result.get('cost_read_warning') or '')))
     lines = [f"| Item | Monthly ({currency}) | Estimate |", "|---|---:|---|"]
     lines.extend(f"| {label} | {amount} | {estimate} |" for label, amount, estimate in rows)
     lines.extend(['', '| Pricing basis | Details |', '|---|---|'])

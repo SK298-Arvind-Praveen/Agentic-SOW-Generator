@@ -15,6 +15,138 @@ class _Config:
     FALLBACK_MODEL_ID = "fallback"
 
 
+def test_diagram_stream_preserves_text_usage_and_completion(monkeypatch):
+    monkeypatch.setenv('BEDROCK_DIAGRAM_TRANSPORT','stream')
+    class Client(_ConverseClient):
+        def converse_stream(self, **kwargs):
+            self.calls.append(kwargs)
+            return {'stream': iter([
+                {'contentBlockDelta': {'delta': {'text': '{"ok":'}}},
+                {'contentBlockDelta': {'delta': {'text': 'true}'}}},
+                {'messageStop': {'stopReason': 'end_turn'}},
+                {'metadata': {'usage': {'inputTokens': 12, 'outputTokens': 8}}},
+            ])}
+    result = BedrockLLM(_Config(), Client()).generate('Diagram', task='diagram',
+        model_id='arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/hlc2w29214np')
+    assert result.text == '{"ok":true}'
+    assert result.output_tokens == 8
+
+
+def test_interrupted_diagram_stream_is_not_accepted(monkeypatch):
+    monkeypatch.setenv('BEDROCK_DIAGRAM_TRANSPORT','stream')
+    import pytest
+    class Client(_ConverseClient):
+        def converse_stream(self, **kwargs):
+            return {'stream': iter([{'contentBlockDelta': {'delta': {'text': 'partial'}}}])}
+    with pytest.raises(BedrockOutputTruncatedError, match='completion event'):
+        BedrockLLM(_Config(), Client()).generate('Diagram', task='diagram', retry_on_truncation=False,
+            model_id='arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/hlc2w29214np')
+
+
+def test_second_attempt_uses_nonstreaming_same_model(monkeypatch):
+    from app.diagram.reliability import pipeline_attempt, model_attempts
+    monkeypatch.setenv('BEDROCK_DIAGRAM_TRANSPORT','auto')
+    class Client(_ConverseClient):
+        def converse_stream(self, **kwargs):
+            raise AssertionError('Retry must use Converse')
+    client = Client()
+    token, ledger = pipeline_attempt.set(1), model_attempts.set({'Architecture Diagram':1})
+    try:
+        profile='arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/hlc2w29214np'
+        BedrockLLM(_Config(),client).generate('Graph',task='diagram',call_name='Architecture Diagram',model_id=profile)
+        assert client.calls[0]['modelId'] == profile
+        assert client.calls[0]['inferenceConfig']['maxTokens'] == 65536
+    finally:
+        model_attempts.reset(ledger)
+        pipeline_attempt.reset(token)
+
+
+def test_sonnet_55_profile_uses_verified_default_parameters():
+    profile = 'arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/hlc2w29214np'
+    client = _ConverseClient()
+    model = BedrockLLM(_Config(), client)
+    model.generate('Diagram plan', task='diagram', model_id=profile)
+    call = client.calls[0]
+    assert call['modelId'] == profile
+    assert not call.get('additionalModelRequestFields')
+    assert 'temperature' not in call['inferenceConfig']
+    assert call['inferenceConfig']['maxTokens'] == 32768
+
+
+def test_opus_55_profile_uses_adaptive_thinking_without_temperature():
+    profile = 'arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/r0bnzxkwcgud'
+    client = _ConverseClient()
+    model = BedrockLLM(_Config(), client)
+    model.generate('Diagram plan', task='diagram', model_id=profile)
+    call = client.calls[0]
+    assert call['modelId'] == profile
+    assert call['additionalModelRequestFields']['thinking'] == {'type': 'adaptive'}
+    assert 'temperature' not in call['inferenceConfig']
+
+
+def test_opus_55_native_id_and_legacy_profile_settings():
+    from app.core.bedrock_llm import _additional_model_request_fields, _supports_temperature
+    assert _additional_model_request_fields('us.anthropic.claude-opus-5-5') == {'thinking': {'type': 'adaptive'}}
+    assert not _supports_temperature('us.anthropic.claude-opus-5-5')
+    assert _additional_model_request_fields('arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona') == {'thinking': {'type': 'disabled'}}
+
+
+def test_architecture_pipeline_owns_truncation_retry_and_expands_second_allowance():
+    from app.diagram.reliability import pipeline_attempt
+    import pytest
+    client = _TruncatedClient()
+    model = BedrockLLM(_Config(),client)
+    for attempt in (1,2):
+        token = pipeline_attempt.set(attempt)
+        try:
+            with pytest.raises(BedrockOutputTruncatedError):
+                model.generate('Complete graph',task='diagram',max_tokens=5000,fallback_model_id='fallback')
+        finally:
+            pipeline_attempt.reset(token)
+    assert len(client.calls) == 2
+    assert [c['inferenceConfig']['maxTokens'] for c in client.calls] == [5000,10000]
+
+
+def test_stage_limit_cannot_multiply_across_pipeline_restarts():
+    from app.diagram.reliability import pipeline_attempt, model_attempts
+    import pytest
+    client = _ConverseClient()
+    model = BedrockLLM(_Config(),client)
+    run_token, ledger_token = pipeline_attempt.set(1), model_attempts.set({})
+    try:
+        model.generate('Graph',task='diagram',call_name='Architecture Diagram')
+        model.generate('Correct graph',task='diagram',call_name='Architecture Diagram')
+        with pytest.raises(RuntimeError,match='one corrective retry'):
+            model.generate('Third graph',task='diagram',call_name='Architecture Diagram')
+        # A later independent stage still gets its own first and retry calls.
+        model.generate('View',task='diagram',call_name='Architecture Narrative Composition')
+        model.generate('Semantic repair',task='diagram',call_name='Architecture Plan Correction')
+        model.generate('Repair transport retry',task='diagram',call_name='Architecture Plan Correction')
+        with pytest.raises(RuntimeError,match='one corrective retry'):
+            model.generate('Third repair',task='diagram',call_name='Architecture Plan Correction')
+        assert len(client.calls) == 5
+    finally:
+        model_attempts.reset(ledger_token)
+        pipeline_attempt.reset(run_token)
+
+
+def test_revised_image_retains_its_review_and_transport_retry_allowance():
+    from app.diagram.reliability import pipeline_attempt, model_attempts
+    import pytest
+    client = _ConverseClient()
+    model = BedrockLLM(_Config(),client)
+    run_token, ledger_token = pipeline_attempt.set(1), model_attempts.set({})
+    try:
+        for _ in range(4):
+            model.generate('Review', image_bytes=b'png', call_name='Architecture Narrative Image Review')
+        with pytest.raises(RuntimeError,match='corrective retry'):
+            model.generate('Review', image_bytes=b'png', call_name='Architecture Narrative Image Review')
+        assert len(client.calls) == 4
+    finally:
+        model_attempts.reset(ledger_token)
+        pipeline_attempt.reset(run_token)
+
+
 class _ConverseClient:
     def __init__(self):
         self.calls = []
@@ -167,3 +299,15 @@ class BedrockLLMTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArchitectureSystemPromptTests(unittest.TestCase):
+    def test_system_prompt_is_separate_from_project_message_and_survives_fallback(self):
+        client = _ConverseClient()
+        llm = BedrockLLM(_Config(), client)
+        llm.system_prompt = "Architecture rules"
+        llm.generate("Project evidence", task="analysis", fallback_model_id="writer")
+        self.assertEqual(len(client.calls), 2)
+        for request in client.calls:
+            self.assertEqual(request["system"], [{"text": "Architecture rules"}])
+            self.assertEqual(request["messages"][0]["content"], [{"text": "Project evidence"}])

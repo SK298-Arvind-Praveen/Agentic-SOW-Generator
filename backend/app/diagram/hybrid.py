@@ -206,12 +206,14 @@ def prepare(service, spec):
     try:
         from app.agents.architecture_reviewer_agent import _call
         from app.diagram.reliability import structured_retry
-        deadline = time.monotonic() + 60
+        from app.diagram.budgets import seconds
+        deadline = time.monotonic() + seconds('composition')
         value = structured_retry(
             lambda prompt: _call(service, prompt, deadline, planner=True, call_name='Architecture Composition'),
-            COMPOSITION_RULES+'\n'+json.dumps(composition_context(spec,service.config)),
+            COMPOSITION_RULES+'\n'+json.dumps(composition_context(spec,service.config))
+            +'\nPrevious attempt findings (correct placement only):\n'+str(spec.architecture_plan.get('retry_feedback','')),
             lambda value: validate_composition(value, tree_for(spec, service.config)),
-            attempts=3, deadline=deadline)
+            attempts=2, deadline=deadline)
         return replace(spec, architecture_plan={**spec.architecture_plan,'visual_layout':value})
     except Exception as exc:
         print('[DIAGRAM][HYBRID] Composition unavailable; use local candidates: '+str(exc)[:300],flush=True)
@@ -234,6 +236,89 @@ def compose(spec, config, value, deadline):
             arrange(child)
         controls = [c for c in item['children'] if c['id'].startswith('__shared_controls')]
         body = [c for c in item['children'] if c not in controls]
+        if item['id'].startswith('__region') and not (
+                spec.architecture_plan.get('review_composition') and item['id'] in grids):
+            # A VPC is a tall deployment block. Do not let its height create a
+            # full-height empty column beneath every regional managed service.
+            nodes_by_id = {n.id: n for n in spec.nodes}
+            networks = [c for c in body if 'children' in c]
+            entry = [c for c in body if c['id'] in nodes_by_id and
+                     (nodes_by_id[c['id']].placement_role == 'entry' or any(
+                         token in nodes_by_id[c['id']].icon_key.lower()
+                         for token in ('waf', 'cognito', 'api-gateway')))]
+            entry.sort(key=lambda c: next((i for i, token in enumerate(
+                ('waf', 'api-gateway', 'cognito')) if token in nodes_by_id[c['id']].icon_key.lower()), 9))
+            managed = [c for c in body if c not in networks and c not in entry]
+            # A managed agent/runtime is often the hub, with only its enterprise
+            # adapter inside a VPC. Putting that VPC first reverses the actual
+            # request flow. Place the hub before that network and put its leaf
+            # dependencies above and the reporting chain below.
+            hubs = [c for c in managed if nodes_by_id[c['id']].placement_role == 'compute']
+            degree = lambda c: sum(c['id'] in (e.source,e.target) for e in spec.edges)
+            hub = max(hubs,key=degree,default=None)
+            if networks and hub is not None and degree(hub) >= 4:
+                rest = [c for c in managed if c is not hub]
+                outgoing = {c['id']:[e.target for e in spec.edges if e.source == c['id']
+                            and any(other['id']==e.target for other in rest)] for c in rest}
+                starts = [c for c in rest if outgoing[c['id']] and any(
+                    e.source==hub['id'] and e.target==c['id'] for e in spec.edges)]
+                chain,seen = [],set()
+                for start in starts:
+                    key = start['id']
+                    while key not in seen:
+                        seen.add(key)
+                        chain.append(next(c for c in rest if c['id']==key))
+                        next_keys = outgoing[key]
+                        if len(next_keys)!=1:
+                            break
+                        key = next_keys[0]
+                leaves = [c for c in rest if c['id'] not in seen]
+                hub['x'],hub['y'] = 275,280
+                for index,child in enumerate(entry):
+                    child['x'],child['y'] = 24,280-index*190
+                for index,child in enumerate(networks):
+                    child['x'],child['y'] = 540+index*(child['width']+65),245
+                for index,child in enumerate(leaves):
+                    child['x'],child['y'] = 275+(index%2)*265,60+(index//2)*190
+                # If there are too many leaves for the upper rail, use the
+                # general packing below rather than overlap the main spine.
+                if len(leaves)<=2 and len(entry)<=2:
+                    bottom = max(c['y']+c['height'] for c in [hub]+networks+leaves+entry)
+                    for index,child in enumerate(chain):
+                        child['x'],child['y'] = 24+(index%3)*255,bottom+65+(index//3)*185
+                    bottom = max(c.get('y',0)+c['height'] for c in body)
+                    for child in controls:
+                        child['x'],child['y'] = 24,bottom+35
+                        bottom += child['height']+35
+                    item['width'] = max(c['x']+c['width'] for c in item['children'])+24
+                    item['height'] = bottom+24
+                    return
+            if networks and managed:
+                top = 60
+                x = 24
+                for child in entry:
+                    child['x'], child['y'] = x, top
+                    x += child['width'] + 60
+                top += max((c['height'] for c in entry), default=0) + (55 if entry else 0)
+                nx = 24
+                for child in networks:
+                    child['x'], child['y'] = nx, top
+                    nx += child['width'] + 70
+                right = nx
+                max_right, bottom = nx, top
+                for index, child in enumerate(managed):
+                    col, row = index % 2, index // 2
+                    child['x'], child['y'] = right + col * 235, top + row * 185
+                    max_right = max(max_right, child['x'] + child['width'])
+                    bottom = max(bottom, child['y'] + child['height'])
+                bottom = max(bottom, *(c['y'] + c['height'] for c in networks))
+                for child in controls:
+                    child['x'], child['y'] = 24, bottom + 35
+                    bottom += child['height'] + 35
+                    max_right = max(max_right, child['width'] + 24)
+                item['width'], item['height'] = max(x, max_right + 24), bottom + 24
+                return
+
         if item['id'].startswith('__shared_controls'):
             rows = [[c['id'] for c in body]]
         elif item['id'].startswith('__aws_account') or (
@@ -242,10 +327,53 @@ def compose(spec, config, value, deadline):
             # full-height column that makes the whole figure unreadably wide.
             regions=[c['id'] for c in body if 'children' in c]
             globals_=[c['id'] for c in body if 'children' not in c]
-            rows=[[key] for key in regions]+([globals_] if globals_ else [])
+            # Edge services lead into the regional runtime; never place ingress
+            # below it, which creates a perimeter-sized return connector.
+            node_by_id = {n.id: n for n in spec.nodes}
+            ingress = [key for key in globals_ if any(token in node_by_id[key].icon_key.lower()
+                       for token in ('cloudfront', 'route-53', 'waf', 'shield'))]
+            shared = [key for key in globals_ if key not in ingress]
+            ingress.sort(key=lambda key: next((i for i, token in enumerate(
+                ('route-53', 'cloudfront', 'waf', 'shield')) if token in node_by_id[key].icon_key.lower()), 9))
+            if ingress and len(regions) == 1:
+                # Align the global delivery service with the regional ingress.
+                # A separate full-width row above Region produces huge U-turns.
+                region = next(c for c in body if c['id'] == regions[0])
+                def entry_y(container, offset=0):
+                    found = []
+                    for child in container.get('children', []):
+                        y = offset + child.get('y',0)
+                        if 'children' in child:
+                            found.extend(entry_y(child,y))
+                        elif child['id'] in node_by_id and node_by_id[child['id']].placement_role == 'entry':
+                            found.append(y)
+                    return found
+                lane_width = max(c['width'] for c in body if c['id'] in ingress)+64
+                region['x'], region['y'] = lane_width+32, 44
+                target_y = min(entry_y(region),default=region['height']/2)+44
+                by_key = {c['id']:c for c in body}
+                primary = [k for k in ingress if 'waf' not in node_by_id[k].icon_key.lower()]
+                protection = [k for k in ingress if k not in primary]
+                for index,key in enumerate(primary):
+                    by_key[key]['x'], by_key[key]['y'] = 16, target_y+index*170
+                for index,key in enumerate(protection):
+                    by_key[key]['x'], by_key[key]['y'] = 16, target_y+185+index*170
+                bottom = max(c.get('y',0)+c['height'] for c in body if c['id'] not in shared)
+                for index,key in enumerate(shared):
+                    by_key[key]['x'], by_key[key]['y'] = 16+index*195,bottom+32
+                for child in controls:
+                    child['x'],child['y'] = 16,bottom+32
+                    bottom += child['height']+32
+                item['width'] = max(c.get('x',0)+c['width'] for c in item['children'])+24
+                item['height'] = max(c.get('y',0)+c['height'] for c in item['children'])+24
+                return
+            rows=([ingress] if ingress else [])+[[key] for key in regions]+([shared] if shared else [])
         else:
             # Default is a row, never a surprise nested feature lane.
             rows = grids.get(item['id'], [[c['id'] for c in body]])
+            # Bound the width of unmanaged service rows. Wide regional rows
+            # stretch every boundary and every external integration connector.
+            rows = [row[start:start+4] for row in rows for start in range(0, len(row), 4)]
         by_id = {c['id']: c for c in body}
         horizontal_gap = 24 if item['id'].startswith('__shared_controls') else 80
         cols = max((len(row) for row in rows), default=1)
@@ -258,7 +386,7 @@ def compose(spec, config, value, deadline):
             for col, key in enumerate(row):
                 if key:
                     child = by_id[key]
-                    child['x'], child['y'] = x+(widths[col]-child['width'])/2, y
+                    child['x'], child['y'] = (x if child['id'] in global_ids else x+(widths[col]-child['width'])/2), y
                 x += widths[col]+horizontal_gap
             y += row_height+32
         width = sum(widths)+horizontal_gap*max(0, cols-1)+32
@@ -293,6 +421,7 @@ def compose(spec, config, value, deadline):
     max_x = max((x+w for x,y,w,h in boxes.values()), default=400)
     max_y = max((y+h for x,y,w,h in boxes.values()), default=200)
     buckets = {k:[] for k in ('left','right','top','bottom')}
+    nodes_by_kind = {n.id: n.kind for n in spec.nodes}
     for child in external:
         key = child['id']
         degree = sum(key in (e.source,e.target) for e in spec.edges)
@@ -309,9 +438,16 @@ def compose(spec, config, value, deadline):
         # Barycentre alone incorrectly put that shared target beside the sources.
         incoming = sum(e.target == key for e in spec.edges)
         outgoing = sum(e.source == key for e in spec.edges)
-        default_side = ('right' if incoming >= outgoing and incoming else
-                        'left' if outgoing else 'right')
+        default_side = ('left' if nodes_by_kind.get(key) in {'actor', 'channel'} or not incoming else 'right')
         side = value.get('external_sides',{}).get(key, default_side)
+        if peers and nodes_by_kind.get(key) not in {'actor', 'channel'}:
+            # Place an external integration at the nearest cloud boundary to
+            # its actual adapters, rather than beyond unrelated analytics.
+            distances = {'left': cx, 'right': max_x-cx, 'top': cy, 'bottom': max_y-cy}
+            nearest = min(distances, key=distances.get)
+            if distances[side] > distances[nearest] + 140:
+                side = nearest
+
         buckets[side].append((cx,cy,child))
     for side, children in buckets.items():
         end = 0
@@ -363,10 +499,12 @@ def compose(spec, config, value, deadline):
 
 def layout(spec, config, timeout_seconds=None):
     from app.diagram.elk import layout as elk_layout
-    deadline = time.monotonic()+min(30,max(2,timeout_seconds or 30))
+    from app.diagram.budgets import seconds
+    deadline = time.monotonic()+min(seconds('layout'),max(2,timeout_seconds or seconds('layout')))
+    candidate_budget = max(2, (deadline-time.monotonic()) / 4)
     candidates, failures = [], []
     try:
-        reference = compose(spec,config,topology_composition(spec,config),min(deadline,time.monotonic()+8))
+        reference = compose(spec,config,topology_composition(spec,config),min(deadline,time.monotonic()+candidate_budget))
         reference['candidate_source'] = 'reference_topology'
         candidates.append(reference)
     except (ValueError,KeyError,TypeError,TimeoutError) as exc:
@@ -374,7 +512,7 @@ def layout(spec, config, timeout_seconds=None):
     composition = spec.architecture_plan.get('visual_layout')
     if composition:
         try:
-            candidates.append(compose(spec,config,composition,min(deadline,time.monotonic()+8)))
+            candidates.append(compose(spec,config,composition,min(deadline,time.monotonic()+candidate_budget)))
         except (ValueError,KeyError,TypeError,TimeoutError) as exc:
             failures.append('composition: '+str(exc))
     # Independent baseline: never let the first candidate failing skip alternatives.
@@ -383,7 +521,7 @@ def layout(spec, config, timeout_seconds=None):
         if remaining < 2:
             break
         try:
-            candidate = elk_layout(spec,config,min(7,remaining),_optimize=False,
+            candidate = elk_layout(spec,config,min(candidate_budget,remaining),_optimize=False,
                                    _compound=True,_iconic=True,_flow_direction=mode)
             candidate.update(candidate_source='elk_'+mode.lower())
             candidates.append(candidate)
@@ -391,6 +529,102 @@ def layout(spec, config, timeout_seconds=None):
             failures.append(mode+': '+str(exc))
     if not candidates:
         raise ValueError('No valid hybrid geometry: '+'; '.join(failures))
+    # Put each external system at its nearest cloud edge, independently. Forcing
+    # all integrations below the cloud made top-row adapters cross the whole page.
+    for baseline in list(candidates):
+        if deadline-time.monotonic() < 2:
+            break
+        try:
+            positions, boxes, width, height = baseline['geometry']
+            positions = dict(positions)
+            externals = [n for n in spec.nodes if n.scope == 'external' and n.kind not in {'actor','channel'}]
+            if not externals:
+                continue
+            cloud_boxes = [r for k,r in boxes.items() if baseline['parents'].get(k) == 'root']
+            cloud_boxes = cloud_boxes or list(boxes.values())
+            left = min(x for x,y,w,h in cloud_boxes)
+            top = min(y for x,y,w,h in cloud_boxes)
+            right = max(x+w for x,y,w,h in cloud_boxes)
+            bottom = max(y+h for x,y,w,h in cloud_boxes)
+            occupied = [positions[n.id] for n in spec.nodes if n.scope == 'external' and n not in externals]
+            for node in externals:
+                peers = [e.target if e.source == node.id else e.source for e in spec.edges if node.id in (e.source,e.target)]
+                peers = [positions[key] for key in peers if key in positions]
+                if not peers:
+                    continue
+                _,_,w,h = positions[node.id]
+                cx = sum(px+pw/2 for px,py,pw,ph in peers)/len(peers)
+                cy = sum(py+37 for px,py,pw,ph in peers)/len(peers)
+                choices = [(cx-w/2,top-h-65,w,h), (right+65,cy-h/2,w,h),
+                           (cx-w/2,bottom+65,w,h), (left-w-65,cy-h/2,w,h)]
+                choices = [r for r in choices if not any(
+                    r[0] < a+c+35 and r[0]+w > a-35 and r[1] < b+d+35 and r[1]+h > b-35
+                    for a,b,c,d in occupied)]
+                if not choices:
+                    continue
+                rect = min(choices,key=lambda r:sum(abs(r[0]+w/2-(px+pw/2))+
+                    abs(r[1]+h/2-(py+37)) for px,py,pw,ph in peers))
+                positions[node.id] = rect
+                occupied.append(rect)
+            dx = max(0,32-min(x for x,y,w,h in positions.values()))
+            dy = max(0,32-min(y for x,y,w,h in positions.values()))
+            positions = {k:(x+dx,y+dy,w,h) for k,(x,y,w,h) in positions.items()}
+            boxes = {k:(x+dx,y+dy,w,h) for k,(x,y,w,h) in boxes.items()}
+            width = max(x+w for x,y,w,h in list(positions.values())+list(boxes.values()))+32
+            height = max(y+h for x,y,w,h in list(positions.values())+list(boxes.values()))+32
+            paths = local_routes(spec,positions,boxes,baseline['parents'],width,height,
+                                 min(deadline,time.monotonic()+5),baseline.get('captions'),True)
+            metrics = geometry_report(spec,positions,paths)
+            if metrics['node_overlaps'] or metrics['connector_node_intersections']:
+                continue
+            metrics.update(out_of_bounds=0,containment_violations=0)
+            candidates.append({**baseline,'geometry':(positions,boxes,width,height),'paths':paths,
+                               'labels':[None]*len(paths),'metrics':metrics,
+                               'candidate_source':baseline['candidate_source']+'_near_integrations'})
+        except (ValueError,KeyError,TimeoutError):
+            continue
+    # Improve proximity before routing: exchange equally sized siblings only.
+    # This cannot change ownership, nesting, service identities or connections.
+    for candidate in candidates:
+        positions,_,width,height = candidate['geometry']
+        candidate['metrics']['canvas_area_per_node'] = width*height/max(1,len(positions))
+    baseline = min(candidates,key=lambda c:layout_quality(c['metrics']))
+    if deadline-time.monotonic() > 2:
+        try:
+            positions, boxes, width, height = baseline['geometry']
+            positions = dict(positions)
+            parents = baseline['parents']
+            internal = [n.id for n in spec.nodes if n.scope != 'external' and n.id in positions]
+            pairs = [(a,b) for i,a in enumerate(internal) for b in internal[i+1:]
+                     if parents.get(a) == parents.get(b) and positions[a][2:] == positions[b][2:]]
+            def wire_cost():
+                lengths = [abs(positions[e.source][0]-positions[e.target][0])+
+                           abs(positions[e.source][1]-positions[e.target][1]) for e in spec.edges]
+                return sum(d+d*d/max(width,height) for d in lengths)
+            current = wire_cost()
+            for _ in range(8):
+                best, move = current, None
+                for a,b in pairs:
+                    positions[a], positions[b] = positions[b], positions[a]
+                    cost = wire_cost()
+                    positions[a], positions[b] = positions[b], positions[a]
+                    if cost < best-1:
+                        best, move = cost, (a,b)
+                if move is None:
+                    break
+                a,b = move
+                positions[a], positions[b] = positions[b], positions[a]
+                current = best
+            paths = local_routes(spec,positions,boxes,parents,width,height,
+                min(deadline,time.monotonic()+5),baseline.get('captions'),True)
+            metrics = geometry_report(spec,positions,paths)
+            if not metrics['node_overlaps'] and not metrics['connector_node_intersections']:
+                metrics.update(out_of_bounds=0,containment_violations=0,
+                               canvas_area_per_node=width*height/max(1,len(positions)))
+                candidates.append({**baseline,'geometry':(positions,boxes,width,height),'paths':paths,
+                    'labels':[None]*len(paths),'metrics':metrics,'candidate_source':'adjacent_dependencies'})
+        except (ValueError,KeyError,TimeoutError):
+            pass
     selected = min(candidates,key=lambda c:layout_quality(c['metrics']))
     # Near-equivalent routes: prefer the tighter page composition, not a large
     # mostly-empty canvas that makes normalized connector distances look small.

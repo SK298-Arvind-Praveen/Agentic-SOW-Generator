@@ -3,6 +3,41 @@ import json
 import pytest
 
 
+@pytest.mark.parametrize('preview_status', ['draft_pending', 'draft_saving', 'document_finalizing'])
+def test_finalize_waits_for_save_owner_before_task_registration(preview_status):
+    from app.core import server
+    preview = {'status': preview_status, 'metadata': {}, 'content': {}}
+    with (patch.object(server, 'preview_storage', {'p1': preview}),
+          patch.object(server, 'get_preview_data', return_value=preview),
+          patch.object(server, '_preview_denied', return_value=None),
+          patch.object(server, 'get_task', return_value=None),
+          patch.object(server, 'create_task') as create,
+          patch('app.core.nodes.pdf_build_node') as build):
+        with server.app.test_request_context('/api/finalize', method='POST', json={'preview_id': 'p1'}):
+            response, status = server.finalize_document()
+    assert status == 202
+    assert response.json['processing'] is True
+    assert preview['status'] == preview_status
+    create.assert_not_called()
+    build.assert_not_called()
+
+
+def test_finalize_still_rejects_stale_pricing():
+    from app.core import server
+    preview = {'status': 'ready', 'metadata': {}, 'content': {}}
+    preview['final_state'] = {'pricing_result': {'status': 'stale'}}
+    code = 'AWS_PRICING_STALE'
+    with (patch.object(server, 'preview_storage', {'p1': preview}),
+          patch.object(server, 'get_preview_data', return_value=preview),
+          patch.object(server, '_preview_denied', return_value=None),
+          patch.object(server, 'get_task', return_value=None)):
+        with server.app.test_request_context('/api/finalize', method='POST', json={'preview_id': 'p1'}):
+            response, status = server.finalize_document()
+    assert status == 409
+    assert response.json['code'] == code
+    assert preview['status'] == 'ready'
+
+
 def test_finalize_finds_durable_draft_after_preview_cleanup():
     from app.core import server
     record = {"document_id": "draft-1", "status": "draft"}
@@ -96,7 +131,8 @@ def test_cached_autosave_attaches_record_without_rebuilding():
 
 
 @pytest.mark.parametrize('persist_success', [True, False])
-def test_finalize_promotes_autosaved_record_and_preserves_preview_on_failure(tmp_path, persist_success):
+@pytest.mark.parametrize('missing_diagram', [False, True])
+def test_finalize_promotes_autosaved_record_and_preserves_preview_on_failure(tmp_path, persist_success, missing_diagram):
     from app.core import server
     file = tmp_path / 'final.docx'
     file.write_bytes(b'test')
@@ -104,12 +140,14 @@ def test_finalize_promotes_autosaved_record_and_preserves_preview_on_failure(tmp
                 'document_date': '2026-09-29', 'draft_document_id': 'd1'}
     preview = {'status': 'ready', 'mode': 'POC', 'metadata': metadata,
                'content': {'scope_of_work': 'Build the workflow.'}}
+    if missing_diagram:
+        preview['content']['architecture_diagram_assets'] = [{'status': 'unavailable', 'image_base64': ''}]
     with (patch.object(server, 'preview_storage', {'p1': preview}),
           patch.object(server, 'get_preview_data', return_value=preview),
           patch.object(server, '_preview_denied', return_value=None),
           patch.object(server, 'get_task', return_value=None),
           patch.object(server, 'create_task'), patch.object(server, 'update_task'),
-          patch('app.core.nodes.pdf_build_node', return_value={'output_path': str(file)}),
+          patch('app.core.nodes.pdf_build_node', return_value={'output_path': str(file)}) as build,
           patch('app.core.nodes.get_token_usage', return_value={'total_tokens': 12}),
           patch('app.core.nodes.clear_token_usage'),
           patch.object(server, 'upload_generated_document', return_value=None),
@@ -121,6 +159,10 @@ def test_finalize_promotes_autosaved_record_and_preserves_preview_on_failure(tmp
             response, status = server.finalize_document()
     assert save.call_args.kwargs['existing_document_id'] == 'd1'
     assert save.call_args.kwargs['metadata']['status'] == 'completed'
+    if missing_diagram:
+        asset = build.call_args.args[0]['poc_content']['architecture_diagram_assets'][0]
+        assert not asset['image_base64'] and not asset.get('drawio_xml')
+        assert asset['status'] == 'unavailable'
     if persist_success:
         assert status == 200 and response.json['success']
         cleanup.assert_called_once_with('p1')

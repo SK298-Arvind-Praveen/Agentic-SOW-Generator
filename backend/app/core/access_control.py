@@ -75,7 +75,7 @@ DEFAULT_SECTION_CATALOGUE = [
 ]
 for _section in DEFAULT_SECTION_CATALOGUE:
     _section.update({
-        "modes": ["poc", "production", "poc-to-production"],
+        "modes": ["poc", "production"],
         "custom": False,
         "prompt": "",
     })

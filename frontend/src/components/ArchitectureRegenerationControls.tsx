@@ -59,7 +59,9 @@ export default function ArchitectureRegenerationControls(props: Props) {
           applied.current = job.id;
           callbacks.current.onUpdated(response);
           if (runningJob.current === job.id) void playPreviewReadyChime(`architecture:${job.id}`);
-          setMessage('Diagram and affected SOW sections updated.');
+          setMessage(response.pricing_result && response.pricing_result.monthly_cost == null
+            ? `Diagram updated. Pricing estimate unavailable: ${response.pricing_result.error || response.pricing_result.cost_read_warning || 'Additional sizing inputs are needed.'}`
+            : 'Diagram, affected SOW sections, and pricing updated.');
           setError('');
         }
       } catch {
@@ -99,10 +101,10 @@ export default function ArchitectureRegenerationControls(props: Props) {
     }
   };
 
-  return <div className="architecture-regeneration" style={{ margin: '12px 0' }}>
+  return <div className="architecture-regeneration">
     <label htmlFor={`architecture-changes-${props.previewId}`}>Requested diagram changes (optional)</label>
     <textarea id={`architecture-changes-${props.previewId}`} value={instructions} maxLength={4000}
-      disabled={busy || props.disabled} rows={3} style={{ display: 'block', width: '100%', margin: '8px 0' }}
+      disabled={busy || props.disabled} rows={3}
       placeholder="For example: put the application in private subnets and keep Bedrock outside the VPC."
       onChange={event => setInstructions(event.target.value)} />
     <button type="button" className="modal-btn modal-btn-primary" onClick={regenerate} disabled={busy || props.disabled}>

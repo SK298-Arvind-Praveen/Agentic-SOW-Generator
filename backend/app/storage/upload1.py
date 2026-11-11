@@ -56,7 +56,6 @@ def parse_s3_location(s3_url, expected_bucket=None):
 S3_FOLDER_STRUCTURE = {
     'poc': 'POC',                    
     'production': 'Production',      
-    'poc_to_prod': 'POC_to_Production' 
 }
 
 class S3Uploader:
@@ -88,7 +87,7 @@ class S3Uploader:
         Get S3 folder path based on mode
         
         Args:
-            mode: 'poc', 'production', or 'poc_to_prod'
+            mode: 'poc', 'production'
         
         Returns:
             Correct S3 folder name
@@ -114,7 +113,7 @@ class S3Uploader:
         
         Args:
             file_name: Original file name
-            mode: 'poc', 'production', or 'poc_to_prod'
+            mode: 'poc', 'production'
         
         Returns:
             Full S3 key path
@@ -133,7 +132,7 @@ class S3Uploader:
         
         Args:
             file_path (str): Full path to the file to upload
-            mode (str): 'poc', 'production', or 'poc_to_prod' (normalized to lowercase)
+            mode (str): 'poc', 'production' (normalized to lowercase)
             custom_name (str): Optional custom file name for S3
         
         Returns:
@@ -221,7 +220,7 @@ class S3Uploader:
         
         Args:
             output_file_path (str): Path returned from document generation
-            mode (str): 'poc', 'production', or 'poc_to_prod'
+            mode (str): 'poc', 'production'
         
         Returns:
             dict: Upload result info or None
@@ -253,7 +252,7 @@ class S3Uploader:
         
         Args:
             file_paths (list): List of file paths to upload
-            mode (str): 'poc', 'production', or 'poc_to_prod'
+            mode (str): 'poc', 'production'
         
         Returns:
             list: List of upload results
@@ -300,7 +299,7 @@ def upload_to_s3(file_path, mode='poc'):
     
     Args:
         file_path (str): Path to file to upload
-        mode (str): 'poc', 'production', or 'poc_to_prod'
+        mode (str): 'poc', 'production'
     
     Returns:
         dict: Upload result or None
@@ -329,7 +328,6 @@ if __name__ == '__main__':
             print("\nAvailable modes:")
             print("  • poc                  (POC folder)")
             print("  • production           (Production folder)")
-            print("  • poc_to_prod          (POC_to_Production folder)")
             
             mode = input("\nEnter mode (default: poc): ").strip().lower() or 'poc'
             

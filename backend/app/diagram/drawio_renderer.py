@@ -55,17 +55,19 @@ def _cells(xml):
     if len(xml) > 20_000_000 or '<!DOCTYPE' in xml.upper() or '<!ENTITY' in xml.upper():
         raise ValueError('Invalid draw.io XML')
     root = ET.fromstring(xml)
-    cells = root.findall('.//mxCell')
     result = {}
-    for cell in cells:
-        key = cell.get('id')
-        if not key or key in result:
-            raise ValueError('Invalid draw.io cell identifiers')
-        result[key] = cell
-        # Only bundled icon data, never a remote resource or local file.
-        style = cell.get('style', '')
-        if 'image=' in style and not style.split('image=', 1)[1].startswith('data:image/'):
-            raise ValueError('External images are not permitted in local diagram export')
+    pages = root.findall('diagram') or [root]
+    for page_index, page in enumerate(pages):
+        for cell in page.findall('.//mxCell'):
+            cell_id = cell.get('id')
+            key = (page_index, cell_id)
+            if not cell_id or key in result:
+                raise ValueError('Invalid draw.io cell identifiers')
+            result[key] = cell
+            # Only bundled icon data, never a remote resource or local file.
+            style = cell.get('style', '')
+            if 'image=' in style and not style.split('image=', 1)[1].startswith('data:image/'):
+                raise ValueError('External images are not permitted in local diagram export')
     if not result:
         raise ValueError('Empty draw.io XML')
     return result
@@ -73,13 +75,23 @@ def _cells(xml):
 
 def validate_processed_xml(original, processed):
     before, after = _cells(original), _cells(processed)
+    pages = lambda xml: [(p.get('id'), p.get('name')) for p in ET.fromstring(xml).findall('diagram')]
+    if pages(original) != pages(processed):
+        raise ValueError('Draw.io MCP changed diagram pages')
     if before.keys() != after.keys():
         raise ValueError('Draw.io MCP changed diagram membership')
     for key, cell in before.items():
         other = after[key]
-        for attr in ('source', 'target', 'parent', 'vertex', 'edge', 'value'):
+        for attr in ('source', 'target', 'parent', 'vertex', 'edge', 'value', 'overviewSource', 'overviewTarget'):
             if cell.get(attr) != other.get(attr):
-                raise ValueError('Draw.io MCP changed the fixed architecture or labels')
+                raise ValueError(f'Draw.io MCP changed the fixed architecture or labels ({key}, {attr})')
+        # MCP may normalise style ordering / add label background defaults.
+        # Service images, direction and routing semantics must remain identical.
+        style = lambda c: dict(part.split('=',1) for part in c.get('style','').split(';') if '=' in part)
+        a_style, b_style = style(cell), style(other)
+        for attr in ('image', 'startArrow', 'endArrow', 'edgeStyle', 'shape'):
+            if a_style.get(attr) != b_style.get(attr):
+                raise ValueError(f'Draw.io MCP changed fixed diagram style ({key}, {attr})')
         # No optional routing/layout pass: preserve the checked hybrid geometry.
         a, b = cell.find('mxGeometry'), other.find('mxGeometry')
         if a is not None and (b is None or ET.tostring(a) != ET.tostring(b)):
@@ -93,7 +105,8 @@ def render_drawio(xml, timeout_seconds=None):
     if not node or not (worker.parent / 'node_modules/@drawio/mcp/src/index.js').is_file():
         raise RuntimeError('Install local MCP dependencies: npm ci --prefix tools/drawio-renderer --ignore-scripts')
     _cells(xml)
-    budget = min(120, max(1, float(timeout_seconds if timeout_seconds is not None else 90)))
+    from app.diagram.budgets import seconds
+    budget = min(600, max(1, float(timeout_seconds if timeout_seconds is not None else seconds('render'))))
     deadline = time.monotonic() + budget
     environment = {k: v for k, v in os.environ.items() if k.upper() in {
         'PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'COMSPEC', 'USERPROFILE',
@@ -101,8 +114,19 @@ def render_drawio(xml, timeout_seconds=None):
     }}
     environment['DRAWIO_DISABLE_UPDATE'] = 'true'
     print('[DIAGRAM][DRAWIO] Starting local MCP + Desktop export', flush=True)
-    raw = _run([node, str(worker)], timeout=min(35, budget), environment=environment,
-               input_text=json.dumps({'xml': xml, 'timeout_ms': int(min(30, budget) * 1000)}))
+    for attempt in range(2):
+        remaining=deadline-time.monotonic()
+        if remaining<=0:raise TimeoutError('Draw.io processing deadline exhausted')
+        # Cold local MCP startup gets a fair share of the render budget. Retry
+        # the same checked XML once; never replan or substitute a diagram here.
+        stage_budget=min(90,remaining)
+        try:
+            raw = _run([node, str(worker)], timeout=stage_budget, environment=environment,
+                       input_text=json.dumps({'xml': xml, 'timeout_ms': int(max(1,stage_budget-5)*1000)}))
+            break
+        except (TimeoutError,RuntimeError) as exc:
+            if attempt or deadline-time.monotonic()<10:raise
+            print(f'[DIAGRAM][DRAWIO] MCP attempt=1; retrying same XML after {type(exc).__name__}',flush=True)
     response = json.loads(raw)
     processed = response['xml']
     validate_processed_xml(xml, processed)
@@ -114,7 +138,7 @@ def render_drawio(xml, timeout_seconds=None):
         if remaining <= 0:
             raise TimeoutError('Draw.io export deadline exhausted')
         _run([executable, '--user-data-dir=' + str(folder / 'profile'), '--disable-update',
-              '--export', '--format', 'png', '--scale', '1.5', '--border', '16',
+              '--export', '--format', 'png', '--page-index', '1', '--scale', '1.5', '--border', '16',
               '--output', str(target), str(source)], timeout=remaining, environment=environment)
         if not target.is_file() or not 100 < target.stat().st_size < 20_000_000:
             raise RuntimeError('draw.io Desktop did not export a valid nonempty PNG')

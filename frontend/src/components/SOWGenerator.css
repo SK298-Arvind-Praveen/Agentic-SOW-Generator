@@ -1810,3 +1810,53 @@ textarea.field-input:read-only {
   .modal-body, .preview-body, .edit-body { padding: 14px 16px; }
   .modal-footer { padding: 12px 16px; }
 }
+
+/* Match both controls while a preview worker is running. */
+.button-container.preview-running { display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; }
+.button-container.preview-running .smart-generate-button,
+.button-container.preview-running .cancel-generation-button { width: 260px; min-height: 56px; margin: 0; box-sizing: border-box; }
+.cancel-generation-button { border: 0; border-radius: 12px; background: #dc2626; color: white; font: inherit; font-weight: 600; cursor: pointer; padding: 16px 24px; }
+.cancel-generation-button:hover:not(:disabled) { background: #b91c1c; }
+.cancel-generation-button:disabled { background: #fca5a5; color: #7f1d1d; cursor: wait; }
+.architecture-regeneration {
+  margin: 20px 0 24px;
+  padding: 20px;
+  border: 1px solid #dbe4ee;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+.architecture-regeneration label { display: block; font-weight: 600; color: #334155; font-size: 14px; }
+.architecture-regeneration textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 110px;
+  margin: 10px 0 16px;
+  padding: 14px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #0f172a;
+  background: #fff;
+  resize: vertical;
+  transition: border-color .15s, box-shadow .15s;
+}
+.architecture-regeneration textarea:focus { outline: none; border-color: #0284c7; box-shadow: 0 0 0 3px #0284c720; }
+.architecture-regeneration textarea:disabled { background: #f1f5f9; cursor: wait; }
+.architecture-regeneration > .modal-btn { margin-bottom: 12px; }
+.architecture-regeneration p { margin: 8px 0 0; line-height: 1.6; }
+.diagram-review-warning {
+  margin: 16px 0;
+  padding: 16px 20px;
+  border: 1px solid #e9bb62;
+  border-left: 4px solid #c88412;
+  border-radius: 12px;
+  background: #fff9eb;
+  color: #694610;
+  overflow-wrap: anywhere;
+}
+.diagram-review-warning p { margin: 8px 0; }
+.diagram-review-warning ul { margin: 8px 0 0; padding-left: 22px; }
+.diagram-review-warning li + li { margin-top: 6px; }

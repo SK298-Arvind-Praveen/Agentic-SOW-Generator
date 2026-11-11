@@ -34,7 +34,11 @@ def test_planner_receives_visual_not_just_text():
         {'id': 'a', 'label': 'Caller'}, {'id': 'b', 'label': 'Processing'}],
         'edges': [{'source': 'a', 'target': 'b'}]}))
     service._generate_specs({'features': ['batch call analytics']}, {}, '')
-    assert service.llm.generate.call_args.kwargs['image_bytes'].startswith(b'\x89PNG')
+    # Service selection and corrective planning now make additional text calls;
+    # inspect the diagram-planning request rather than whichever call ran last.
+    calls = [c for c in service.llm.generate.call_args_list
+             if c.kwargs.get('call_name') == 'Architecture Diagram']
+    assert calls and calls[0].kwargs['image_bytes'].startswith(b'\x89PNG')
 
 
 def test_ecr_cannot_reuse_ec2_icon():

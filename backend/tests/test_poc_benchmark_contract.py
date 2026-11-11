@@ -86,7 +86,7 @@ class PocBenchmarkContractTests(unittest.TestCase):
 
     def test_language_and_blank_signature_rules_cover_every_sow_mode(self):
         template_dir = Path(__file__).resolve().parents[1] / "templates"
-        for name in ("poc_template.md", "production_template.md", "poc_to_prod_template.md"):
+        for name in ("poc_template.md", "production_template.md"):
             body = (template_dir / name).read_text(encoding="utf-8")
             self.assertIn("British Indian English", body)
             self.assertNotIn("Bhuvanesh CTO", body)

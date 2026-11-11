@@ -17,8 +17,8 @@ class AgentState(TypedDict):
     json_path: Optional[str]
     errors: Optional[List[str]]
     current_step: str
-    mode: str  # 'POC', 'PROD', 'POC_TO_PROD'
-    source_file: Optional[str]  # For POC_TO_PROD mode
+    mode: str  # 'POC', 'PROD'
+    source_file: Optional[str]
     is_poc_table_conversion: Optional[bool]  # Flag for POC table conversion
     supporting_documents: Optional[List[str]]  # Paths to supporting documents
     supporting_context: Optional[str]  # Extracted content from supporting documents

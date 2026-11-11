@@ -167,10 +167,11 @@ def _call(service, prompt, deadline, image=None, planner=False, call_name=None):
                          aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
                          aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
                          aws_session_token=os.getenv('AWS_SESSION_TOKEN'),
-                         config=SDKConfig(connect_timeout=2, read_timeout=min(22, remaining-3),
+                         config=SDKConfig(connect_timeout=5, read_timeout=max(1, remaining-3),
                                           retries={'total_max_attempts': 1}))
     try:
-        for attempt in range(2):
+        from app.diagram.reliability import pipeline_attempt
+        for attempt in range(1 if pipeline_attempt.get() else 2):
             try:
                 return BedrockLLM(service.config, client).generate(
                     prompt, task='diagram' if planner else 'fast', max_tokens=2200,
@@ -182,7 +183,7 @@ def _call(service, prompt, deadline, image=None, planner=False, call_name=None):
             except (ConnectionClosedError, EndpointConnectionError, ReadTimeoutError):
                 # One quick transport failure may be retried, but never stack
                 # another full timeout beyond the shared review deadline.
-                if attempt or deadline - time.monotonic() < 28:
+                if pipeline_attempt.get() or attempt or deadline - time.monotonic() < 28:
                     raise
                 print('[DIAGRAM][VISION] transient connection failure; one bounded retry', flush=True)
     finally:
@@ -209,7 +210,8 @@ def review_architecture(service, original, spec, requirements, metadata, narrati
     if os.getenv('ARCHITECTURE_VISION_REVIEW_ENABLED', 'true').lower() in {'0', 'false', 'no'}:
         return {**original, 'vision_review': {'status': 'disabled'}}
     started = time.monotonic()
-    deadline = started + 60
+    from app.diagram.budgets import seconds
+    deadline = started + seconds('review')
     candidate = None
     chosen = original
     report = {'status': 'started', 'project': metadata.get('project_title', ''),
@@ -336,7 +338,7 @@ external_sides MUST be nested inside composition_patch, never alongside it.
                 'user_architecture_changes':requirements.get('architecture_change_request', ''),
                 'source_evidence':str(requirements.get('architecture_source_context', ''))[:18000],
                 'geometry':report['before_geometry']})
-        print('[DIAGRAM][VISION] Reviewing rendered image; bounded repairs within a 60s budget', flush=True)
+        print(f'[DIAGRAM][VISION] Reviewing rendered image; budget={seconds("review")}s', flush=True)
         from app.diagram.reliability import structured_retry
         def validate_review(value):
             nonlocal candidate
@@ -384,8 +386,10 @@ external_sides MUST be nested inside composition_patch, never alongside it.
                                           render_timeout=max(1, int(deadline-time.monotonic()-5)))
                 geometry = rendered.get('layout_metrics') or {}
                 hard = ('node_overlaps', 'out_of_bounds', 'containment_violations')
-                if (rendered.get('renderer_fallback') or rendered['image_base64'] == original['image_base64']
-                        or not geometry or any(geometry.get(k, 0) for k in hard)):
+                if rendered['image_base64'] == original['image_base64']:
+                    raise ValueError('The proposed composition rendered an unchanged image. '
+                                     'Choose a different valid arrangement of the affected siblings.')
+                if (rendered.get('renderer_fallback') or not geometry or any(geometry.get(k, 0) for k in hard)):
                     report.setdefault('rejected_render_repairs', []).append(geometry)
                     raise ValueError('Repair still has overlapping nodes, clipped elements or invalid containment. '
                                      'Correct those structural layout problems. '

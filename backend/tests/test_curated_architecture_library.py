@@ -24,7 +24,9 @@ def test_new_archive_replaces_all_document_derived_cards():
     assert len(user['patterns']) == len(manifest['references']) == 10
     assert sum(c['category'] == 'data' for c in user['patterns']) == 6
     assert sum(c['category'] == 'genai' for c in user['patterns']) == 4
-    assert len(kb.load_library()['patterns']) == 30
+    merged = kb.load_library()['patterns']
+    assert len(merged) == 50
+    assert sum(c.get('source_type') == 'user_reference' for c in merged) == 10
     assert len({c['image_sha256'] for c in user['patterns']}) == 10
     for c in user['patterns']:
         assert c['source_archive'] == user['source_archive']
@@ -48,7 +50,7 @@ def test_categories_and_workload_retrieval(query, category, reference):
     req = {'features': [query]}
     assert category in kb.classify_categories(req)
     assert reference in [c['id'] for c in kb.select_patterns(req)]
-    assert len(kb.reference_context(req)) <= 5000
+    assert len(kb.reference_context(req)) <= kb.MAX_REFERENCE_CHARS
 
 
 def test_mixed_and_unmatched_workloads():
@@ -118,6 +120,9 @@ def test_real_boundary_badges_shading_and_editable_export():
         assert f"fillColor={style['fill']}" in cell.get('style')
         assert f"strokeColor={style['colour']}" in cell.get('style')
         assert f"dashed={int(style['dashed'])}" in cell.get('style')
+        if style['label']:
+            assert cell.get('value')==style['label']
+            assert xml.find(f".//mxCell[@id='badge_{group_id}']") is not None
         if style['icon_key']:
             assert style['icon_key'] in registry.group_by_key
             assert style['icon_key'] not in registry.by_key

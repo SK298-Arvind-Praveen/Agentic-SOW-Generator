@@ -28,23 +28,23 @@ it('starts conceptual flow excluded and allows dragging it in and back out', () 
   render(<Harness />);
   const left = screen.getByRole('group', { name: 'Included SOW sections' });
   const right = screen.getByRole('group', { name: 'Excluded SOW sections' });
-  const option = within(right).getByRole('button', { name: 'Conceptual flow diagram' });
+  const option = within(right).getByRole('button', { name: 'Conceptual Flow Diagram' });
   expect(option).toBeEnabled();
   fireEvent.dragStart(option, { dataTransfer: { effectAllowed: '' } });
   fireEvent.drop(left);
-  const included = within(left).getByRole('button', { name: 'Conceptual flow diagram' });
+  const included = within(left).getByRole('button', { name: 'Conceptual Flow Diagram' });
   fireEvent.dragStart(included, { dataTransfer: { effectAllowed: '' } });
   fireEvent.drop(right);
-  expect(within(right).getByRole('button', { name: 'Conceptual flow diagram' })).toBeInTheDocument();
+  expect(within(right).getByRole('button', { name: 'Conceptual Flow Diagram' })).toBeInTheDocument();
 });
 
 it('inserts conceptual flow before architecture and allows subsequent reordering', () => {
   render(<Harness />);
   const left = screen.getByRole('group', { name: 'Included SOW sections' });
-  fireEvent.click(screen.getByText('Conceptual flow diagram'));
+  fireEvent.click(screen.getByText('Conceptual Flow Diagram'));
   const labels = () => within(left).getAllByRole('button').map(button => button.textContent);
-  expect(labels().indexOf('Conceptual flow diagram')).toBe(labels().indexOf('Solution Architecture') - 1);
-  fireEvent.dragStart(within(left).getByText('Conceptual flow diagram').closest('button')!, { dataTransfer: { effectAllowed: '' } });
+  expect(labels().indexOf('Conceptual Flow Diagram')).toBe(labels().indexOf('Solution Architecture') - 1);
+  fireEvent.dragStart(within(left).getByText('Conceptual Flow Diagram').closest('button')!, { dataTransfer: { effectAllowed: '' } });
   fireEvent.drop(within(left).getByText('Service Agreement').closest('button')!);
-  expect(labels()[0]).toBe('Conceptual flow diagram');
+  expect(labels()[0]).toBe('Conceptual Flow Diagram');
 });

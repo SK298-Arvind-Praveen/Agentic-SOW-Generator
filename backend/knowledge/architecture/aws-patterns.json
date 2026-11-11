@@ -1,0 +1,682 @@
+{
+  "schema_version": 1,
+  "library_version": "2026-11-10.1",
+  "review_scope": "Paraphrased AWS source text. Layout suggestions are application-specific synthesis, not copied AWS diagrams or deployment certification.",
+  "discovery_url": "https://aws.amazon.com/architecture/",
+  "patterns": [
+    {
+      "id": "serverless-web-api",
+      "title": "Browser workbench and serverless API",
+      "category": "application",
+      "source_url": "https://docs.aws.amazon.com/whitepapers/latest/serverless-multi-tier-architectures-api-gateway-lambda/single-page-application.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": true,
+      "triggers": [
+        "browser workbench",
+        "review workbench",
+        "reviewer workbench",
+        "single page application",
+        "serverless api",
+        "web portal"
+      ],
+      "use_when": "A browser UI calls business APIs; evaluate static hosting when server rendering is unnecessary.",
+      "avoid": "Do not assume every UI needs containers, a cache, or a load balancer.",
+      "flow": "Browser -> CloudFront -> S3 UI assets; browser -> authenticated API Gateway -> Lambda business logic -> chosen data store.",
+      "layout": "Separate UI asset delivery and API calls; place data beside its caller and identity beside ingress.",
+      "service_choices": [
+        "S3/CloudFront serve static assets; API Gateway exposes APIs; Lambda implements custom logic.",
+        "Use the agreed identity provider; choose persistence by access patterns, not the reference's example application."
+      ],
+      "relationship_checks": [
+        "Show the S3 origin connection when CloudFront serves an S3 UI.",
+        "Tokens authorize API calls; execution roles authorize service access. These are separate relationships."
+      ],
+      "anchors": [
+        "CloudFront",
+        "authorizer"
+      ]
+    },
+    {
+      "id": "private-web-workload",
+      "title": "Private application behind a load balancer",
+      "category": "cloud",
+      "source_url": "https://docs.aws.amazon.com/vpc/latest/userguide/vpc-example-private-subnets-nat.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "private application",
+        "private subnets",
+        "load balanced",
+        "load balancer",
+        "booking portal",
+        "catalogue service",
+        "catalog service"
+      ],
+      "use_when": "An application runs on private servers and needs controlled client ingress and outbound access.",
+      "avoid": "NAT is outbound connectivity, never a serial hop between the client and application load balancer.",
+      "flow": "Client -> load balancer -> private application -> selected data service; application -> NAT -> internet only when egress is needed.",
+      "layout": "Align ingress, application and data. Show selected AZs as parallel lanes, with shared services beside them.",
+      "service_choices": [
+        "An internet-facing ALB uses public subnets; private servers receive traffic from the ALB.",
+        "Auto Scaling and multiple AZs support resilience when selected; S3 gateway access can avoid NAT for that path."
+      ],
+      "relationship_checks": [
+        "Keep request and egress arrows distinct.",
+        "Do not infer a public entry point for an internal-only application."
+      ],
+      "deployment_checks": [
+        "Public NAT belongs in public subnets; application servers in private subnets.",
+        "Identify which subnets and AZs each selected resource actually uses."
+      ],
+      "anchors": [
+        "Auto Scaling",
+        "gateway VPC endpoint"
+      ]
+    },
+    {
+      "id": "container-compute-choice",
+      "title": "Container orchestration and compute choice",
+      "category": "application",
+      "source_url": "https://docs.aws.amazon.com/decision-guides/latest/decision-guides/choosing-aws-container-service.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "container platform",
+        "container orchestration",
+        "kubernetes",
+        "docker workloads",
+        "containerized services",
+        "containerised services"
+      ],
+      "use_when": "The selected application needs a container runtime or already has container packaging.",
+      "avoid": "Do not choose Kubernetes simply because containers are mentioned or replace an agreed platform.",
+      "flow": "Ingress -> container service -> dependencies; image registry -> runtime is a deployment path.",
+      "layout": "Place the runtime on the request path and registry in a separate deployment band.",
+      "service_choices": [
+        "ECS provides container orchestration; EKS fits a Kubernetes operating model.",
+        "Fargate provides managed compute for supported ECS/EKS workloads; EC2 provides host-level capacity choices.",
+        "ECR stores images; it is not a request-processing service."
+      ],
+      "relationship_checks": [
+        "Name both orchestration and compute choices without treating them as consecutive processing steps."
+      ],
+      "anchors": [
+        "orchestration layer",
+        "Compute capacity"
+      ],
+      "pattern_role": "decision"
+    },
+    {
+      "id": "database-migration",
+      "title": "Database replatforming and change capture",
+      "category": "cloud",
+      "secondary_categories": [
+        "data"
+      ],
+      "source_url": "https://docs.aws.amazon.com/prescriptive-guidance/latest/migration-database-rehost-tools/dms.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "database migration",
+        "database replication",
+        "postgresql migration",
+        "migrate database",
+        "source clone",
+        "aws dms",
+        "change data capture"
+      ],
+      "use_when": "An existing database moves to a selected target with a defined cutover approach.",
+      "avoid": "DMS does not copy a separate filesystem/media library; do not put replication on every live application request.",
+      "flow": "Source database -> native migration tool or DMS -> target database; application -> target after validated cutover.",
+      "layout": "Use a migration lane alongside the steady-state application path, with source outside the target boundary.",
+      "service_choices": [
+        "Compare native backup/restore for an acceptable outage against CDC for tighter cutover needs.",
+        "Assess schema conversion for heterogeneous engines; RDS/Aurora are candidate managed targets, not automatic replacements."
+      ],
+      "relationship_checks": [
+        "Show source, replication mechanism and target with correct direction.",
+        "Keep validation, cutover and rollback responsibilities explicit rather than promising zero downtime."
+      ],
+      "anchors": [
+        "Change data capture",
+        "target infrastructure"
+      ]
+    },
+    {
+      "id": "file-media-transfer",
+      "title": "File and media migration",
+      "category": "cloud",
+      "source_url": "https://docs.aws.amazon.com/datasync/latest/userguide/how-datasync-transfer-works.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "media migration",
+        "file migration",
+        "copy media",
+        "file synchronisation",
+        "file synchronization",
+        "datasync",
+        "migrate media"
+      ],
+      "use_when": "Files or objects must move between supported source and destination storage.",
+      "avoid": "Do not substitute database replication for file transfer or assume every DataSync task requires an agent.",
+      "flow": "Source storage -> transfer task -> destination storage; verify copied data and record failures.",
+      "layout": "Separate bulk transfer from the application's later media-read path.",
+      "service_choices": [
+        "DataSync handles supported storage transfers; evaluate an SDK copy worker for an unsupported or very small transfer.",
+        "Determine agent requirements from the source, destination and transfer mode."
+      ],
+      "relationship_checks": [
+        "Name both storage endpoints and the copy direction.",
+        "Include verification and handling of files modified during transfer."
+      ],
+      "anchors": [
+        "integrity",
+        "agent"
+      ]
+    },
+    {
+      "id": "database-access-patterns",
+      "title": "Persistence chosen by data and access patterns",
+      "category": "data",
+      "source_url": "https://docs.aws.amazon.com/decision-guides/latest/decision-guides/databases-on-aws-how-to-choose.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "relational database",
+        "sql transactions",
+        "key value",
+        "session store",
+        "case records",
+        "booking records",
+        "catalogue database"
+      ],
+      "use_when": "Persistent application state needs a database choice grounded in queries, consistency and existing technology.",
+      "avoid": "Do not replace SQL with DynamoDB without checking joins, access patterns and migration scope; a cache is not automatically the system of record.",
+      "flow": "Application reads/writes -> selected authoritative store; add a cache or index only for a justified access need.",
+      "layout": "Place the primary store next to its owning application, with derived stores on a separate branch.",
+      "service_choices": [
+        "RDS/Aurora fit relational requirements; DynamoDB fits key-value access with an appropriate key design.",
+        "Choose specialist graph, document or in-memory stores only when their data model is needed."
+      ],
+      "relationship_checks": [
+        "Identify the authoritative store and any derived copies; do not chain unrelated databases."
+      ],
+      "anchors": [
+        "relational",
+        "key-value"
+      ],
+      "pattern_role": "decision"
+    },
+    {
+      "id": "rds-failover",
+      "title": "RDS Multi-AZ availability versus read scaling",
+      "category": "cloud",
+      "source_url": "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "rds multi az",
+        "database failover",
+        "standby database",
+        "standby replica",
+        "multi az postgresql"
+      ],
+      "use_when": "The design selects an RDS Multi-AZ DB instance with one standby for availability.",
+      "avoid": "Do not send read traffic to this standby or apply this topology unmodified to Aurora or RDS Multi-AZ DB clusters.",
+      "flow": "Application -> primary database; primary -> synchronous standby in another AZ; failover changes the active target.",
+      "layout": "Show primary and standby in parallel AZs with a short replication link, not two serial processing stages.",
+      "service_choices": [
+        "A single-standby Multi-AZ deployment supports failover; read replicas or a suitable cluster support read scaling."
+      ],
+      "relationship_checks": [
+        "Label replication separately from application queries.",
+        "Do not claim an availability target merely from selecting Multi-AZ."
+      ],
+      "anchors": [
+        "synchronous standby",
+        "read traffic"
+      ],
+      "pattern_role": "decision"
+    },
+    {
+      "id": "durable-workflow-review",
+      "title": "Durable jobs and human approval",
+      "category": "application",
+      "source_url": "https://docs.aws.amazon.com/step-functions/latest/dg/connect-to-resource.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "human review",
+        "human approval",
+        "reviewer decisions",
+        "multi stage workflow",
+        "durable workflow",
+        "step functions"
+      ],
+      "use_when": "A job spans multiple tasks or waits for an approved external decision.",
+      "avoid": "An HTTP success response is not proof that an asynchronous job completed; Express does not support callback-wait or .sync patterns.",
+      "flow": "Submit -> state machine -> task -> completion/result -> next task; review branch -> authorized callback -> resume or reject.",
+      "layout": "Use one orchestration group with short task branches; place the reviewer beside its decision point.",
+      "service_choices": [
+        "Step Functions Standard supports eligible job-wait and task-token integrations; verify support for the selected service.",
+        "Choose an explicit completion mechanism, timeout and failure path."
+      ],
+      "relationship_checks": [
+        "Protect and correlate callback tokens; show how approval returns to the waiting job.",
+        "Do not draw orchestration control as if it carried the entire document payload."
+      ],
+      "anchors": [
+        "Standard Workflows",
+        "Wait for a Callback"
+      ],
+      "pattern_role": "decision"
+    },
+    {
+      "id": "messaging-choice",
+      "title": "Queues, notifications and event routing",
+      "category": "application",
+      "source_url": "https://docs.aws.amazon.com/decision-guides/latest/decision-guides/sns-or-sqs-or-eventbridge.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "event routing",
+        "fan out",
+        "pub sub",
+        "message buffering",
+        "notification delivery",
+        "event driven integration"
+      ],
+      "use_when": "Independent components exchange work, notifications or routed events.",
+      "avoid": "Do not add SQS, SNS and EventBridge together without distinct roles; an event bus is not a job-state database.",
+      "flow": "Producer -> selected queue/topic/bus -> intended consumers; processing failures follow an explicit recovery path.",
+      "layout": "Show actual fan-out branches and separate operational notifications from the core transaction.",
+      "service_choices": [
+        "SQS buffers work for consumers; SNS distributes notifications to subscribers; EventBridge matches events to targets.",
+        "Select ordering and duplicate-handling behaviour deliberately; do not promise exactly-once business effects."
+      ],
+      "relationship_checks": [
+        "A consumer must process queued work; a queue alone cannot perform a task.",
+        "Only add subscriptions and routes required by the selected workflow."
+      ],
+      "anchors": [
+        "Pull-based",
+        "content-based filtering"
+      ],
+      "pattern_role": "decision"
+    },
+    {
+      "id": "governed-data-lake",
+      "title": "Governed data producers and consumers",
+      "category": "data",
+      "source_url": "https://docs.aws.amazon.com/prescriptive-guidance/latest/data-lake-for-growth-scale/reference-architecture-components.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "governed data lake",
+        "data lake",
+        "data producers",
+        "data sharing",
+        "lake formation"
+      ],
+      "use_when": "Multiple producers publish datasets for controlled analytical consumption.",
+      "avoid": "Do not turn a simple object archive into a multi-account lake or copy every analytical service.",
+      "flow": "Producers -> stored datasets; producers publish metadata -> central catalog; authorized consumers discover and query datasets.",
+      "layout": "Separate production, catalog/governance and consumption; distinguish metadata arrows from data reads.",
+      "service_choices": [
+        "S3 holds datasets; Glue Data Catalog describes them; Lake Formation manages selected sharing permissions.",
+        "Choose query/processing services for actual consumers and preserve existing account ownership."
+      ],
+      "relationship_checks": [
+        "A catalog entry is metadata, not the data payload.",
+        "Cross-account access needs an explicit sharing and permission design."
+      ],
+      "anchors": [
+        "Amazon S3",
+        "AWS Glue"
+      ]
+    },
+    {
+      "id": "stream-processing",
+      "title": "Streaming ingestion and independent consumers",
+      "category": "data",
+      "source_url": "https://docs.aws.amazon.com/streams/latest/dev/key-concepts.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "stream processing",
+        "streaming ingestion",
+        "clickstream",
+        "kinesis data streams",
+        "continuous telemetry"
+      ],
+      "use_when": "A continuous stream of records needs real-time consumption and retention for replay.",
+      "avoid": "Do not add a streaming platform for an occasional file upload; Kinesis does not transform records by itself.",
+      "flow": "Producers -> Kinesis Data Streams -> consumers -> selected result stores; delivery streams may archive data.",
+      "layout": "Use producer, stream and consumer columns; parallel consumers are branches, not sequential processors.",
+      "service_choices": [
+        "Kinesis Data Streams retains records for consumers; choose consumer compute separately.",
+        "Data Firehose is a delivery option when the workload needs delivery to supported destinations."
+      ],
+      "relationship_checks": [
+        "State partitioning, retention and replay assumptions; do not invent throughput or shard counts."
+      ],
+      "anchors": [
+        "producers",
+        "consumers"
+      ]
+    },
+    {
+      "id": "saas-tenant-isolation",
+      "title": "Tenant-aware shared and dedicated resources",
+      "category": "application",
+      "source_url": "https://docs.aws.amazon.com/wellarchitected/latest/saas-lens/silo-pool-and-bridge-models.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "multi tenant",
+        "tenant isolation",
+        "saas platform",
+        "pooled tenancy",
+        "silo tenancy"
+      ],
+      "use_when": "Multiple tenants share one product with explicit isolation requirements.",
+      "avoid": "Do not equate shared hosting with permission to read other tenants' data, or require one account per tenant without justification.",
+      "flow": "Tenant identity -> authorized application -> tenant-scoped resources; shared onboarding and operations manage tenants.",
+      "layout": "Separate shared control functions from tenant data paths; label actual isolation boundaries.",
+      "service_choices": [
+        "Silo dedicates resources; pool shares them; bridge combines approaches by tier.",
+        "Select tenancy based on isolation, cost and operational needs before choosing services."
+      ],
+      "relationship_checks": [
+        "Carry tenant context to each data access.",
+        "Show dedicated and shared tiers accurately rather than drawing a box as a security guarantee."
+      ],
+      "anchors": [
+        "silo",
+        "pool",
+        "bridge"
+      ]
+    },
+    {
+      "id": "private-storage-access",
+      "title": "Private access to regional storage services",
+      "category": "cloud",
+      "source_url": "https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "s3 gateway endpoint",
+        "private s3 access",
+        "gateway endpoints",
+        "dynamodb endpoint",
+        "private storage access"
+      ],
+      "use_when": "VPC resources need access to S3 or DynamoDB through selected private routing.",
+      "avoid": "Do not draw S3/DynamoDB inside a subnet or call a gateway endpoint a PrivateLink interface endpoint.",
+      "flow": "Workload -> associated route table's gateway endpoint -> regional S3/DynamoDB service.",
+      "layout": "Keep the endpoint at the VPC boundary and the managed service in regional space.",
+      "service_choices": [
+        "Gateway endpoints support S3 and DynamoDB without a NAT or internet gateway for that path.",
+        "Compare interface endpoints where gateway-endpoint routing does not fit the required access."
+      ],
+      "relationship_checks": [
+        "Check route-table association and endpoint/resource permissions.",
+        "A gateway endpoint is not universal access to every AWS service."
+      ],
+      "anchors": [
+        "route tables",
+        "do not use AWS PrivateLink"
+      ],
+      "pattern_role": "support"
+    },
+    {
+      "id": "application-identity",
+      "title": "Application users and federated identity",
+      "category": "security",
+      "source_url": "https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "reviewer authentication",
+        "named reviewers",
+        "user authentication",
+        "user sign in",
+        "identity federation",
+        "saml",
+        "oidc"
+      ],
+      "use_when": "Named users need authenticated sessions or federation with an existing identity provider.",
+      "avoid": "IAM execution roles do not replace end-user sign-in; do not replace an existing IdP without scope approval.",
+      "flow": "User -> identity provider -> tokens; application validates authorized API requests and applies resource-level permissions.",
+      "layout": "Put identity next to ingress, with a token relationship rather than routing all business data through it.",
+      "service_choices": [
+        "Cognito user pools support app sign-in and OIDC/SAML federation.",
+        "Identity pools provide AWS credentials where direct AWS resource access is required; they are a separate choice."
+      ],
+      "relationship_checks": [
+        "Specify who validates tokens and where case/tenant permissions are enforced.",
+        "Closed reviewer access does not imply public self-registration."
+      ],
+      "anchors": [
+        "OIDC",
+        "identity pools"
+      ],
+      "pattern_role": "support"
+    },
+    {
+      "id": "security-account-foundation",
+      "title": "Security ownership and shared controls",
+      "category": "security",
+      "source_url": "https://docs.aws.amazon.com/prescriptive-guidance/latest/security-reference-architecture/architecture.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "security reference architecture",
+        "landing zone",
+        "multi account",
+        "central security",
+        "log archive account",
+        "security tooling"
+      ],
+      "use_when": "Security controls span workloads or accounts and ownership must be explicit.",
+      "avoid": "The security reference is a menu of options, not a requirement to deploy every security product for a POC.",
+      "flow": "Workload activity -> selected monitoring/audit collection -> responsible security or operations account; control configuration is a separate path.",
+      "layout": "Keep the application story central; group shared controls by purpose and real account ownership.",
+      "service_choices": [
+        "Evaluate identity, encryption, secrets, audit and monitoring against threat exposure and responsibilities.",
+        "Separate management, security tooling, log archive and workload roles only where the selected environment requires them."
+      ],
+      "relationship_checks": [
+        "Do not draw decorative arrows from every control to every workload node.",
+        "Functional security groups are not automatically VPCs or subnets."
+      ],
+      "anchors": [
+        "not every workload",
+        "Log Archive"
+      ],
+      "pattern_role": "support"
+    },
+    {
+      "id": "disaster-recovery-strategy",
+      "title": "Recovery selected by business objectives",
+      "category": "cloud",
+      "source_url": "https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "disaster recovery",
+        "recovery time objective",
+        "recovery point objective",
+        "pilot light",
+        "warm standby",
+        "backup and restore"
+      ],
+      "use_when": "Recovery objectives, scope and cost justify a recovery design.",
+      "avoid": "Do not equate Multi-AZ availability with recovery from a regional disaster or invent an active-active deployment.",
+      "flow": "Primary state -> selected backup/replication target; recovery procedure -> restored or promoted service -> redirected clients.",
+      "layout": "Separate primary and recovery locations; distinguish replication from failover traffic.",
+      "service_choices": [
+        "Compare backup/restore, pilot light, warm standby and active-active against RPO, RTO and cost.",
+        "Choose supported backup/replication mechanisms for the actual services and test recovery."
+      ],
+      "relationship_checks": [
+        "Show what is copied and what must be provisioned during recovery.",
+        "Mark unconfirmed recovery objectives as open decisions."
+      ],
+      "anchors": [
+        "Pilot light",
+        "Warm standby"
+      ],
+      "pattern_role": "support"
+    },
+    {
+      "id": "approved-it-remediation",
+      "title": "Approval-gated operational remediation",
+      "category": "application",
+      "source_url": "https://docs.aws.amazon.com/systems-manager/latest/userguide/running-automations-require-approvals.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "approved remediation",
+        "approval based remediation",
+        "itsm",
+        "it help desk",
+        "systems manager automation",
+        "automation runbook"
+      ],
+      "use_when": "Operational changes require an identified approver before execution.",
+      "avoid": "Do not let model output bypass the approval gate or assume every employee Windows device is enrolled in Systems Manager.",
+      "flow": "Incident/diagnosis -> proposed action -> approve or deny -> permitted execution -> validation -> ticket update/escalation.",
+      "layout": "Place approval before the action; branch denial/escalation away from execution.",
+      "service_choices": [
+        "Systems Manager Automation offers approval-paused runbooks where the target and permissions fit.",
+        "An existing endpoint-management tool may execute approved actions; retain the agreed ticketing system."
+      ],
+      "relationship_checks": [
+        "Identify approvers and notification delivery; confirm target enrollment and connectivity separately.",
+        "AWS runbook approval is a conditional implementation, not proof of Freshdesk or WMI integration."
+      ],
+      "anchors": [
+        "aws:approve",
+        "Amazon Simple Notification Service"
+      ]
+    },
+    {
+      "id": "cost-budget-controls",
+      "title": "Cost tracking and budget notifications",
+      "category": "operations",
+      "source_url": "https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "cost ceiling",
+        "poc ceiling",
+        "spending limit",
+        "budget alerts",
+        "cost tracking",
+        "spend cap"
+      ],
+      "use_when": "The project requires visibility into spend or cost/usage threshold notifications.",
+      "avoid": "Budget notifications are delayed and are not a guaranteed hard spending cap.",
+      "flow": "Billing/usage data -> AWS Budgets -> responsible email/SNS recipient; approved budget actions are separate controls.",
+      "layout": "Place budget controls in an operations band, outside the application request path.",
+      "service_choices": [
+        "AWS Budgets tracks actual/forecasted cost and usage; scope thresholds to the agreed account/project.",
+        "Choose optional actions explicitly; do not assume a notification stops all resources."
+      ],
+      "relationship_checks": [
+        "Keep cost alerts distinct from CloudWatch workload alarms.",
+        "Do not invent threshold amounts or current prices from this reference."
+      ],
+      "anchors": [
+        "forecasted",
+        "delay"
+      ],
+      "pattern_role": "support"
+    },
+    {
+      "id": "hybrid-network",
+      "title": "Connectivity between customer networks and AWS",
+      "category": "cloud",
+      "source_url": "https://docs.aws.amazon.com/whitepapers/latest/aws-vpc-connectivity-options/network-to-amazon-vpc-connectivity-options.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "hybrid connectivity",
+        "site to site vpn",
+        "direct connect",
+        "on premises connectivity",
+        "corporate network",
+        "transit gateway"
+      ],
+      "use_when": "AWS workloads must communicate with private customer networks.",
+      "avoid": "Do not assume a provisioned dedicated circuit, zero latency or automatic end-to-end redundancy.",
+      "flow": "Customer network -> selected VPN/dedicated connectivity -> VPC or routing hub -> private workload.",
+      "layout": "Keep customer ownership outside AWS and show the actual network entry point.",
+      "service_choices": [
+        "Site-to-Site VPN uses IPsec over internet connectivity; Direct Connect provides a dedicated connection.",
+        "Transit Gateway is useful for selected multi-network routing; it is not needed for every single-VPC POC."
+      ],
+      "relationship_checks": [
+        "Check non-overlapping address ranges, routing and required redundancy.",
+        "Separate connectivity provisioning dependencies from application implementation."
+      ],
+      "anchors": [
+        "non-overlapping",
+        "AWS Direct Connect"
+      ],
+      "pattern_role": "support"
+    },
+    {
+      "id": "batch-compute",
+      "title": "Queued compute-intensive batch jobs",
+      "category": "data",
+      "source_url": "https://docs.aws.amazon.com/batch/latest/userguide/what-is-batch.html",
+      "reviewed_on": "2026-11-10",
+      "review_type": "source_text",
+      "historical": false,
+      "triggers": [
+        "compute intensive",
+        "batch computing",
+        "simulation jobs",
+        "gpu batch",
+        "batch compute"
+      ],
+      "use_when": "Queued jobs need compute capacity selected for their resource requirements.",
+      "avoid": "Do not select Batch just because an upload contains several documents, or treat every long-running job as a Lambda.",
+      "flow": "Submitter -> batch queue/scheduler -> selected compute job -> results storage; execution status returns to job tracking.",
+      "layout": "Keep scheduling, compute and output distinct; deployment artifacts are supporting dependencies.",
+      "service_choices": [
+        "AWS Batch schedules jobs and provisions supported compute; choose EC2/Fargate/EKS arrangements from workload needs.",
+        "Confirm resource and accelerator support instead of copying reference instance sizes."
+      ],
+      "relationship_checks": [
+        "Name the execution environment and result destination; a queue alone performs no computation."
+      ],
+      "anchors": [
+        "compute-intensive",
+        "Amazon ECS"
+      ]
+    }
+  ]
+}

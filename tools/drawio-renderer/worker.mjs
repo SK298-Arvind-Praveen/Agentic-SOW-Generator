@@ -6,7 +6,7 @@ import { inflateRawSync } from 'node:zlib';
 const chunks = [];
 for await (const chunk of process.stdin) chunks.push(chunk);
 const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-const timeout = Math.min(60000, Math.max(1000, input.timeout_ms || 30000));
+const timeout = Math.min(90000, Math.max(1000, input.timeout_ms || 60000));
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: ['--import', new URL('./headless.mjs', import.meta.url).href,

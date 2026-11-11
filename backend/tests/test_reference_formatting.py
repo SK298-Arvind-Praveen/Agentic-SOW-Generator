@@ -50,7 +50,7 @@ def test_blank_stale_partial_and_fallback_are_honest():
 
 
 def test_template_contracts_use_new_table():
-    for file in ('poc_template.md', 'production_template.md', 'poc_to_prod_template.md'):
+    for file in ('poc_template.md', 'production_template.md'):
         text = (Path(__file__).resolve().parents[1] / 'templates' / file).read_text(encoding='utf-8')
         assert '| Item | Monthly (<actual currency>) | Estimate |' in text
 

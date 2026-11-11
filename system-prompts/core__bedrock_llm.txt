@@ -1,0 +1,10 @@
+
+
+SOURCE: backend/app/core/bedrock_llm.py:200
+NAME: compact_retry_prompt
+
+prompt
+                    + "\n\nThe previous response reached its output allowance. Return a complete "
+                    "response within this expanded allowance. Aggressively deduplicate repeated "
+                    "facts and omit commentary, rationale, preambles and any fields or prose not "
+                    "required by the requested output contract."

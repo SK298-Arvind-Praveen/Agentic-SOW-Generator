@@ -30,13 +30,14 @@ OFFICIAL AWS ICON IDENTITY
 - External/customer systems must not acquire an AWS icon unless explicitly
   identified as that AWS service. Preserve existing product names and ownership.
 - Use consistent icon sizing, bare service icons and concise service-name labels.
-  Repeated Lambda/compute icons are allowed for distinct deployed responsibilities.
+  Aggregate Lambda handlers into one service icon per deployment boundary.
   Keep role explanations in the plan and section narrative, not long icon labels.
 
 CONTAINMENT AND DEPLOYMENT
 - Keep external actors/systems outside the delivered AWS boundary. Place AWS
   resources inside AWS Cloud, retaining known account ownership boundaries.
-- Show Region inside Cloud/account. Label it simply 'Region'. Global services such
+- Show Region inside Cloud/account. Preserve an explicitly specified region code
+  (for example eu-west-2); use 'Region' only when unspecified. Global services such
   as IAM, Route 53 and CloudFront sit inside Cloud but outside regional VPCs.
 - Show VPC > AZ > subnet > workload only for subnet-attached resources. Managed
   serverless integrations need not acquire VPCs, NAT gateways or empty subnets.
@@ -118,7 +119,8 @@ ENTERPRISE DEPLOYMENT PLANNING AND COMPOSITION
 - Do not use two identical Bedrock icons to represent abstract AI capabilities
   without a distinct service/resource role in the internal plan. Use the correct
   resource icon if available; consolidate only genuinely shared service endpoints.
-  Distinct Lambda functions remain valid for separate responsibilities.
+  Keep distinct Lambda handler responsibilities in the implementation notes;
+  separate overview icons require distinct deployment boundaries.
 - Avoid one crowded private subnet surrounded by a mostly empty Region. Pack
   regional AI/data services close to their actual callers while preserving the
   VPC boundary. Place global IAM in a compact Cloud-level support position; do not

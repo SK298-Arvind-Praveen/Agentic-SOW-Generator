@@ -1,0 +1,28 @@
+
+
+SOURCE: backend/app/core/server.py:1708
+NAME: prompt
+
+Extract metadata from this document cover page. Return ONLY a valid JSON object.
+
+FIELD DEFINITIONS:
+- company_name: The CLIENT/CUSTOMER company (who is receiving the service, NOT the vendor like Shellkode)
+- author_name: The PERSON who wrote/authored the document (look at cover page bottom area, "Prepared by", or "Author" labels)
+- author_org: The VENDOR/SERVICE PROVIDER (e.g., Shellkode)
+- project_title: The project name EXACTLY as written on the cover page (2-5 words, no prefixes like "POC" or "AI-Powered")
+- objective: The main objective/goal (1 sentence)
+- document_date: Date in DD Month YYYY format
+
+EXTRACTION RULES:
+0. HIGHEST PRIORITY: If you see "DOCUMENT_AUTHOR: <name>" at the start of the text, use that as author_name. If you see "DOCUMENT_TITLE: <title>", use that as project_title. These are the most reliable source.
+1. The cover page (first page) has the layout: vendor logo at top, client company in middle, project title below client, author at bottom
+2. Extract the project title VERBATIM from the document - do not embellish or add words
+3. The author_name is a PERSON (first name or first+last), not a company or role title
+4. company_name is the CLIENT, not the vendor (Shellkode is usually the vendor)
+
+Document text (first 3000 chars):
+{text_content[:3000]}
+
+Return ONLY valid JSON, no markdown:
+{"company_name": "...", "author_name": "...", "author_org": "...", "project_title": "...", "objective": "...", "document_date": "..."}
+

@@ -141,8 +141,6 @@ class POCWriterAgent:
     def _load_template(self) -> str:
         if self.template_type == "PROD":
             template_file = self.config.PRODUCTION_TEMPLATE_FILE
-        elif self.template_type == "POC_TO_PROD":
-            template_file = getattr(self.config, "POC_TO_PROD_TEMPLATE_FILE", self.config.PRODUCTION_TEMPLATE_FILE)
         else:
             template_file = self.config.POC_TEMPLATE_FILE
         if not template_file.exists():
@@ -1389,7 +1387,6 @@ Review rules:
         type_label = {
             "POC": "proof-of-concept",
             "PROD": "production implementation",
-            "POC_TO_PROD": "POC-to-production transition",
         }.get(self.template_type, self.template_type.lower())
         company_research_context = "(not applicable to this section)"
         if self._section_category(section) == "about_client":
@@ -1477,6 +1474,12 @@ DOCUMENT CONTEXT
 
 AUTHORITATIVE REQUIREMENTS BASELINE
 {json.dumps(requirements_context, separators=(',', ':'), default=str)}
+
+If service_design is ready, use its selected services, capability implementations,
+workflow mechanics and open decisions as the shared proposed solution baseline.
+Do not independently substitute products or promote proposed services to confirmed
+client facts. Explain concrete service roles in Solution Architecture; use concise
+implementation language elsewhere. Preserve recorded gaps and required validation.
 
 {architecture_references}
 

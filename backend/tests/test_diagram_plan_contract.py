@@ -44,14 +44,26 @@ def test_overview_preserves_distinct_lambda_functions_in_same_boundary():
     assert {'adapter','second_handler'} <= {n.id for n in spec.nodes}
 
 
-def test_service_primary_label_comes_from_icon_catalogue():
+def test_shared_controls_do_not_require_fabricated_traffic():
+    from app.diagram.plan_contract import validate_plan
+    raw = logical_plan()
+    raw['architecture_plan']['flows'].append({'id':'controls','kind':'control','paths':[]})
+    raw['nodes'][-1]['flow_id'] = 'controls'
+    assert validate_plan(raw)['flows'][-1]['paths'] == []
+    raw['architecture_plan']['flows'][-1]['kind'] = 'runtime'
+    with pytest.raises(ValueError, match='requires directed paths'):
+        validate_plan(raw)
+
+
+def test_saved_service_role_label_is_preserved_with_correct_icon():
     from app.diagram.aws_icons import IconCandidate
     key = 'aws.service.compute.aws-lambda'
     raw = logical_plan()
     raw['nodes'][3].update(icon_key=key, label='Call Tagging Lambda')
     candidate = IconCandidate(key, 'AWS Lambda', 'compute', '', 'inferred', 'integration')
     spec = validate_spec(raw, 'CRM', {key: candidate})
-    assert next(n for n in spec.nodes if n.id == 'adapter').label == 'AWS Lambda'
+    assert next(n for n in spec.nodes if n.id == 'adapter').label == 'Call Tagging Lambda'
+    assert next(n for n in spec.nodes if n.id == 'adapter').icon_key == key
     assert next(n for n in spec.nodes if n.id == 'crm').label == 'Connect CRM'
 
 
@@ -153,6 +165,7 @@ def test_control_role_does_not_delete_escalation_paths():
 
 
 def test_invalid_json_gets_format_retry_not_generic_fallback(monkeypatch):
+    monkeypatch.setattr('app.diagram.service_design.ensure_service_design', lambda *a: {})
     from app.diagram.service import DiagramService
     from app.diagram.aws_icons import AwsIconRegistry
     service = DiagramService.__new__(DiagramService)
@@ -237,6 +250,7 @@ def test_deployment_view_does_not_split_vpc_into_flow_lanes():
 
 @pytest.mark.parametrize('repair_succeeds', [True, False])
 def test_plan_repair_is_bounded_and_only_runs_for_invalid_graph(monkeypatch, repair_succeeds):
+    monkeypatch.setattr('app.diagram.service_design.ensure_service_design', lambda *a: {})
     from app.diagram.service import DiagramService
     from app.diagram.aws_icons import AwsIconRegistry
     service = DiagramService.__new__(DiagramService)
@@ -253,6 +267,6 @@ def test_plan_repair_is_bounded_and_only_runs_for_invalid_graph(monkeypatch, rep
     monkeypatch.setattr(service, '_eligible_types', lambda *args: ['architecture_overview'])
     monkeypatch.setattr(service, '_fallback_for_type', lambda *args: validate_spec(logical_plan(), 'CRM'))
     result, fallback = service._generate_specs({}, {}, 'Existing CRM with migration and AI adapters')
-    assert calls == ['Architecture Diagram'] + ['Architecture Plan Correction'] * (1 if repair_succeeds else 3)
+    assert calls == ['Architecture Diagram', 'Architecture Plan Correction']
     assert fallback is not repair_succeeds
     assert result[0][2].architecture_plan['view'] == 'logical'

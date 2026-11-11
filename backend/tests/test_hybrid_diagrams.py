@@ -96,3 +96,55 @@ def test_png_label_positions_are_reused_in_editable_export():
     style = xml.find(".//mxCell[@id='edge_1']").get('style')
     assert 'noEdgeStyle=1;' in style
     assert 'entryPerimeter=0;' in style and 'exitPerimeter=0;' in style
+
+
+def test_global_ingress_aligns_with_regional_entry_instead_of_a_separate_top_row():
+    spec = DiagramSpec('Ingress', (
+        Node('edge','Amazon CloudFront','service',0,scope='global',placement_role='entry',
+             icon_key='aws.service.networking-content-delivery.amazon-cloudfront'),
+        Node('api','Amazon API Gateway','service',1,scope='managed',placement_role='entry',
+             icon_key='aws.service.networking-content-delivery.amazon-api-gateway'),
+        Node('worker','Worker','service',2,scope='managed'),
+        Node('waf','AWS WAF','service',0,scope='global',placement_role='security',
+             icon_key='aws.service.security-identity.aws-waf'),
+    ), (Edge('edge','api'),Edge('api','worker'),Edge('waf','edge')))
+    result = compose(spec,CONFIG,{},time.monotonic()+8)
+    positions = result['geometry'][0]
+    assert positions['edge'][0] < positions['api'][0]
+    assert abs(positions['edge'][1]-positions['api'][1]) < 1
+    assert result['metrics']['connector_node_intersections'] == 0
+    assert result['metrics']['node_overlaps'] == 0
+    assert result['metrics']['containment_violations'] == 0
+
+
+def test_managed_runtime_precedes_private_integration_in_the_request_spine():
+    spec = DiagramSpec('Agent integration', (
+        Node('api','API','service',0,scope='managed',placement_role='entry'),
+        Node('agent','Agent','service',1,scope='managed',placement_role='compute'),
+        Node('model','Model','service',2,scope='managed',placement_role='compute'),
+        Node('state','State','service',2,scope='managed',placement_role='data'),
+        Node('adapter','Adapter','service',2,scope='vpc',subnet='private',placement_role='integration'),
+        Node('events','Events','service',2,scope='managed',placement_role='integration'),
+        Node('store','Store','service',3,scope='managed',placement_role='data'),
+        Node('report','Report','service',4,scope='managed',placement_role='data'),
+    ), tuple(Edge(a,b) for a,b in [('api','agent'),('agent','model'),('agent','state'),
+        ('agent','adapter'),('agent','events'),('events','store'),('store','report')]))
+    result = compose(spec,CONFIG,{},time.monotonic()+8)
+    positions = result['geometry'][0]
+    assert positions['api'][0] < positions['agent'][0] < positions['adapter'][0]
+    assert result['parents']['adapter'].endswith('_private')
+    assert result['metrics']['node_overlaps'] == 0
+    assert result['metrics']['connector_node_intersections'] == 0
+
+
+def test_architecture_connector_captions_are_hidden_without_losing_plan_semantics():
+    from app.diagram.service import drawio_xml, render_png
+    from xml.etree import ElementTree as ET
+    spec = replace(sample(),architecture_plan={'view':'logical'})
+    spec = replace(spec,edges=tuple(replace(e,label='Invoke') for e in spec.edges))
+    data = compose(spec,CONFIG,{},time.monotonic()+8)
+    render_png(spec,CONFIG,layout_data=data)
+    xml = ET.fromstring(drawio_xml(spec,layout_data=data))
+    assert all(c.get('value') == '' for c in xml.findall(".//mxCell[@edge='1']"))
+    assert data['labels'] == [None]*len(spec.edges)
+    assert all(e.label == 'Invoke' for e in spec.edges)

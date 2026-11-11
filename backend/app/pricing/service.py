@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
+import math
+import uuid
+from logging.handlers import RotatingFileHandler
 import re
 import subprocess
 from datetime import datetime, timezone
@@ -155,7 +159,42 @@ class AwsPricingService:
             timeout=self.config.AWS_PRICING_TIMEOUT_SECONDS,
         )
 
-    def generate(
+    def generate(self, requirements, metadata, supporting_context=""):
+        audit_id = uuid.uuid4().hex
+        result = None
+        try:
+            result = self._generate(requirements, metadata, supporting_context)
+            amount = result.get('monthly_cost')
+            if amount is not None and (not math.isfinite(float(amount)) or float(amount) <= 0):
+                result['rejected_monthly_cost'] = amount
+                result.update(status='needs_input', monthly_cost=None,
+                              error='Pricing returned a non-positive or invalid total; a valid estimate is unavailable.')
+            result['audit_id'] = audit_id
+            return result
+        except Exception as exc:
+            result = {'status': 'failed', 'error': str(exc)}
+            raise
+        finally:
+            # Bounded local audit trail, without credentials or source documents.
+            logger = logging.getLogger('sow.pricing.audit')
+            directory = Path(getattr(self.config, 'OUTPUT_DIR', Path(__file__).resolve().parents[2] / 'output')) / 'logs'
+            try:
+                directory.mkdir(parents=True, exist_ok=True)
+                path = str((directory / 'pricing.jsonl').resolve())
+                if not any(getattr(h, 'baseFilename', '') == path for h in logger.handlers):
+                    logger.addHandler(RotatingFileHandler(path, maxBytes=5_000_000, backupCount=3, encoding='utf-8'))
+                logger.setLevel(logging.INFO)
+                logger.info(json.dumps({'audit_id': audit_id, 'time': datetime.now(timezone.utc).isoformat(),
+                    'project': metadata.get('project_title'), 'region': metadata.get('pricing_region'),
+                    'services': requirements.get('aws_services'),
+                    'previous_monthly_cost': metadata.get('pricing_previous_monthly_cost'),
+                    'result': {k: (result or {}).get(k) for k in ('status', 'monthly_cost', 'calculator_monthly_cost', 'rejected_monthly_cost',
+                        'cost_read_attempts', 'cost_read_warning', 'missing_inputs', 'error', 'fallback_estimate',
+                        'calculator_priced_services', 'calculator_planned_services', 'volume_metrics')}}, default=str))
+            except OSError:
+                logger.exception('Could not write pricing audit %s', audit_id)
+
+    def _generate(
         self,
         requirements: Dict[str, Any],
         metadata: Dict[str, Any],
@@ -296,6 +335,15 @@ class AwsPricingService:
 
             if metadata.get("pricing_read_cost", True):
                 cost = self._read_cost(str(base["estimate_url"]))
+                base['cost_read_attempts'] = [cost]
+                if cost.get('error') or cost.get('monthlyCost') is None or float(cost['monthlyCost']) <= 0:
+                    # Saved estimates may still be loading when first opened.
+                    cost = self._read_cost(str(base['estimate_url']))
+                    base['cost_read_attempts'].append(cost)
+                if cost.get('monthlyCost') is not None and float(cost['monthlyCost']) <= 0:
+                    base['calculator_monthly_cost'] = cost['monthlyCost']
+                    base['cost_read_warning'] = 'Calculator returned zero after two reads; total was not accepted.'
+                    return self._pricing_fallback(base, candidates, base['cost_read_warning'])
                 if cost.get("monthlyCost") is not None:
                     base["monthly_cost"] = cost["monthlyCost"]
                     base["calculator_monthly_cost"] = cost["monthlyCost"]
@@ -592,6 +640,10 @@ Rules:
         metadata: Dict[str, Any],
         source_text: str = "",
     ) -> List[str]:
+        design = requirements.get('service_design') or {}
+        if design.get('status') == 'ready' and not (requirements.get('architecture_design') or {}).get('nodes'):
+            return list(dict.fromkeys(s['name'] for s in design['services']
+                if s['status'] == 'confirmed' or metadata.get('pricing_include_proposed', True)))
         services = list(requirements.get("confirmed_aws_services") or [])
         proposed = list(requirements.get("proposed_aws_services") or [])
         if not services and not proposed:
@@ -600,6 +652,10 @@ Rules:
             services.extend(requirements.get("aws_services") or [])
         elif metadata.get("pricing_include_proposed", True):
             services.extend(proposed)
+        if (requirements.get('architecture_design') or {}).get('nodes') and services:
+            # Regeneration already selected the current deployment. Do not add
+            # retired products back merely because the original brief named them.
+            return list(dict.fromkeys(services))
         source = str(source_text or "").casefold()
         explicit_aliases = {
             "Amazon Bedrock": (r"\bamazon\s+bedrock\b", r"\bbedrock\b"),

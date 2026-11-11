@@ -32,8 +32,9 @@ def test_tata_does_not_select_connect_from_existing_voice_or_exclusions():
 def test_limit_context_and_no_mutation():
     req = {'features': sum([c['triggers'] for c in kb.load_library()['patterns']], [])}
     before = copy.deepcopy(req)
-    assert len(kb.select_patterns(req, limit=100)) == 3
-    assert len(kb.reference_context(req)) <= 5000
+    assert len(kb.select_patterns(req, limit=100)) == kb.MAX_REFERENCE_PATTERNS
+    assert len(kb.reference_context(req)) <= kb.MAX_REFERENCE_CHARS
+    assert len(kb.reference_context(req, max_chars=5000)) <= 5000
     assert kb.reference_context(req, max_chars=10) == ''
     assert req == before
     context = kb.reference_context(req)

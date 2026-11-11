@@ -146,7 +146,7 @@ def test_reviewer_sees_bounded_original_evidence_not_only_model_interpretation(t
 def test_all_default_templates_use_material_delivery_premises():
     assert 'approved business/regulatory rules' in SECTION_PURPOSES['assumptions']
     assert 'Connect CRM is not automatically Amazon Connect' in EDITORIAL_CONTRACT
-    for name in ('poc', 'production', 'poc_to_prod'):
+    for name in ('poc', 'production'):
         text = (Path(__file__).resolve().parents[1] / 'templates' / f'{name}_template.md').read_text(encoding='utf-8')
         assert 'State only material project-specific delivery premises' in text
         assert 'In every generated narrative bullet' in text

@@ -46,15 +46,6 @@ REQUIRED_GENERATED_KEYS = {
         "out_of_scope", "timelines_and_deliverables", "testing_and_acceptance_plan",
         "success_criteria", "risks_and_mitigations", "day_2_operations_support",
     },
-    "POC_TO_PROD": {
-        "project_overview", "poc_evidence_and_outcomes",
-        "production_gap_assessment", "scope_of_work",
-        "technical_specifications_system_design", "architecture_integrations",
-        "migration_cutover_and_rollback", "customer_dependencies", "assumptions",
-        "open_clarifications", "out_of_scope", "timelines_and_deliverables",
-        "testing_and_acceptance_plan", "success_criteria", "risks_and_mitigations",
-        "day_2_operations_support",
-    },
 }
 
 

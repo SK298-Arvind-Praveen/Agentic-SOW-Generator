@@ -280,3 +280,37 @@ def test_short_network_and_identity_labels_resolve_exact_products():
     registry = AwsIconRegistry(Path(__file__).resolve().parents[1] / 'assets')
     assert registry.match('AWS IAM')['label'] == 'AWS Identity and Access Management'
     assert registry.match('Internet Gateway')['label'] == 'Amazon VPC Internet Gateway'
+
+
+def test_vendor_neutral_source_does_not_strip_proposed_aws_service_icons():
+    registry = AwsIconRegistry(_Config.ASSETS_DIR)
+    service = DiagramService.__new__(DiagramService)
+    service.icon_registry = registry
+    cmap = {item.key: item for item in registry.candidates({}, '')}
+    labels = ['Intake Lambda', 'Extraction Lambda', 'Landing Area S3', 'Amazon Bedrock',
+              'Amazon DynamoDB', 'Amazon CloudWatch', 'Analytics Sandbox S3']
+    raw = {'nodes': [dict(id=f'n{i}', label=label, kind='service' if i < 6 else 'external',
+                         scope='managed' if i < 6 else 'external', layer=i % 5,
+                         icon_key='aws.service.invalid-category.invalid') for i, label in enumerate(labels)],
+           'edges': [{'source': 'n0', 'target': 'n1'}]}
+    spec = validate_spec(service._enrich_diagram(raw, 'architecture_overview', cmap), 'Test', cmap)
+    assert all(node.icon_key in registry.by_key for node in spec.nodes)
+    assert all(node.selection == 'inferred' for node in spec.nodes)
+    assert spec.nodes[0].label == 'Intake Lambda'
+    assert spec.nodes[1].label == 'Extraction Lambda'
+    assert spec.nodes[-1].scope == 'external'
+    assert registry.named_service('Review Workbench') is None
+    assert registry.named_service('Connect CRM') is None
+    assert registry.named_service('Clinical extraction engine') is None
+
+
+def test_fractional_layout_canvas_renders_without_legacy_fallback():
+    from app.diagram.service import DiagramSpec, Node, Edge
+    spec = DiagramSpec('Fractional canvas', (Node('a', 'Source', 'actor', 0),
+                       Node('b', 'Worker', 'service', 1)), (Edge('a', 'b'),))
+    layout = {'geometry': ({'a': (20.5, 20.25, 100, 80), 'b': (180.5, 20.25, 100, 80)},
+                          {}, 320.5, 140.25),
+              'paths': [[(120.5, 60.25), (180.5, 60.25)]],
+              'labels': [None], 'parents': {}, 'captions': {}, 'card_style': 'iconic'}
+    png = render_png(spec, _Config(), layout_data=layout)
+    assert Image.open(io.BytesIO(png)).size == (321, 141)

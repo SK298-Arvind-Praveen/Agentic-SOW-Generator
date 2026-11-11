@@ -125,11 +125,20 @@ async function fetchCostFromDOM(url) {
         const rawConfig = (cellTexts[firstUsdIdx + 4] || '').trim();
         const config = rawConfig && rawConfig !== '-' ? rawConfig : null;
         if (service && Number.isFinite(monthly)) {
-          monthlyByService.set(service, monthly);
+          monthlyByService.set(service, (monthlyByService.get(service) || 0) + monthly);
           configByService.set(service, config);
         }
       }
 
+      const subtotal = [...monthlyByService.values()].reduce((sum, cost) => sum + cost, 0);
+      // Never publish a zero summary while priced service rows show a positive total.
+      // Treat disagreement as an extraction failure, rather than guessing which DOM
+      // number represents the full estimate.
+      if (monthlyCost === null || monthlyCost <= 0 || (subtotal > 0 && Math.abs(subtotal - monthlyCost) > 0.02)) {
+        return { monthlyCost: null, monthlyByService, configByService,
+          error: 'Calculator total was zero, missing, or inconsistent with service rows',
+          diagnostics: { summaryMonthlyCost: monthlyCost, serviceSubtotal: subtotal, serviceCount: monthlyByService.size } };
+      }
       return { monthlyCost, monthlyByService, configByService };
     } finally {
       await context.close();

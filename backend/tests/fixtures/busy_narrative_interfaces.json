@@ -1,0 +1,654 @@
+{
+  "nodes": [
+    {
+      "id": "customers",
+      "label": "Customers",
+      "kind": "actor",
+      "icon_key": "aws.resource.general-icons.users",
+      "scope": "external",
+      "placement_role": "external"
+    },
+    {
+      "id": "bsp",
+      "label": "WhatsApp BSP",
+      "kind": "external",
+      "icon_key": "",
+      "scope": "external",
+      "placement_role": "external"
+    },
+    {
+      "id": "admins",
+      "label": "Admins and Leaders",
+      "kind": "actor",
+      "icon_key": "aws.resource.general-icons.users",
+      "scope": "external",
+      "placement_role": "external"
+    },
+    {
+      "id": "idp",
+      "label": "Customer IdP",
+      "kind": "external",
+      "icon_key": "",
+      "scope": "external",
+      "placement_role": "external"
+    },
+    {
+      "id": "cloudfront",
+      "label": "Amazon CloudFront",
+      "kind": "service",
+      "icon_key": "aws.service.networking-content-delivery.amazon-cloudfront",
+      "scope": "global",
+      "placement_role": "entry"
+    },
+    {
+      "id": "s3_site",
+      "label": "S3 Web Assets",
+      "kind": "service",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "scope": "managed",
+      "placement_role": "data"
+    },
+    {
+      "id": "waf",
+      "label": "AWS WAF",
+      "kind": "service",
+      "icon_key": "aws.service.security-identity.aws-waf",
+      "scope": "regional",
+      "placement_role": "security"
+    },
+    {
+      "id": "apigw",
+      "label": "Amazon API Gateway",
+      "kind": "service",
+      "icon_key": "aws.service.networking-content-delivery.amazon-api-gateway",
+      "scope": "managed",
+      "placement_role": "entry"
+    },
+    {
+      "id": "cognito",
+      "label": "Amazon Cognito",
+      "kind": "service",
+      "icon_key": "aws.service.security-identity.amazon-cognito",
+      "scope": "regional",
+      "placement_role": "security"
+    },
+    {
+      "id": "lambda",
+      "label": "AWS Lambda",
+      "kind": "service",
+      "icon_key": "aws.service.compute.aws-lambda",
+      "scope": "managed",
+      "placement_role": "compute"
+    },
+    {
+      "id": "sqs",
+      "label": "Amazon SQS",
+      "kind": "service",
+      "icon_key": "aws.service.application-integration.amazon-simple-queue-service",
+      "scope": "managed",
+      "placement_role": "integration"
+    },
+    {
+      "id": "sfn",
+      "label": "AWS Step Functions",
+      "kind": "service",
+      "icon_key": "aws.service.application-integration.aws-step-functions",
+      "scope": "managed",
+      "placement_role": "integration"
+    },
+    {
+      "id": "eventbridge",
+      "label": "Amazon EventBridge",
+      "kind": "service",
+      "icon_key": "aws.service.application-integration.amazon-eventbridge",
+      "scope": "managed",
+      "placement_role": "integration"
+    },
+    {
+      "id": "bedrock",
+      "label": "Amazon Bedrock",
+      "kind": "service",
+      "icon_key": "aws.service.artificial-intelligence.amazon-bedrock",
+      "scope": "managed",
+      "placement_role": "compute"
+    },
+    {
+      "id": "guardrails",
+      "label": "Bedrock Guardrails",
+      "kind": "service",
+      "icon_key": "aws.service.artificial-intelligence.amazon-bedrock",
+      "scope": "regional",
+      "placement_role": "security"
+    },
+    {
+      "id": "kb",
+      "label": "Bedrock Knowledge Bases",
+      "kind": "service",
+      "icon_key": "aws.service.artificial-intelligence.amazon-bedrock",
+      "scope": "managed",
+      "placement_role": "data"
+    },
+    {
+      "id": "s3vectors",
+      "label": "Amazon S3 Vectors",
+      "kind": "service",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "scope": "managed",
+      "placement_role": "data"
+    },
+    {
+      "id": "s3_kb",
+      "label": "S3 Knowledge Source",
+      "kind": "service",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "scope": "managed",
+      "placement_role": "data"
+    },
+    {
+      "id": "dynamodb",
+      "label": "Amazon DynamoDB",
+      "kind": "service",
+      "icon_key": "aws.service.databases.amazon-dynamodb",
+      "scope": "managed",
+      "placement_role": "data"
+    },
+    {
+      "id": "firehose",
+      "label": "Amazon Data Firehose",
+      "kind": "service",
+      "icon_key": "aws.service.analytics.amazon-data-firehose",
+      "scope": "managed",
+      "placement_role": "integration"
+    },
+    {
+      "id": "s3_lake",
+      "label": "S3 Lake and Audit",
+      "kind": "service",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "scope": "managed",
+      "placement_role": "data"
+    },
+    {
+      "id": "glue",
+      "label": "AWS Glue",
+      "kind": "service",
+      "icon_key": "aws.service.analytics.aws-glue",
+      "scope": "managed",
+      "placement_role": "data"
+    },
+    {
+      "id": "athena",
+      "label": "Amazon Athena",
+      "kind": "service",
+      "icon_key": "aws.service.analytics.amazon-athena",
+      "scope": "managed",
+      "placement_role": "data"
+    },
+    {
+      "id": "iam",
+      "label": "AWS Identity and Access Management",
+      "kind": "service",
+      "icon_key": "aws.service.security-identity.aws-identity-and-access-management",
+      "scope": "global",
+      "placement_role": "security"
+    },
+    {
+      "id": "kms",
+      "label": "AWS Key Management Service",
+      "kind": "service",
+      "icon_key": "aws.service.security-identity.aws-key-management-service",
+      "scope": "regional",
+      "placement_role": "security"
+    },
+    {
+      "id": "secrets",
+      "label": "AWS Secrets Manager",
+      "kind": "service",
+      "icon_key": "aws.service.security-identity.aws-secrets-manager",
+      "scope": "regional",
+      "placement_role": "security"
+    },
+    {
+      "id": "cloudwatch",
+      "label": "Amazon CloudWatch",
+      "kind": "service",
+      "icon_key": "aws.service.management-tools.amazon-cloudwatch",
+      "scope": "regional",
+      "placement_role": "operations"
+    },
+    {
+      "id": "sns",
+      "label": "Amazon SNS",
+      "kind": "service",
+      "icon_key": "aws.service.application-integration.amazon-simple-notification-service",
+      "scope": "regional",
+      "placement_role": "operations"
+    },
+    {
+      "id": "cloudtrail",
+      "label": "AWS CloudTrail",
+      "kind": "service",
+      "icon_key": "aws.service.management-tools.aws-cloudtrail",
+      "scope": "regional",
+      "placement_role": "security"
+    },
+    {
+      "id": "budgets",
+      "label": "AWS Budgets",
+      "kind": "service",
+      "icon_key": "aws.service.cloud-financial-management.aws-budgets",
+      "scope": "global",
+      "placement_role": "operations"
+    },
+    {
+      "id": "hybris",
+      "label": "SAP Hybris",
+      "kind": "external",
+      "icon_key": "",
+      "scope": "external",
+      "placement_role": "external"
+    },
+    {
+      "id": "cs",
+      "label": "Existing CS Platform",
+      "kind": "external",
+      "icon_key": "",
+      "scope": "external",
+      "placement_role": "external"
+    },
+    {
+      "id": "otp",
+      "label": "Existing OTP Service",
+      "kind": "external",
+      "icon_key": "",
+      "scope": "external",
+      "placement_role": "external"
+    },
+    {
+      "id": "notif",
+      "label": "Notification Providers",
+      "kind": "external",
+      "icon_key": "",
+      "scope": "external",
+      "placement_role": "external"
+    },
+    {
+      "id": "mixpanel",
+      "label": "Mixpanel",
+      "kind": "external",
+      "icon_key": "",
+      "scope": "external",
+      "placement_role": "external"
+    },
+    {
+      "id": "datalake",
+      "label": "Customer Data Lake",
+      "kind": "external",
+      "icon_key": "",
+      "scope": "external",
+      "placement_role": "external"
+    }
+  ],
+  "edges": [
+    {
+      "source": "customers",
+      "target": "apigw",
+      "label": "Web chat"
+    },
+    {
+      "source": "customers",
+      "target": "bsp",
+      "label": "WhatsApp"
+    },
+    {
+      "source": "bsp",
+      "target": "apigw",
+      "label": "Webhook"
+    },
+    {
+      "source": "apigw",
+      "target": "lambda",
+      "label": "Invoke"
+    },
+    {
+      "source": "lambda",
+      "target": "sqs",
+      "label": "Enqueue"
+    },
+    {
+      "source": "sqs",
+      "target": "lambda",
+      "label": "Consume"
+    },
+    {
+      "source": "lambda",
+      "target": "dynamodb",
+      "label": "Read, write"
+    },
+    {
+      "source": "lambda",
+      "target": "otp",
+      "label": "Verify OTP"
+    },
+    {
+      "source": "lambda",
+      "target": "bedrock",
+      "label": "Invoke model"
+    },
+    {
+      "source": "lambda",
+      "target": "guardrails",
+      "label": "Apply policy"
+    },
+    {
+      "source": "lambda",
+      "target": "kb",
+      "label": "Retrieve, sync"
+    },
+    {
+      "source": "kb",
+      "target": "s3vectors",
+      "label": "Vector index"
+    },
+    {
+      "source": "kb",
+      "target": "s3_kb",
+      "label": "Read documents"
+    },
+    {
+      "source": "lambda",
+      "target": "s3_kb",
+      "label": "Write articles"
+    },
+    {
+      "source": "lambda",
+      "target": "hybris",
+      "label": "Call APIs"
+    },
+    {
+      "source": "lambda",
+      "target": "cs",
+      "label": "Relay, pull"
+    },
+    {
+      "source": "cs",
+      "target": "apigw",
+      "label": "Webhooks, assist"
+    },
+    {
+      "source": "lambda",
+      "target": "sfn",
+      "label": "Start workflow"
+    },
+    {
+      "source": "sfn",
+      "target": "cs",
+      "label": "Create case"
+    },
+    {
+      "source": "lambda",
+      "target": "bsp",
+      "label": "Send replies"
+    },
+    {
+      "source": "lambda",
+      "target": "notif",
+      "label": "Send notifications"
+    },
+    {
+      "source": "eventbridge",
+      "target": "lambda",
+      "label": "Schedule jobs"
+    },
+    {
+      "source": "lambda",
+      "target": "firehose",
+      "label": "Emit events"
+    },
+    {
+      "source": "firehose",
+      "target": "s3_lake",
+      "label": "Deliver"
+    },
+    {
+      "source": "lambda",
+      "target": "s3_lake",
+      "label": "Archive"
+    },
+    {
+      "source": "lambda",
+      "target": "athena",
+      "label": "Run queries"
+    },
+    {
+      "source": "athena",
+      "target": "glue",
+      "label": "Read schema"
+    },
+    {
+      "source": "athena",
+      "target": "s3_lake",
+      "label": "Query data"
+    },
+    {
+      "source": "s3_lake",
+      "target": "datalake",
+      "label": "Export data"
+    },
+    {
+      "source": "lambda",
+      "target": "mixpanel",
+      "label": "Forward events"
+    },
+    {
+      "source": "admins",
+      "target": "cloudfront",
+      "label": "Open workbench"
+    },
+    {
+      "source": "cloudfront",
+      "target": "s3_site",
+      "label": "Serve UI"
+    },
+    {
+      "source": "admins",
+      "target": "cognito",
+      "label": "Sign in"
+    },
+    {
+      "source": "cognito",
+      "target": "idp",
+      "label": "Federate SSO"
+    },
+    {
+      "source": "admins",
+      "target": "apigw",
+      "label": "Admin API"
+    }
+  ],
+  "title": "Customer support",
+  "architecture_plan": {
+    "narrative_view": {
+      "groups": [
+        {
+          "id": "g1",
+          "label": "Access and Workbench",
+          "rows": [
+            [
+              "s3_site",
+              "cognito"
+            ],
+            [
+              "waf",
+              "apigw"
+            ]
+          ]
+        },
+        {
+          "id": "g2",
+          "label": "Conversation Runtime",
+          "rows": [
+            [
+              "lambda",
+              "sqs"
+            ],
+            [
+              "sfn",
+              "eventbridge"
+            ],
+            [
+              "dynamodb"
+            ]
+          ]
+        },
+        {
+          "id": "g3",
+          "label": "AI Answers and Knowledge",
+          "rows": [
+            [
+              "bedrock",
+              "guardrails"
+            ],
+            [
+              "kb",
+              "s3vectors"
+            ],
+            [
+              "s3_kb"
+            ]
+          ]
+        },
+        {
+          "id": "g4",
+          "label": "Events and Audit",
+          "rows": [
+            [
+              "firehose",
+              "s3_lake"
+            ],
+            [
+              "athena",
+              "glue"
+            ]
+          ]
+        }
+      ],
+      "support": [
+        "iam",
+        "kms",
+        "secrets",
+        "cloudtrail",
+        "cloudwatch",
+        "sns",
+        "budgets"
+      ],
+      "roles": {
+        "s3_site": "Workbench UI assets",
+        "cognito": "Admin sign-in",
+        "waf": "Request protection",
+        "apigw": "Chat and admin API",
+        "lambda": "Chat orchestration",
+        "sqs": "Message buffer",
+        "sfn": "Case workflow",
+        "eventbridge": "Scheduled jobs",
+        "dynamodb": "Sessions and config",
+        "bedrock": "LLM responses",
+        "guardrails": "Safety policy",
+        "kb": "Knowledge retrieval",
+        "s3vectors": "Vector index",
+        "s3_kb": "FAQ and policies",
+        "firehose": "Event delivery",
+        "s3_lake": "Event lake, audit",
+        "athena": "Reports and queries",
+        "glue": "Table catalog"
+      },
+      "links": [
+        {
+          "source": "customers",
+          "target": "g1",
+          "label": "Web chat"
+        },
+        {
+          "source": "customers",
+          "target": "bsp",
+          "label": "WhatsApp"
+        },
+        {
+          "source": "bsp",
+          "target": "g1",
+          "label": "Webhook"
+        },
+        {
+          "source": "cloudfront",
+          "target": "g1",
+          "label": "Serve UI"
+        },
+        {
+          "source": "admins",
+          "target": "g1",
+          "label": "Workbench, sign in, API"
+        },
+        {
+          "source": "g1",
+          "target": "idp",
+          "label": "Federate SSO"
+        },
+        {
+          "source": "cs",
+          "target": "g1",
+          "label": "Webhooks, assist"
+        },
+        {
+          "source": "g1",
+          "target": "g2",
+          "label": "Invoke"
+        },
+        {
+          "source": "g2",
+          "target": "g3",
+          "label": "Answer / retrieve"
+        },
+        {
+          "source": "g2",
+          "target": "g4",
+          "label": "Events, queries"
+        },
+        {
+          "source": "g2",
+          "target": "otp",
+          "label": "Verify OTP"
+        },
+        {
+          "source": "g2",
+          "target": "hybris",
+          "label": "Call APIs"
+        },
+        {
+          "source": "g2",
+          "target": "cs",
+          "label": "Relay, create case"
+        },
+        {
+          "source": "g2",
+          "target": "bsp",
+          "label": "Send replies"
+        },
+        {
+          "source": "g2",
+          "target": "notif",
+          "label": "Send notifications"
+        },
+        {
+          "source": "g2",
+          "target": "mixpanel",
+          "label": "Forward events"
+        },
+        {
+          "source": "g4",
+          "target": "datalake",
+          "label": "Export data"
+        }
+      ]
+    }
+  }
+}
