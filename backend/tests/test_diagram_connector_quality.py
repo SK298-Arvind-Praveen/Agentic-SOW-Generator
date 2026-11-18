@@ -116,6 +116,16 @@ def test_false_junctions_and_shared_lines_are_not_a_zero_crossing_pass():
     assert layout_quality({'ambiguous_connector_pairs':1}) > layout_quality({'connector_crossings':1})
 
 
+def test_straight_shortcut_does_not_steal_a_later_edges_terminal():
+    positions={'a':(100,300,180,120),'b':(600,300,180,120),
+               'c':(100,100,180,120),'d':(100,500,180,120)}
+    spec=SimpleNamespace(nodes=list(positions),edges=[
+        SimpleNamespace(source=k,target='b') for k in ('a','c','d')])
+    paths=local_routes(spec,positions,{}, {},900,700)
+    assert len({path[-1] for path in paths})==3
+    assert geometry_report(spec,positions,paths)['ambiguous_connector_pairs']==0
+
+
 def test_fanout_port_order_follows_destinations_not_json_order():
     positions = {'worker':(100,100,168,160), 'crm':(620,330,168,120), 's3':(380,100,168,160)}
     spec = SimpleNamespace(nodes=[SimpleNamespace(id=k,icon_key='icon' if k!='crm' else '') for k in positions],

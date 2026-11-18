@@ -123,6 +123,31 @@ def layout_for(plan, config=None):
     sy=60
     for i,g in enumerate(plan.get('bands',[])):
         sy=section(g,len(plan['zones'])+i,1180,sy,300,1)
+    # Cross-cutting controls span the complete system, as in the layered ITSM
+    # reference. Expand the measured side panels instead of leaving a short box
+    # beside the first layer. PNG and editable XML share this same geometry.
+    bands=plan.get('bands',[])
+    if bands:
+        main=groups[len(plan['zones'])-1]
+        last=groups[-1]
+        extra=max(0,main['y']+main['h']-last['y']-last['h'])
+        total=sum(len(band['components']) for band in bands)
+        by_id={box['id']:box for box in boxes}
+        offset=0
+        for i,band in enumerate(bands):
+            group=groups[len(plan['zones'])+i]
+            count=len(band['components'])
+            growth=extra*count/total
+            gap_growth=min(24,growth/count*.2) if count>1 else 0
+            card_growth=(growth-gap_growth*(count-1))/count
+            group['y']+=offset
+            group['h']+=growth
+            for row,component in enumerate(band['components']):
+                box=by_id[component['id']]
+                box['y']+=offset+row*(card_growth+gap_growth)
+                box['h']+=card_growth
+            offset+=growth
+        sy+=extra
     zone_ids={g.get('id', f'g{i}'):i for i,g in enumerate(plan['zones'])}
     membership={c['id']:i for i,g in enumerate(plan['zones']) for c in g['components']}
     links=[]

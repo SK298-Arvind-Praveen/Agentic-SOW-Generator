@@ -306,6 +306,7 @@ def authentication_service_unavailable(error):
     return jsonify({
         "success": False,
         "code": "AUTH_SERVICE_UNAVAILABLE",
+        "retryable": error.retryable,
         "error": "Sign-in service is temporarily unavailable. Please try again shortly. If this continues, contact your administrator.",
     }), 503, {"Retry-After": "5"}
 

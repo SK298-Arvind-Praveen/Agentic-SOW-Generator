@@ -263,9 +263,51 @@ RESOURCE_TAG_CREATED_BY=arnaav.a@shellkode.com
 DRAWIO_EDITOR_URL=https://app.diagrams.net
 ```
 
-Every Bedrock task is routed through the approved Claude Sonnet application inference
-profile. That profile must retain the tags `createdby=arnaav.a@shellkode.com` and
-`customer=agentic-sow-inference`. Source documents are analysed in
+Bedrock models are selected per component in `backend/config/.env`. Each
+`BEDROCK_*_MODEL_ID` accepts either a full model/profile ARN or a named selection:
+
+| Selection | Model | Application inference profile |
+|---|---|---|
+| `sonnet-5` | Claude Sonnet 5 | `20kstbja9ona` |
+| `haiku` | Claude Haiku 4.5 | `hbq88skix7wt` |
+| `sonnet-5.5` | Claude Sonnet 5.5 | `hlc2w29214np` |
+| `opus-5.5` | Claude Opus 5.5 | `lwjwoyltuicz` |
+| `gpt-6-astra` | GPT-6 Astra | `o8dwriwugus2` |
+
+These profiles belong to account `106611079163`, region `us-east-1`.
+For example, `BEDROCK_DIAGRAM_MODEL_ID=opus-5.5` changes architecture service
+selection, planning, composition, and conceptual diagram planning. Diagram
+review follows this setting unless `BEDROCK_DIAGRAM_REVIEW_MODEL_ID` is explicitly
+set (for example, `gpt-6-astra`). Other component switches are
+`BEDROCK_FAST_MODEL_ID`, `BEDROCK_ANALYSIS_MODEL_ID`, `BEDROCK_WRITER_MODEL_ID`,
+`BEDROCK_EDITOR_MODEL_ID`, and `BEDROCK_FALLBACK_MODEL_ID`. Restart the backend
+after changing a selection. Adding a profile does not switch existing assignments.
+This is backend configuration, not an in-app model dropdown. Embeddings use the
+separate `SEMANTIC_SEARCH_EMBEDDING_MODEL_ID`; do not replace it with a text model.
+
+The three-generative-model configuration uses Haiku for bounded extraction and
+supporting sections, Opus for planning/writing/editing, and Astra for independent
+diagram and SOW review. Apply these selections in the backend environment:
+
+```dotenv
+BEDROCK_MODEL_ID=opus-5.5
+BEDROCK_FAST_MODEL_ID=haiku
+BEDROCK_ANALYSIS_MODEL_ID=opus-5.5
+BEDROCK_WRITER_MODEL_ID=opus-5.5
+BEDROCK_DIAGRAM_MODEL_ID=opus-5.5
+BEDROCK_EDITOR_MODEL_ID=opus-5.5
+BEDROCK_DIAGRAM_REVIEW_MODEL_ID=gpt-6-astra
+BEDROCK_REVIEW_MODEL_ID=gpt-6-astra
+BEDROCK_FALLBACK_MODEL_ID=gpt-6-astra
+```
+
+`BEDROCK_REVIEW_MODEL_ID` controls SOW targeted corrections separately from fast
+extraction. If omitted, it retains the legacy fast-model review behavior.
+Fallback applies only to stages that explicitly support fallback; architecture
+repairs continue to follow the bounded diagram retry policy. Titan embeddings
+remain unchanged. Environment changes require a backend restart.
+
+Source documents are analysed in
 overlapping chunks and merged; each writer call receives the structured baseline plus
 section-relevant source evidence instead of a lossy fixed prefix.
 

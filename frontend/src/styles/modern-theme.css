@@ -21,7 +21,7 @@
   --accent-orange: #f59e0b;
   --accent-red: #ef4444;
   --accent-pink: #be185d;
-  --accent-violet: #7c3aed;
+  --accent-violet: var(--accent);
 
   /* ===== NEUTRAL COLORS ===== */
   --gray-50: #f9fafb;
@@ -71,7 +71,7 @@
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
   --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-  --shadow-glow: 0 0 20px rgba(123, 63, 242, 0.3);
+  --shadow-glow: 0 0 20px rgba(0, 39, 90, 0.3);
 
   /* ===== SHELLKODE GRADIENTS ===== */
   --gradient-primary: linear-gradient(135deg, #002855 0%, #003d7a 100%);
@@ -371,13 +371,13 @@ body {
 
 /* Selection Styling */
 ::selection {
-  background-color: var(--primary-purple-light);
-  color: var(--text-on-primary);
+  background-color: var(--accent-light);
+  color: var(--text-primary);
 }
 
 /* Focus Visible Styling */
 :focus-visible {
-  outline: 2px solid var(--primary-purple);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }

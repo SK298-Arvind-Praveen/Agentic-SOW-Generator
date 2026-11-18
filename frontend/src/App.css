@@ -29,7 +29,7 @@ body {
    Scraped from shellkode.com CSS (cdn.prod.website-files.com)
 
    Sidebar Navy:   #01285e  (ShellKode deep navy)
-   Primary Cyan:   #02adef  (ShellKode signature cyan)
+   Primary Accent: #00275a  (requested navy blue)
    Page BG:        #f9fafb  (light gray)
    Card BG:        #ffffff  (white)
    Text Dark:      #101828
@@ -48,7 +48,7 @@ body {
   --sidebar-bg-dark:    #00214e;
   --sidebar-border:     rgba(255, 255, 255, 0.1);
   --sidebar-hover:      rgba(255, 255, 255, 0.08);
-  --sidebar-active:     rgba(2, 173, 239, 0.2);
+  --sidebar-active:     rgba(0, 39, 90, 0.2);
   --sidebar-text:       rgba(255, 255, 255, 0.75);
   --sidebar-text-active:#ffffff;
   --sidebar-icon:       rgba(255, 255, 255, 0.6);
@@ -65,38 +65,38 @@ body {
 
   /* ── ShellKode signature cyan ── */
   --cyan-600: #0082f3;
-  --cyan-500: #02adef;
+  --cyan-500: #00275a;
   --cyan-400: #2895f7;
   --cyan-300: #90dade;
   --cyan-200: #cfe0ff;
   --cyan-100: #e8f4ff;
   --cyan-50:  #f0f8ff;
 
-  /* ── Violet accent ── */
-  --violet-600: #211f54;
-  --violet-500: #4a3aff;
-  --violet-400: #5532fa;
-  --violet-300: #7f56d9;
-  --violet-100: #f0ecfd;
+  /* ── Legacy accent aliases (blue palette) ── */
+  --violet-600: var(--navy-800);
+  --violet-500: var(--accent);
+  --violet-400: var(--accent-dark);
+  --violet-300: var(--accent);
+  --violet-100: var(--accent-light);
 
   /* ── Gold ── */
   --gold-500: #ffb819;
   --gold-100: #fff8e1;
 
-  /* ── PRIMARY accent = cyan ── */
-  --accent:           #02adef;
-  --accent-dark:      #0082f3;
-  --accent-hover:     #00c4ff;
+  /* ── PRIMARY accent = navy blue ── */
+  --accent:           #00275a;
+  --accent-dark:      #00275a;
+  --accent-hover:     #001c42;
   --accent-light:     #e8f4ff;
-  --accent-mid:       rgba(2, 173, 239, 0.15);
-  --accent-glow:      0 4px 20px rgba(2, 173, 239, 0.35);
-  --accent-glow-sm:   0 2px 10px rgba(2, 173, 239, 0.25);
+  --accent-mid:       rgba(0, 39, 90, 0.15);
+  --accent-glow:      0 4px 20px rgba(0, 39, 90, 0.35);
+  --accent-glow-sm:   0 2px 10px rgba(0, 39, 90, 0.25);
 
   /* ── Borders ── */
   --border-subtle:  #eaecf0;
   --border-default: #d0d5dd;
   --border-medium:  #98a2b3;
-  --border-accent:  rgba(2, 173, 239, 0.4);
+  --border-accent:  rgba(0, 39, 90, 0.4);
   --border-navy:    rgba(1, 40, 94, 0.2);
 
   /* ── Text (dark on light) ── */
@@ -116,7 +116,7 @@ body {
   --warning-bg:   #fffaeb;
   --error:        #b42318;
   --error-bg:     #fef3f2;
-  --info:         #02adef;
+  --info:         #00275a;
   --info-bg:      #e8f4ff;
 
   /* ── Shadows (lighter for light theme) ── */
@@ -126,17 +126,17 @@ body {
   --shadow-lg:  0 12px 24px rgba(16, 24, 40, 0.1), 0 4px 8px rgba(16, 24, 40, 0.06);
   --shadow-xl:  0 20px 40px rgba(16, 24, 40, 0.12);
   --shadow-2xl: 0 32px 64px rgba(16, 24, 40, 0.14);
-  --shadow-cyan: 0 4px 16px rgba(2, 173, 239, 0.25);
+  --shadow-cyan: 0 4px 16px rgba(0, 39, 90, 0.25);
 
   /* ── Gradients (real ShellKode site gradients) ── */
-  --gradient-brand:   linear-gradient(135deg, #01285e 0%, #02adef 100%);
-  --gradient-brand-r: linear-gradient(135deg, #02adef 0%, #01285e 100%);
-  --gradient-cyan:    linear-gradient(135deg, #02adef 0%, #00c4ff 100%);
+  --gradient-brand:   linear-gradient(135deg, #01285e 0%, #00275a 100%);
+  --gradient-brand-r: linear-gradient(135deg, #00275a 0%, #01285e 100%);
+  --gradient-cyan:    linear-gradient(135deg, #00275a 0%, #001c42 100%);
   --gradient-navy:    linear-gradient(180deg, #01285e 0%, #00214e 100%);
   --gradient-card:    linear-gradient(145deg, #ffffff 0%, #f9fafb 100%);
-  --gradient-hero:    linear-gradient(135deg, #01285e 0%, #02adef 100%);
+  --gradient-hero:    linear-gradient(135deg, #01285e 0%, #00275a 100%);
   --gradient-light:   linear-gradient(135deg, #f4f8ff 0%, #e8f4ff 100%);
-  --gradient-glow:    radial-gradient(ellipse at center, rgba(2,173,239,0.12) 0%, transparent 70%);
+  --gradient-glow:    radial-gradient(ellipse at center, rgba(0,39,90,0.12) 0%, transparent 70%);
 
   /* ── Border Radius ── */
   --radius-xs:   3px;

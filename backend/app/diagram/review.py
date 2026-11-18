@@ -152,7 +152,7 @@ def layout_quality(metrics):
 
 
 
-def local_routes(spec, positions, boxes, parents, width, height, deadline=None, captions=None, iconic=False, icon_bottom=False, max_terminal_gap=None, boundary_transit=False, terminal_sides=None, edge_obstacles=None):
+def local_routes(spec, positions, boxes, parents, width, height, deadline=None, captions=None, iconic=False, icon_bottom=False, max_terminal_gap=None, boundary_transit=False, terminal_sides=None, edge_obstacles=None, crossing_penalty=180):
     """Shortest orthogonal visibility-grid routes, with ports chosen by proximity.
 
     Keep every edge and real boundary. Unrelated containers and all boundary
@@ -186,10 +186,10 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
     def boundary_parallel_cost(a,b):
         penalty = 0
         for x,y,w,h in boxes.values():
-            if a[1] == b[1] and min(abs(a[1]-y),abs(a[1]-y-h)) < 6:
-                penalty += max(0,min(max(a[0],b[0]),x+w)-max(min(a[0],b[0]),x))*20
-            if a[0] == b[0] and min(abs(a[0]-x),abs(a[0]-x-w)) < 6:
-                penalty += max(0,min(max(a[1],b[1]),y+h)-max(min(a[1],b[1]),y))*20
+            if a[1] == b[1] and min(abs(a[1]-y),abs(a[1]-y-h)) < 12:
+                penalty += max(0,min(max(a[0],b[0]),x+w)-max(min(a[0],b[0]),x))*40
+            if a[0] == b[0] and min(abs(a[0]-x),abs(a[0]-x-w)) < 12:
+                penalty += max(0,min(max(a[1],b[1]),y+h)-max(min(a[1],b[1]),y))*40
         return penalty
     def crossing_cost(a, b):
         penalty = 0
@@ -204,15 +204,15 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
                 # Grid vertices often land exactly on an existing connector.
                 # Strict segment intersection would miss these until simplification.
                 if a[0] == b[0] and c[1] == d[1]:
-                    penalty += 180 * (min(c[0],d[0]) < a[0] < max(c[0],d[0])
+                    penalty += crossing_penalty * (min(c[0],d[0]) < a[0] < max(c[0],d[0])
                                       and min(a[1],b[1]) <= c[1] <= max(a[1],b[1]))
                 elif a[1] == b[1] and c[0] == d[0]:
-                    penalty += 180 * (min(c[1],d[1]) < a[1] < max(c[1],d[1])
+                    penalty += crossing_penalty * (min(c[1],d[1]) < a[1] < max(c[1],d[1])
                                       and min(a[0],b[0]) <= c[0] <= max(a[0],b[0]))
                 elif a[0] == b[0] == c[0] == d[0]:
-                    penalty += max(0,min(max(a[1],b[1]),max(c[1],d[1]))-max(min(a[1],b[1]),min(c[1],d[1])))*12
+                    penalty += max(0,min(max(a[1],b[1]),max(c[1],d[1]))-max(min(a[1],b[1]),min(c[1],d[1])))*120
                 elif a[1] == b[1] == c[1] == d[1]:
-                    penalty += max(0,min(max(a[0],b[0]),max(c[0],d[0]))-max(min(a[0],b[0]),min(c[0],d[0])))*12
+                    penalty += max(0,min(max(a[0],b[0]),max(c[0],d[0]))-max(min(a[0],b[0]),min(c[0],d[0])))*120
                 elif a[1] == b[1] and c[1] == d[1] and abs(a[1]-c[1]) < 20:
                     # Parallel tracks a few pixels apart look like a single
                     # wire at document scale, even without a mathematical cross.
@@ -260,7 +260,27 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
                     gap += (len(peers)-1-peers.index(edge_index))*22
                 if max_terminal_gap is not None:
                     gap = min(gap, max_terminal_gap)
-                port,anchor = list(ports(positions[key],key in icon_nodes,offset,gap).items())[side_index]
+                # Straight shortcuts can occupy a nominal slot before this edge
+                # is routed. Reserve a clear final approach, not just a unique
+                # index in the original incident list.
+                chosen = None
+                extent = (h if side in {'left','right'} else w)/2-8
+                if key in icon_nodes:
+                    extent = 24
+                for delta in (0,12,-12,24,-24,36,-36,48,-48):
+                    candidate_offset = offset+delta
+                    if abs(candidate_offset)>extent:
+                        continue
+                    port,anchor = list(ports(positions[key],key in icon_nodes,candidate_offset,gap).items())[side_index]
+                    if any(_ambiguous_contact([port,anchor],path) or
+                           any(abs(anchor[0]-q[0])+abs(anchor[1]-q[1])<9
+                               for q in (path[0],path[-1])) for path in result):
+                        continue
+                    chosen = port,anchor
+                    break
+                if chosen is None:
+                    continue
+                port,anchor = chosen
                 if not (8 <= port[0] <= width-8 and 8 <= port[1] <= height-8):
                     continue
                 result_ports[port] = anchor

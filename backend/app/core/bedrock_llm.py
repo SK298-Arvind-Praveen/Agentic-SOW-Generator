@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
+from app.core.model_profiles import resolve_model, model_family
 
 
 TASK_MODEL_ATTRIBUTES = {
@@ -17,6 +18,8 @@ TASK_MODEL_ATTRIBUTES = {
     "analysis": "ANALYSIS_MODEL_ID",
     "writer": "WRITER_MODEL_ID",
     "diagram": "DIAGRAM_MODEL_ID",
+    "diagram_review": "DIAGRAM_REVIEW_MODEL_ID",
+    "review": "REVIEW_MODEL_ID",
     "editor": "EDITOR_MODEL_ID",
     "fallback": "FALLBACK_MODEL_ID",
 }
@@ -43,7 +46,7 @@ def _stop_reason(payload: Dict[str, Any]) -> str:
 
 def model_for_task(config: Any, task: str) -> str:
     attribute = TASK_MODEL_ATTRIBUTES.get(task, "WRITER_MODEL_ID")
-    return str(getattr(config, attribute, getattr(config, "MODEL_ID", "")))
+    return resolve_model(getattr(config, attribute, getattr(config, "MODEL_ID", "")))
 
 
 def _extract_text(payload: Dict[str, Any]) -> str:
@@ -96,11 +99,16 @@ def _supports_temperature(model_id: str) -> bool:
 def _is_opus_55(model_id: str) -> bool:
     identifier = str(model_id).casefold()
     # This opaque application profile was verified through GetInferenceProfile.
-    return "claude-opus-5-5" in identifier or identifier.endswith("application-inference-profile/r0bnzxkwcgud")
+    return (model_family(model_id) == 'claude-opus' or "claude-opus-5-5" in identifier
+            or identifier.endswith("application-inference-profile/r0bnzxkwcgud"))
 
 
 def _additional_model_request_fields(model_id: str) -> Dict[str, Any]:
     """Preserve legacy settings; Opus 5.5 requires always-on adaptive thinking."""
+    if model_family(model_id) == 'openai':
+        # Converse uses provider-neutral fields; Claude's thinking/output_config
+        # fields are not part of the OpenAI request contract.
+        return {}
     if str(model_id).casefold().endswith("application-inference-profile/hlc2w29214np"):
         # Sonnet 5.5 profile: use model defaults, verified with a live Converse call.
         effort = os.getenv('BEDROCK_DIAGRAM_EFFORT', '').strip().lower()
@@ -189,7 +197,9 @@ class BedrockLLM:
         image_bytes: Optional[bytes] = None,
         retry_on_truncation: bool = True,
     ) -> BedrockTextResult:
-        primary = model_id or model_for_task(self.config, task)
+        primary = resolve_model(model_id) if model_id else model_for_task(self.config, task)
+        if fallback_model_id:
+            fallback_model_id = resolve_model(fallback_model_id)
         from app.diagram.reliability import pipeline_attempt, model_attempts
         architecture_attempt = pipeline_attempt.get()
         if architecture_attempt:
@@ -207,9 +217,9 @@ class BedrockLLM:
                 # Two image candidates may each need an initial review and one
                 # transport retry. A failed socket must not consume the revised
                 # image's entire review allowance.
-                stage_limit = 4 if image_bytes and any(k in call_name.lower() for k in ('review','check')) else 2
+                stage_limit = 6 if image_bytes and any(k in call_name.lower() for k in ('review','check')) else 3
                 if stage_attempt > stage_limit:
-                    raise RuntimeError(f'{call_name} already used its one corrective retry')
+                    raise RuntimeError(f'{call_name} already used its two corrective retries')
                 ledger[stage] = stage_attempt
             if stage_attempt == 2:
                 max_tokens *= 2

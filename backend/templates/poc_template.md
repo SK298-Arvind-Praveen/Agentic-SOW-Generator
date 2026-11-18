@@ -92,14 +92,7 @@ Return only brief one-sentence bullets describing distinct customer, agent or op
 [META_GENERATED]
 ## Solution Architecture
 
-Normally use 4-6 short design bullets, not one bullet per service or processing step. Keep implementation detail in Scope. Before writing, check the chosen runtime's VPC, subnet, ingress, egress and private-endpoint needs; include necessary deployment decisions without inventing sizing or redundancy. Explain one main flow and only material security/data decisions.
-
-Return short, one-sentence Markdown bullets only, with no opening or closing paragraphs. Explain the main request flow and relevant integration, data, handover and security choices; do not turn each AWS service into its own point. Never join the bullets into flowing prose during review.
-
-The diagram is supplied separately by the diagram generator. Write only the concise solution description here; do not produce ASCII art, Mermaid, diagram code, box drawings or a duplicate text diagram. Explain component interactions, not a service-by-service catalogue table.
-
-After the diagram, use short bullet points to explain how inputs reach the application, are processed and produce outputs. Name relevant AWS services in context, combining related services in the same design point rather than describing each separately. Include deployment, storage, integrations, security and operations only when they explain a material design choice. Preserve agreed choices and distinguish new components from existing systems; do not invent sizing, regions, environments or redundancy. Do not repeat Scope of Work or add generic cloud benefits.
-Use concise, plain-English bullets unless the section specifically needs a comparison table. Include only relevant content, not one item per category or module. Keep source-specific commitments and constraints; never invent values to fill a table.
+Return only one Markdown table: Service name | Role in the project. Include every selected architecture service, including shared security, networking and operations. Give each component a brief project-specific role, normally 5-16 words. Keep repeated services with different purposes as separate rows. Order rows along the actual request/data flow, followed by shared controls; do not sort alphabetically. Do not invent services, deployment details or guarantees. The diagram is generated separately: no bullets, introductory prose, ASCII art, Mermaid or diagram code.
 
 [META_GENERATED]
 ## Scope of Work
@@ -149,18 +142,16 @@ Use a minimal Markdown bullet list (normally 3-5 bullets; fewer when evidence su
 ## AWS Pricing
 
 PURPOSE
-Use tables only, with no paragraphs before, between or after them. Start with the monthly cost table. Put AWS region, material sizing metrics, planning range and estimate qualifications in a second compact Pricing basis | Details table.
-
-| Item | Monthly (<actual currency>) | Estimate |
-|---|---:|---|
-| <supported workload or environment> | <amount or blank> | <linked AWS Pricing Calculator or planning estimate label> |
-
-Use only supported workload/environment rows; do not invent separate POC and production estimates or divide an aggregate estimate between environments.
-Put the genuine calculator estimate hyperlink in the Estimate cell. Never label a homepage link as an estimate.
-Keep only the few material business sizing assumptions as table rows; no prose notes, generic ten-row volume checklist, repeated MRR/ARR totals or service-request details.
-Keep fallback figures explicitly labelled as non-binding planning estimates, not calculator quotes. Partial calculator totals must be labelled as components only, never whole-workload totals.
-Leave unavailable prices blank. Do not mention missing inputs, pending confirmation, source documents or the generation process.
-Preserve the calculated currency and values. Never copy pricing, dates, throughput, funding claims or commercial commitments from a reference SOW.
+Immediately below the heading, show: AWS Pricing Calculator: [Open Link](<saved estimate URL>).
+The URL must identify the saved AWS estimate, never the calculator homepage.
+Then show the calculated monthly summary, service costs, and a concise sizing table using the existing SOW table style.
+Use the website-selected AWS region as authoritative even if a source document names another region.
+Preserve supplied workload quantities. Reasonable missing consumption inputs are estimated by the pricing pipeline,
+with their units and rationale recorded as Approximated. Distinguish source-backed inputs from these estimates.
+Do not invent dollar rates or replace calculator totals with model arithmetic. Preserve currency and calculated values.
+Include all selected services; explain controls with no separate charge and avoid double-counting their resources.
+Partial calculator subtotals must remain explicitly partial. An actual external failure must remain visible, not disguised
+as a zero price or a complete estimate. Do not remove pricing assumptions or the saved-estimate hyperlink.
 
 [META_GENERATED]
 ## Customer Responsibilities
@@ -245,11 +236,11 @@ If the resource has to be summoned before or after the specified business hour p
 
 ### Third-Party & Platform SLAs
 
-The SLAs of cloud services and any third-party platforms leveraged for this engagement (including AWS Bedrock, ElevenLabs, and (Telephone to be confirmed with customers)) are governed and owned by the respective platform provider directly, and not by ShellKode.
+The SLAs of cloud services and any third-party platforms leveraged for this engagement are governed and owned by the respective platform provider directly, and not by ShellKode.
 
 ### Effort & Scope
 
-The effort estimate is limited to the understood scope of work as defined in this Statement of Work. Any substantial change in scope may lead to a corresponding change in commercials and effort, to be mutually agreed in writing per Section 18.1.
+The effort estimate is limited to the understood scope of work as defined in this Statement of Work. Any substantial change in scope may lead to a corresponding change in commercials and effort, to be mutually agreed in writing under the Change Management process in this SOW.
 
 ### Indemnification
 

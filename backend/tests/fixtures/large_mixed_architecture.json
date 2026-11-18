@@ -1,0 +1,957 @@
+{
+  "nodes": [
+    {
+      "id": "customers",
+      "label": "Customers",
+      "kind": "external",
+      "scope": "external",
+      "icon_key": "aws.resource.general-icons.users",
+      "placement_role": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "",
+      "region": ""
+    },
+    {
+      "id": "staff",
+      "label": "Agents and Admins",
+      "kind": "external",
+      "scope": "external",
+      "icon_key": "aws.resource.general-icons.user",
+      "placement_role": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "",
+      "region": ""
+    },
+    {
+      "id": "whatsapp",
+      "label": "WhatsApp Business API",
+      "kind": "external",
+      "scope": "external",
+      "icon_key": "",
+      "placement_role": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "",
+      "region": ""
+    },
+    {
+      "id": "idp",
+      "label": "Tata Identity Provider",
+      "kind": "external",
+      "scope": "external",
+      "icon_key": "",
+      "placement_role": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "",
+      "region": ""
+    },
+    {
+      "id": "cloudfront",
+      "label": "CloudFront",
+      "kind": "service",
+      "scope": "global",
+      "icon_key": "aws.service.networking-content-delivery.amazon-cloudfront",
+      "placement_role": "entry",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": ""
+    },
+    {
+      "id": "iam",
+      "label": "AWS Identity and Access Management",
+      "kind": "service",
+      "scope": "global",
+      "icon_key": "aws.service.security-identity.aws-identity-and-access-management",
+      "placement_role": "security",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": ""
+    },
+    {
+      "id": "waf",
+      "label": "AWS WAF",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.security-identity.aws-waf",
+      "placement_role": "security",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "apigw",
+      "label": "API Gateway",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.networking-content-delivery.amazon-api-gateway",
+      "placement_role": "entry",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "cognito",
+      "label": "Cognito",
+      "kind": "service",
+      "scope": "regional",
+      "icon_key": "aws.service.security-identity.amazon-cognito",
+      "placement_role": "security",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "s3_web",
+      "label": "S3 Web Assets",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "placement_role": "data",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "eventbridge",
+      "label": "EventBridge",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.application-integration.amazon-eventbridge",
+      "placement_role": "integration",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "sqs_in",
+      "label": "SQS Inbound FIFO",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.application-integration.amazon-simple-queue-service",
+      "placement_role": "integration",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "lambda_core",
+      "label": "AWS Lambda",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.compute.aws-lambda",
+      "placement_role": "compute",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "sqs_jobs",
+      "label": "SQS Job Queues",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.application-integration.amazon-simple-queue-service",
+      "placement_role": "integration",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "bedrock",
+      "label": "Amazon Bedrock",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.artificial-intelligence.amazon-bedrock",
+      "placement_role": "compute",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "kb",
+      "label": "Bedrock Knowledge Bases",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.artificial-intelligence.amazon-bedrock",
+      "placement_role": "compute",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "s3vec",
+      "label": "S3 Vectors",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "placement_role": "data",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "s3_kb",
+      "label": "S3 Knowledge Source",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "placement_role": "data",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "dynamodb",
+      "label": "DynamoDB",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.databases.amazon-dynamodb",
+      "placement_role": "data",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "ep_s3",
+      "label": "S3 Gateway Endpoint",
+      "kind": "service",
+      "scope": "vpc",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-endpoints",
+      "placement_role": "network",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "Application VPC",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "ep_ddb",
+      "label": "DynamoDB Gateway Endpoint",
+      "kind": "service",
+      "scope": "vpc",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-endpoints",
+      "placement_role": "network",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "Application VPC",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "igw",
+      "label": "Internet Gateway",
+      "kind": "service",
+      "scope": "vpc",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-internet-gateway",
+      "placement_role": "network",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "Application VPC",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "nat_a",
+      "label": "NAT Gateway",
+      "kind": "service",
+      "scope": "az",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-nat-gateway",
+      "placement_role": "network",
+      "availability_zone": "az_a",
+      "subnet": "public",
+      "vpc": "Application VPC",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "nat_b",
+      "label": "NAT Gateway",
+      "kind": "service",
+      "scope": "az",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-nat-gateway",
+      "placement_role": "network",
+      "availability_zone": "az_b",
+      "subnet": "public",
+      "vpc": "Application VPC",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "conn_a",
+      "label": "Lambda Connectors",
+      "kind": "service",
+      "scope": "az",
+      "icon_key": "aws.service.compute.aws-lambda",
+      "placement_role": "compute",
+      "availability_zone": "az_a",
+      "subnet": "private",
+      "vpc": "Application VPC",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "conn_b",
+      "label": "Lambda Connectors",
+      "kind": "service",
+      "scope": "az",
+      "icon_key": "aws.service.compute.aws-lambda",
+      "placement_role": "compute",
+      "availability_zone": "az_b",
+      "subnet": "private",
+      "vpc": "Application VPC",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "firehose",
+      "label": "Data Firehose",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.analytics.amazon-data-firehose",
+      "placement_role": "data",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "s3_audit",
+      "label": "S3 Audit Bucket",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "placement_role": "data",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "s3_analytics",
+      "label": "S3 Analytics",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "placement_role": "data",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "athena",
+      "label": "Athena",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.analytics.amazon-athena",
+      "placement_role": "data",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "quicksight",
+      "label": "QuickSight",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.business-applications.amazon-quick",
+      "placement_role": "data",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "kms",
+      "label": "AWS Key Management Service",
+      "kind": "service",
+      "scope": "regional",
+      "icon_key": "aws.service.security-identity.aws-key-management-service",
+      "placement_role": "security",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "secrets",
+      "label": "AWS Secrets Manager",
+      "kind": "service",
+      "scope": "regional",
+      "icon_key": "aws.service.security-identity.aws-secrets-manager",
+      "placement_role": "security",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "cloudwatch",
+      "label": "Amazon CloudWatch",
+      "kind": "service",
+      "scope": "regional",
+      "icon_key": "aws.service.management-tools.amazon-cloudwatch",
+      "placement_role": "operations",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "sns",
+      "label": "SNS",
+      "kind": "service",
+      "scope": "regional",
+      "icon_key": "aws.service.application-integration.amazon-simple-notification-service",
+      "placement_role": "operations",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "cloudtrail",
+      "label": "AWS CloudTrail",
+      "kind": "service",
+      "scope": "regional",
+      "icon_key": "aws.service.management-tools.aws-cloudtrail",
+      "placement_role": "security",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "budgets",
+      "label": "AWS Budgets",
+      "kind": "service",
+      "scope": "global",
+      "icon_key": "aws.service.cloud-financial-management.aws-budgets",
+      "placement_role": "operations",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "AWS Account",
+      "region": "ap-south-1"
+    },
+    {
+      "id": "hybris",
+      "label": "SAP Hybris",
+      "kind": "external",
+      "scope": "external",
+      "icon_key": "",
+      "placement_role": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "",
+      "region": ""
+    },
+    {
+      "id": "cs_platform",
+      "label": "Existing CS Platform",
+      "kind": "external",
+      "scope": "external",
+      "icon_key": "",
+      "placement_role": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "",
+      "region": ""
+    },
+    {
+      "id": "otp",
+      "label": "OTP Service",
+      "kind": "external",
+      "scope": "external",
+      "icon_key": "",
+      "placement_role": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "",
+      "region": ""
+    },
+    {
+      "id": "notify",
+      "label": "Notification Providers",
+      "kind": "external",
+      "scope": "external",
+      "icon_key": "",
+      "placement_role": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "",
+      "region": ""
+    },
+    {
+      "id": "mixpanel",
+      "label": "Mixpanel",
+      "kind": "external",
+      "scope": "external",
+      "icon_key": "",
+      "placement_role": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "",
+      "region": ""
+    },
+    {
+      "id": "redshift",
+      "label": "Amazon Redshift",
+      "kind": "service",
+      "scope": "managed",
+      "icon_key": "aws.service.analytics.amazon-redshift",
+      "placement_role": "data",
+      "availability_zone": "",
+      "subnet": "",
+      "vpc": "",
+      "account": "Application account",
+      "region": "ap-south-1"
+    }
+  ],
+  "edges": [
+    {
+      "source": "customers",
+      "target": "cloudfront",
+      "label": "Load widget"
+    },
+    {
+      "source": "cloudfront",
+      "target": "s3_web",
+      "label": "Serve assets"
+    },
+    {
+      "source": "customers",
+      "target": "apigw",
+      "label": "Chat WebSocket"
+    },
+    {
+      "source": "customers",
+      "target": "whatsapp",
+      "label": "WhatsApp chat"
+    },
+    {
+      "source": "whatsapp",
+      "target": "apigw",
+      "label": "Webhook"
+    },
+    {
+      "source": "staff",
+      "target": "cloudfront",
+      "label": "Admin console"
+    },
+    {
+      "source": "staff",
+      "target": "cognito",
+      "label": "Sign in"
+    },
+    {
+      "source": "cognito",
+      "target": "idp",
+      "label": "Federate SSO"
+    },
+    {
+      "source": "staff",
+      "target": "apigw",
+      "label": "Assist API"
+    },
+    {
+      "source": "apigw",
+      "target": "cognito",
+      "label": "Authorize"
+    },
+    {
+      "source": "staff",
+      "target": "cs_platform",
+      "label": "Handle chats"
+    },
+    {
+      "source": "staff",
+      "target": "quicksight",
+      "label": "View dashboards"
+    },
+    {
+      "source": "apigw",
+      "target": "lambda_core",
+      "label": "Invoke handler"
+    },
+    {
+      "source": "lambda_core",
+      "target": "sqs_in",
+      "label": "Enqueue message"
+    },
+    {
+      "source": "sqs_in",
+      "target": "lambda_core",
+      "label": "Trigger orchestrator"
+    },
+    {
+      "source": "lambda_core",
+      "target": "dynamodb",
+      "label": "Session state"
+    },
+    {
+      "source": "lambda_core",
+      "target": "bedrock",
+      "label": "Invoke model"
+    },
+    {
+      "source": "lambda_core",
+      "target": "kb",
+      "label": "Retrieve passages"
+    },
+    {
+      "source": "lambda_core",
+      "target": "apigw",
+      "label": "Push reply"
+    },
+    {
+      "source": "lambda_core",
+      "target": "conn_a",
+      "label": "Call tools"
+    },
+    {
+      "source": "lambda_core",
+      "target": "conn_b",
+      "label": "Call tools"
+    },
+    {
+      "source": "lambda_core",
+      "target": "sqs_jobs",
+      "label": "Queue jobs"
+    },
+    {
+      "source": "sqs_jobs",
+      "target": "conn_a",
+      "label": "Run workers"
+    },
+    {
+      "source": "sqs_jobs",
+      "target": "conn_b",
+      "label": "Run workers"
+    },
+    {
+      "source": "eventbridge",
+      "target": "lambda_core",
+      "label": "Run schedules"
+    },
+    {
+      "source": "s3_kb",
+      "target": "kb",
+      "label": "Ingest documents"
+    },
+    {
+      "source": "kb",
+      "target": "s3vec",
+      "label": "Store vectors"
+    },
+    {
+      "source": "conn_a",
+      "target": "ep_s3",
+      "label": "Write articles"
+    },
+    {
+      "source": "conn_b",
+      "target": "ep_s3",
+      "label": "Write articles"
+    },
+    {
+      "source": "ep_s3",
+      "target": "s3_kb",
+      "label": "Private path"
+    },
+    {
+      "source": "conn_a",
+      "target": "ep_ddb",
+      "label": "Idempotency keys"
+    },
+    {
+      "source": "conn_b",
+      "target": "ep_ddb",
+      "label": "Idempotency keys"
+    },
+    {
+      "source": "ep_ddb",
+      "target": "dynamodb",
+      "label": "Conditional writes"
+    },
+    {
+      "source": "conn_a",
+      "target": "nat_a",
+      "label": "Egress"
+    },
+    {
+      "source": "conn_b",
+      "target": "nat_b",
+      "label": "Egress"
+    },
+    {
+      "source": "nat_a",
+      "target": "igw",
+      "label": "Internet route"
+    },
+    {
+      "source": "nat_b",
+      "target": "igw",
+      "label": "Internet route"
+    },
+    {
+      "source": "conn_a",
+      "target": "hybris",
+      "label": "Call OMS"
+    },
+    {
+      "source": "conn_b",
+      "target": "hybris",
+      "label": "Call OMS"
+    },
+    {
+      "source": "conn_a",
+      "target": "cs_platform",
+      "label": "Handover cases"
+    },
+    {
+      "source": "conn_b",
+      "target": "cs_platform",
+      "label": "Handover cases"
+    },
+    {
+      "source": "conn_a",
+      "target": "otp",
+      "label": "Verify OTP"
+    },
+    {
+      "source": "conn_b",
+      "target": "otp",
+      "label": "Verify OTP"
+    },
+    {
+      "source": "conn_a",
+      "target": "whatsapp",
+      "label": "Send messages"
+    },
+    {
+      "source": "conn_b",
+      "target": "whatsapp",
+      "label": "Send messages"
+    },
+    {
+      "source": "conn_a",
+      "target": "notify",
+      "label": "Send notifications"
+    },
+    {
+      "source": "conn_b",
+      "target": "notify",
+      "label": "Send notifications"
+    },
+    {
+      "source": "conn_a",
+      "target": "mixpanel",
+      "label": "Send events"
+    },
+    {
+      "source": "conn_b",
+      "target": "mixpanel",
+      "label": "Send events"
+    },
+    {
+      "source": "conn_a",
+      "target": "redshift",
+      "label": "Export data"
+    },
+    {
+      "source": "conn_b",
+      "target": "redshift",
+      "label": "Export data"
+    },
+    {
+      "source": "dynamodb",
+      "target": "lambda_core",
+      "label": "Stream changes"
+    },
+    {
+      "source": "lambda_core",
+      "target": "firehose",
+      "label": "Emit events"
+    },
+    {
+      "source": "firehose",
+      "target": "s3_audit",
+      "label": "Deliver audit"
+    },
+    {
+      "source": "firehose",
+      "target": "s3_analytics",
+      "label": "Deliver Parquet"
+    },
+    {
+      "source": "s3_analytics",
+      "target": "athena",
+      "label": "Query data"
+    },
+    {
+      "source": "athena",
+      "target": "quicksight",
+      "label": "Serve datasets"
+    }
+  ],
+  "architecture_plan": {
+    "functional_deployment_view": true,
+    "narrative_view": {
+      "groups": [
+        {
+          "id": "access",
+          "label": "Channels and access",
+          "rows": [
+            [
+              "waf",
+              "apigw"
+            ],
+            [
+              "cognito",
+              "s3_web"
+            ]
+          ]
+        },
+        {
+          "id": "conversation",
+          "label": "Conversation processing",
+          "rows": [
+            [
+              "lambda_core",
+              "sqs_in"
+            ],
+            [
+              "dynamodb",
+              "eventbridge"
+            ],
+            [
+              "sqs_jobs"
+            ]
+          ]
+        },
+        {
+          "id": "knowledge",
+          "label": "AI and knowledge",
+          "rows": [
+            [
+              "bedrock",
+              "kb"
+            ],
+            [
+              "s3vec",
+              "s3_kb"
+            ]
+          ]
+        },
+        {
+          "id": "connectors",
+          "label": "Enterprise integrations",
+          "rows": [
+            [
+              "conn_a",
+              "conn_b"
+            ],
+            [
+              "nat_a",
+              "nat_b"
+            ],
+            [
+              "igw",
+              "ep_s3"
+            ],
+            [
+              "ep_ddb"
+            ]
+          ]
+        },
+        {
+          "id": "reporting",
+          "label": "Analytics and reporting",
+          "rows": [
+            [
+              "firehose",
+              "s3_audit"
+            ],
+            [
+              "s3_analytics",
+              "athena"
+            ],
+            [
+              "quicksight",
+              "redshift"
+            ]
+          ]
+        }
+      ],
+      "support": [
+        "cloudtrail",
+        "secrets",
+        "kms",
+        "iam",
+        "cloudwatch",
+        "sns",
+        "budgets"
+      ],
+      "roles": {
+        "nat_a": "Egress AZ A",
+        "nat_b": "Egress AZ B",
+        "conn_a": "Tools AZ A",
+        "conn_b": "Tools AZ B"
+      },
+      "links": []
+    }
+  }
+}

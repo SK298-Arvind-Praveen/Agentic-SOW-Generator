@@ -75,7 +75,7 @@ def test_pipeline_retries_once_and_carries_feedback(failure, monkeypatch):
     assert pipeline_attempt.get() == 0
 
 
-def test_persistent_failure_stops_after_second_attempt(monkeypatch):
+def test_persistent_failure_stops_after_third_attempt(monkeypatch):
     service = DiagramService.__new__(DiagramService)
     calls = []
     def generate(*args):
@@ -83,7 +83,7 @@ def test_persistent_failure_stops_after_second_attempt(monkeypatch):
         return [{'image_base64':'png','used_fallback':True}]
     monkeypatch.setattr(service,'_generate_assets_once',generate)
     result = service._generate_assets({}, {}, '')[0]
-    assert len(calls) == 2 and result['retry_exhausted']
+    assert len(calls) == 3 and result['retry_exhausted']
     assert result['image_base64']  # Preserve useful output after failed retry.
 
 
@@ -138,7 +138,9 @@ def test_failed_export_retries_same_valid_plan_once(monkeypatch):
         return {'image_base64':'png','spec':actual.as_dict()}
     monkeypatch.setattr(service,'_asset',render)
     result = service._generate_assets({}, {}, '')[0]
-    assert attempts == [spec,spec]
+    assert len(attempts)==2 and attempts[0]==attempts[1]
+    assert attempts[0].nodes==spec.nodes and attempts[0].edges==spec.edges
+    assert attempts[0].architecture_plan['story_overview'] is True
     assert result['status'] == 'ready'
     assert result['render_attempts'][0]['error'] == 'Desktop export timed out'
     assert len(result['pipeline_attempts']) == 1
@@ -158,3 +160,16 @@ def test_geographic_and_independent_facility_requirements_are_not_lost():
     assert validate(ready,source) == ready
 
 
+
+
+def test_third_attempt_can_recover_after_two_visual_failures(monkeypatch):
+    service=DiagramService.__new__(DiagramService)
+    calls=[]
+    def generate(*args):
+        calls.append(1)
+        return [{'image_base64':'png','vision_review':{'status':'reviewed',
+            'issues':[] if len(calls)==3 else [{'kind':'visual','description':'Crossings'}]}}]
+    monkeypatch.setattr(service,'_generate_assets_once',generate)
+    asset=service._generate_assets({}, {}, '')[0]
+    assert len(calls)==3 and not asset['retry_exhausted']
+    assert asset['vision_review']['issues']==[]

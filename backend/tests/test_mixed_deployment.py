@@ -41,6 +41,20 @@ def test_mixed_case_preserves_scopes_and_uses_functional_columns():
     assert 'vpc_0' not in chain('ocr') and 'vpc_0' not in chain('ai')
 
 
+def test_story_icons_keep_mixed_boundaries_and_complete_resource_inventory():
+    spec=architecture()
+    spec=replace(spec,architecture_plan={**spec.architecture_plan,'story_overview':True})
+    registry=AwsIconRegistry(Path(__file__).parents[1]/'assets')
+    xml,metrics=overview_xml(spec,registry)
+    cells={c.get('id'):c for c in ET.fromstring(xml).findall('.//mxCell')}
+    assert {n.id for n in spec.nodes}<=set(cells)
+    assert metrics['node_overlaps']==metrics['containment_violations']==metrics['out_of_bounds']==0
+    icon=cells['icon_auth'].find('mxGeometry')
+    label=cells['label_auth'].find('mxGeometry')
+    assert float(icon.get('width'))==64
+    assert float(label.get('y'))>float(icon.get('y'))+float(icon.get('height'))
+
+
 def test_interfaces_cover_every_original_edge_and_no_fake_reverse():
     spec=architecture();links,indices=mixed.projection(spec)
     assert indices==list(range(len(spec.edges)))
@@ -49,6 +63,74 @@ def test_interfaces_cover_every_original_edge_and_no_fake_reverse():
     assert between['both']
     inbound=next(l for l in links if l['edge'].source=='custodian')
     assert not inbound['both']
+
+
+def test_parallel_and_reverse_service_edges_share_a_wire_without_losing_evidence():
+    spec=architecture()
+    spec=replace(spec,edges=spec.edges+(Edge('worker','endpoint','Second call'),
+                                       Edge('endpoint','worker','Reply')))
+    links,indices=mixed.projection(spec)
+    pair=[l for l in links if {l['edge'].source,l['edge'].target}=={'worker','endpoint'}]
+    assert len(pair)==1 and pair[0]['both']
+    assert len(pair[0]['paths'])==3
+    assert sorted(i for l in links for path in l['paths'] for i in path)==list(range(len(spec.edges)))
+    # The intermediate endpoint and its downstream dependency stay explicit.
+    assert any({l['edge'].source,l['edge'].target}=={'process','extract'} for l in links)
+
+
+def audience_architecture():
+    spec=architecture()
+    nodes=tuple(replace(n,kind='actor') if n.id=='reviewer' else n for n in spec.nodes)
+    return replace(spec,nodes=nodes+(Node('admin','Admin','actor',0,scope='external'),),
+        edges=spec.edges+(Edge('admin','cdn','Console'),Edge('admin','auth','Sign in'),Edge('admin','api','Admin API')))
+
+
+def test_audience_bundles_only_matching_directed_destinations():
+    spec=audience_architecture()
+    groups=mixed.audiences(spec)
+    assert list(groups.values())==[['reviewer','admin']]
+    links,indices=mixed.projection(spec)
+    audience=next(iter(groups))
+    assert len([l for l in links if l['edge'].source==audience])==2
+    assert sorted(i for l in links for path in l['paths'] for i in path)==list(range(len(spec.edges)))
+    different=replace(spec,edges=spec.edges+(Edge('admin','documents','Upload'),))
+    assert mixed.audiences(different)=={}
+    responding=replace(spec,edges=spec.edges+(Edge('api','admin','Push'),))
+    assert mixed.audiences(responding)=={}
+
+
+def test_audience_keeps_actor_cards_and_routes_without_obstruction():
+    spec=audience_architecture()
+    positions,boxes,parents,*_=mixed.geometry(spec)
+    group=next(iter(mixed.audiences(spec)))
+    assert parents['reviewer']==parents['admin']==group
+    assert set(positions)=={n.id for n in spec.nodes}
+    registry=AwsIconRegistry(Path(__file__).parents[1]/'assets')
+    xml,metrics=overview_xml(spec,registry)
+    assert metrics['node_overlaps']==metrics['connector_node_intersections']==metrics['out_of_bounds']==0
+    assert metrics['visible_edge_indices']==list(range(len(spec.edges)))
+    assert metrics['audience_groups']=={group:['reviewer','admin']}
+    from app.diagram.connection_detail import page
+    detail=page(spec)
+    assert len(detail.findall('.//mxCell[@sourceNode]'))==len(spec.edges)
+    cells={c.get('id'):c for c in ET.fromstring(xml).findall('.//mxCell')}
+    assert cells[group].get('value')=='User access'
+
+
+def test_external_outputs_share_interfaces_only_for_the_same_calling_subsystems():
+    spec=architecture()
+    spec=replace(spec,nodes=spec.nodes+(Node('out2','Second export','external',0,scope='external'),),
+                 edges=spec.edges+(Edge('documents','out2','Export second'),))
+    groups=mixed.interface_groups(spec)
+    key=next(k for k in groups if k.startswith('__integrations_'))
+    assert set(groups[key])=={'export','out2'}
+    links,indices=mixed.projection(spec)
+    assert len([l for l in links if l['edge'].target==key])==1
+    assert indices==list(range(len(spec.edges)))
+    changed=replace(spec,edges=spec.edges+(Edge('worker','out2','Other API'),))
+    assert mixed.interface_groups(changed)=={}
+    changed=replace(spec,edges=spec.edges+(Edge('out2','api','Callback'),))
+    assert mixed.interface_groups(changed)=={}
 
 
 def test_xml_keeps_physical_membership_and_all_edge_evidence():

@@ -1,5 +1,5 @@
 /* ============================================================
-   LOGIN PAGE — Dark Purple Theme
+   LOGIN PAGE — Blue Theme
    ============================================================ */
 
 .login-container {
@@ -17,7 +17,7 @@
   inset: 0;
   background:
     radial-gradient(ellipse 60% 50% at 20% 60%, rgba(2, 173, 239, 0.10) 0%, transparent 60%),
-    radial-gradient(ellipse 40% 40% at 80% 20%, rgba(168, 85, 247, 0.08) 0%, transparent 50%);
+    radial-gradient(ellipse 40% 40% at 80% 20%, rgba(0, 39, 90, 0.08) 0%, transparent 50%);
   pointer-events: none;
   z-index: 0;
 }

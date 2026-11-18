@@ -50,6 +50,9 @@ def projection(spec):
         from app.diagram.mixed_deployment import projection as mixed_projection
         return mixed_projection(spec)
     if tiered(spec):
+        if spec.architecture_plan.get('story_overview'):
+            from app.diagram.story_overview import projection as story_projection
+            return story_projection(spec,support)
         indices=[i for i,e in enumerate(spec.edges) if e.source not in support and e.target not in support]
         return [{'edge':spec.edges[i],'paths':[[i]]} for i in indices],indices
     endpoints = {n.id for n in spec.nodes if 'endpoint' in (n.icon_key+' '+n.label).lower()
@@ -207,6 +210,11 @@ def overview_xml(spec, registry):
     from app.diagram.review import local_routes, geometry_report
     from app.diagram.boundary_style import boundary_header, BOUNDARY_HEADER_VERSION
     pos, boxes, parents, width, height, captions, kinds = geometry(spec)
+    iconic=bool(spec.architecture_plan.get('story_overview'))
+    if iconic:
+        pos={k:(x*.75,y,w*.75,max(100,h)) for k,(x,y,w,h) in pos.items()}
+        boxes={k:(x*.75,y,w*.75,h+(20 if k=='regional_controls' else 0)) for k,(x,y,w,h) in boxes.items()}
+        width=math.ceil(width*.75)
     captions={k:boundary_header(kinds[k])[0] or v for k,v in captions.items()}
     support = controls(spec)
     links, indices = projection(spec)
@@ -226,12 +234,17 @@ def overview_xml(spec, registry):
     routing_pos,routing_boxes,routing_parents=route_geometry(pos,boxes,parents)
     if mixed:
         routing_pos={**routing_pos,**{g['id']:boxes[g['id']] for g in spec.architecture_plan['narrative_view']['groups']}}
+        routing_pos.update({k:v for k,v in boxes.items() if k.startswith(('__audience_','__integrations_'))})
     deadline = time.monotonic()+(90 if tiered else 35)
+    repair=bool(spec.architecture_plan.get('routing_repair')) and tiered_enabled(spec) and not iconic
     if mixed:
         from app.diagram.mixed_deployment import routes as mixed_routes
         paths=mixed_routes(view,pos,boxes,parents,width,height,deadline,captions,links)
+    elif repair:
+        from app.diagram.routing_repair import routes as repair_routes
+        paths=repair_routes(view,pos,boxes,parents,width,height,deadline,captions)
     else:
-        paths = local_routes(view,routing_pos,routing_boxes,routing_parents,width,height,deadline,captions,not tiered,True,32,tiered)
+        paths = local_routes(view,routing_pos,routing_boxes,routing_parents,width,height,deadline,captions,iconic or not tiered,True,16 if iconic else 32,tiered)
     def score(p, positions=None):
         positions=positions or pos;m=geometry_report(view,positions,p)
         story_cost=0
@@ -259,10 +272,10 @@ def overview_xml(spec, registry):
             # Keep vertical application/migration order within each AZ intact.
             row_key = 'regional' if n.scope in {'regional','managed'} else pos[n.id][1]
             buckets.setdefault((parents[n.id],row_key), []).append(n.id)
-    swaps = [] if mixed else [keys for keys in buckets.values() if 2 <= len(keys) <= 3]
+    swaps = [] if mixed or repair or iconic else [keys for keys in buckets.values() if 2 <= len(keys) <= 3]
     best_score = score(paths)
     for choices in itertools.islice(itertools.product(*[list(itertools.permutations(k)) for k in swaps]), 48):
-        if mixed or time.monotonic()>deadline-2: break
+        if mixed or repair or iconic or time.monotonic()>deadline-2: break
         ordering = {key:i for group in choices for i,key in enumerate(group)}
         candidate_geometry = geometry(spec,ordering)
         cp,cb,cpar,cw,ch,cc,cs = candidate_geometry
@@ -289,7 +302,7 @@ def overview_xml(spec, registry):
         return 3
     for order in [sorted(range(len(visible)),key=runtime_priority),list(reversed(range(len(visible)))), sorted(range(len(visible)),key=lambda i:
                   abs(routing_pos[visible[i].source][0]-routing_pos[visible[i].target][0])+abs(routing_pos[visible[i].source][1]-routing_pos[visible[i].target][1]))]:
-        if mixed or time.monotonic()>deadline:
+        if mixed or repair or iconic or time.monotonic()>deadline:
             break
         try:
             candidate = local_routes(replace(view,edges=tuple(visible[i] for i in order)),routing_pos,routing_boxes,routing_parents,width,height,deadline,captions,not tiered,True,32,tiered)
@@ -302,12 +315,21 @@ def overview_xml(spec, registry):
                'out_of_bounds':sum(x<0 or y<0 or x>width or y>height for path in paths for x,y in path),
                'physical_boundaries':True, 'original_edges':len(spec.edges),
                'visible_edge_indices':indices, 'shared_associations':len(spec.edges)-len(indices)}
+    if mixed:
+        from app.diagram.mixed_deployment import audiences, interface_groups
+        metrics['audience_groups'] = audiences(spec)
+        metrics['interface_groups'] = interface_groups(spec)
+        metrics['overview_connectors'] = len(links)
+        metrics['aggregated_connections'] = len(indices) - len(links)
     if metrics['node_overlaps']:
         raise ValueError('Physical narrative has obstructed routes: '+json.dumps(metrics))
     file = ET.Element('mxfile',host='app.diagrams.net')
     page = ET.SubElement(file,'diagram',id='overview',name='Solution overview')
     model = ET.SubElement(page,'mxGraphModel',page='1',pageWidth=str(width),pageHeight=str(height),
                           renderedMembership=json.dumps(parents),edgeCoverage=json.dumps(indices))
+    if mixed:
+        model.set('audienceGroups', json.dumps(metrics['audience_groups']))
+        model.set('interfaceGroups', json.dumps(metrics['interface_groups']))
     root = ET.SubElement(model,'root'); ET.SubElement(root,'mxCell',id='0'); ET.SubElement(root,'mxCell',id='1',parent='0')
     def cell(key,value,rect,style,parent='1'):
         x,y,w,h = rect
@@ -338,10 +360,10 @@ def overview_xml(spec, registry):
     roles=spec.architecture_plan['narrative_view']['roles']
     for n in spec.nodes:
         x,y,w,h=pos[n.id]; parent=parents[n.id] if parents[n.id]!='root' else '1'
-        small=h<=100; size=42 if small else 58
+        small=h<=100; size=64 if iconic else 42 if small else 58
         name=re.sub(r'^(Amazon|AWS)\s+','',n.label)
         uri=registry.svg_data_uri(n.icon_key) if n.icon_key else None
-        if tiered:
+        if tiered and not iconic:
             cell(n.id,'',(x,y,w,h),'rounded=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#CBD5E1;',parent)
             if uri:cell('icon_'+n.id,'',(x+12,y+18,44,44),'shape=image;imageAspect=1;image='+uri.replace(';base64,',',')+';',parent)
             role=roles.get(n.id,'')
@@ -356,7 +378,7 @@ def overview_xml(spec, registry):
             cell('icon_'+n.id,'',(x+(w-size)/2,y,size,size),'shape=image;imageAspect=1;image='+uri.replace(';base64,',',')+';',parent)
         label='<b>'+html.escape(name)+'</b>'
         role=roles.get(n.id,'')
-        if role and not small: label+='<br/><font color="#64748B">'+html.escape(role)+'</font>'
+        if role and not small and not iconic: label+='<br/><font color="#64748B">'+html.escape(role)+'</font>'
         cell('label_'+n.id,label,(x-8,y+size+5,w+16,h-size-5) if uri else (x+5,y+8,w-10,h-16),
              'text;html=1;whiteSpace=wrap;align=center;verticalAlign='+('top' if uri else 'middle')+
              ';fontSize=15;fontFamily=Helvetica;fillColor=none;strokeColor=none;',parent)

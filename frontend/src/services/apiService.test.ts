@@ -26,6 +26,56 @@ describe('authentication outage and session races', () => {
     await (apiService as any).authenticatedFetch('/api/auth/me');
     expect(localStorage.getItem('authToken')).toBeNull();
   });
+
+  it('retries a transient pre-route auth failure and finalizes the same preview once', async () => {
+    localStorage.setItem('authToken', 'current');
+    const delay = jest.spyOn(apiService as any, 'delay').mockResolvedValue(undefined);
+    const fetchMock = jest.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({code:'AUTH_SERVICE_UNAVAILABLE',retryable:true}),
+        {status:503,headers:{'Retry-After':'5'}}))
+      .mockResolvedValueOnce(new Response(JSON.stringify({success:true,document_id:'d1',s3_url:'https://files/d1.docx'})));
+    expect(await apiService.finalizeSOW('p1')).toMatchObject({success:true,document_id:'d1'});
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(delay).toHaveBeenCalledWith(5000);
+    expect(fetchMock.mock.calls[0][1]?.body).toEqual(fetchMock.mock.calls[1][1]?.body);
+    expect(localStorage.getItem('authToken')).toBe('current');
+  });
+
+  it('stops after one auth retry and retains the session and explanation', async () => {
+    localStorage.setItem('authToken', 'current');
+    jest.spyOn(apiService as any, 'delay').mockResolvedValue(undefined);
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response(JSON.stringify({code:'AUTH_SERVICE_UNAVAILABLE',error:'Sign-in temporarily unavailable',retryable:true}),{status:503}));
+    expect(await apiService.finalizeSOW('p1')).toMatchObject({success:false,code:'AUTH_SERVICE_UNAVAILABLE'});
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem('authToken')).toBe('current');
+  });
+
+  it('does not retry a credential or permissions outage', async () => {
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({code:'AUTH_SERVICE_UNAVAILABLE',retryable:false}),{status:503}));
+    expect((await apiService.finalizeSOW('p1')).success).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not replay a request if the session changes during the retry delay', async () => {
+    localStorage.setItem('authToken','old');
+    jest.spyOn(apiService as any,'delay').mockImplementation(async () => localStorage.setItem('authToken','new'));
+    const fetchMock=jest.spyOn(globalThis,'fetch').mockResolvedValue(new Response(
+      JSON.stringify({code:'AUTH_SERVICE_UNAVAILABLE',retryable:true}),{status:503}));
+    await (apiService as any).authenticatedFetch('/api/finalize');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('authToken')).toBe('new');
+  });
+
+  it('retries the download auth check and returns the actual document bytes', async () => {
+    jest.spyOn(apiService as any,'delay').mockResolvedValue(undefined);
+    const fetchMock=jest.spyOn(globalThis,'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({code:'AUTH_SERVICE_UNAVAILABLE',retryable:true}),{status:503}))
+      .mockResolvedValueOnce(new Response('docx bytes'));
+    expect((await apiService.downloadDocument('https://files/d1.docx','d1')).size).toBe(10);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('finalization readiness', () => {

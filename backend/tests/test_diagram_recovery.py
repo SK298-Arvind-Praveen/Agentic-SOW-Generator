@@ -34,6 +34,7 @@ def test_local_renderer_failure_preserves_original_graph(monkeypatch):
     asset = local_fallback_asset(SimpleNamespace(ASSETS_DIR=ASSETS), {}, {}, 'Primary renderer timed out', spec)
     assert asset['status'] == 'review_required'
     assert asset['spec'] == spec.as_dict()
+    assert asset['retained_planned_spec']
     assert 'Primary renderer timed out' in asset['diagnostic']
     assert 'Local renderer failed' in asset['diagnostic']
     Image.open(io.BytesIO(base64.b64decode(asset['image_base64']))).verify()
@@ -59,6 +60,21 @@ def test_unverified_recovery_does_not_rewrite_architecture_text():
     synchronize(None, content, [asset])
     assert content['architecture_diagram'] == 'Original agreed architecture'
     assert asset['text_alignment']['status'] == 'preserved'
+
+
+def test_renderer_failure_retry_preserves_planned_architecture():
+    service=DiagramService.__new__(DiagramService)
+    spec=DiagramSpec('Accepted architecture',(Node('a','API','service',0),Node('b','Data','service',1)),(Edge('a','b'),))
+    calls=[]
+    def attempt(requirements,metadata,narrative):
+        calls.append(requirements)
+        return [{'spec':spec.as_dict(),'image_base64':'rendered',
+                 'used_fallback':len(calls)==1,'retained_planned_spec':True}]
+    service._generate_assets_once=attempt
+    result=service._generate_assets_bounded({}, {}, '')
+    assert len(calls)==2
+    assert calls[1]['_architecture_retry_spec']==spec.as_dict()
+    assert not result[0]['used_fallback']
 
 
 def test_recovery_picture_is_embedded_in_download():

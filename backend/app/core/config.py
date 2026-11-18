@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from botocore.config import Config as BotocoreConfig
 from dotenv import load_dotenv
+from app.core.model_profiles import resolve_model, available_models
 
 
 # Load the backend configuration before the module-level Config instance is
@@ -99,6 +100,7 @@ class Config:
         self.DIAGRAM_REVIEW_MODEL_ID = os.environ.get(
             "BEDROCK_DIAGRAM_REVIEW_MODEL_ID", self.DIAGRAM_MODEL_ID,
         )
+        self.REVIEW_MODEL_ID = os.environ.get('BEDROCK_REVIEW_MODEL_ID', self.FAST_MODEL_ID)
         self.FALLBACK_MODEL_ID = os.environ.get(
             "BEDROCK_FALLBACK_MODEL_ID",
             legacy_model,
@@ -109,6 +111,12 @@ class Config:
         )
         # Compatibility for older call sites while they migrate to task routing.
         self.MODEL_ID = legacy_model or self.WRITER_MODEL_ID
+        # Each text/image component accepts a catalog alias or a raw model ARN.
+        # Embeddings stay separate: generative profiles cannot replace them.
+        for attribute in ('MODEL_ID', 'FAST_MODEL_ID', 'ANALYSIS_MODEL_ID', 'WRITER_MODEL_ID',
+                          'DIAGRAM_MODEL_ID', 'DIAGRAM_REVIEW_MODEL_ID', 'REVIEW_MODEL_ID', 'EDITOR_MODEL_ID', 'FALLBACK_MODEL_ID'):
+            setattr(self, attribute, resolve_model(getattr(self, attribute)))
+        self.AVAILABLE_MODELS = available_models()
 
         # Character limits are deliberately conservative token approximations.
         # Long documents are chunked and merged instead of silently truncated.
@@ -169,15 +177,15 @@ class Config:
         self.LINE_SPACING = 1.333          # narrative_proposal preset
         
         # Brand Colors - Updated to match specifications
-        self.COLOR_PRIMARY_HEX = "#7B3FF2"      # Primary Purple
-        self.COLOR_PRIMARY = (123, 63, 242)     # Primary Purple RGB
-        self.COLOR_LIGHT_PURPLE_HEX = "#C8B6E8" # Light Purple
-        self.COLOR_LIGHT_PURPLE = (200, 182, 232) # Light Purple RGB
+        self.COLOR_PRIMARY_HEX = "#00275A"      # Primary Blue
+        self.COLOR_PRIMARY = (0, 39, 90)     # Primary Blue RGB
+        self.COLOR_LIGHT_PURPLE_HEX = "#E8F4FF" # Light Blue (legacy setting name)
+        self.COLOR_LIGHT_PURPLE = (232, 244, 255) # Light Blue (legacy setting name) RGB
         self.COLOR_SUBTITLE_HEX = "#666666"     # Subtitle Gray
         self.COLOR_SUBTITLE = (102, 102, 102)   # Subtitle Gray RGB
         self.COLOR_TABLE_HEADER_TEXT = (255, 255, 255) # White text for table headers
         self.COLOR_SECONDARY = (128, 128, 128)  # Gray (legacy)
-        self.COLOR_ACCENT = (123, 63, 242)      # Same as primary (legacy)
+        self.COLOR_ACCENT = (0, 39, 90)      # Same as primary (legacy)
         
         # =====================================================================
         # PAGE SETTINGS - Updated to match specifications
@@ -261,6 +269,7 @@ class Config:
         self.AWS_PRICING_ENABLED = os.environ.get(
             "AWS_PRICING_ENABLED", "true"
         ).strip().lower() not in {"0", "false", "no", "off"}
+        self.AWS_PRICING_ESTIMATE_MISSING = True
         self.AWS_PRICING_NODE_BINARY = os.environ.get("AWS_PRICING_NODE_BINARY", "node")
         self.AWS_PRICING_CALCULATOR_BUNDLE = Path(os.environ.get(
             "AWS_PRICING_CALCULATOR_BUNDLE",
@@ -402,6 +411,9 @@ class Config:
             "analysis_model_id": self.ANALYSIS_MODEL_ID,
             "writer_model_id": self.WRITER_MODEL_ID,
             "diagram_model_id": self.DIAGRAM_MODEL_ID,
+            "diagram_review_model_id": self.DIAGRAM_REVIEW_MODEL_ID,
+            "review_model_id": self.REVIEW_MODEL_ID,
+            "available_models": self.AVAILABLE_MODELS,
             "editor_model_id": self.EDITOR_MODEL_ID,
             "fallback_model_id": self.FALLBACK_MODEL_ID,
             "semantic_search_embedding_model_id": self.SEMANTIC_SEARCH_EMBEDDING_MODEL_ID,

@@ -9,6 +9,34 @@ from app.diagram.reliability import architecture_evidence, publication_issues, s
 from app.preview.architecture_regeneration import regenerate
 
 
+def test_layout_only_revision_freezes_services_hosting_text_and_pricing():
+    before=snapshot()
+    design={'nodes':[{'id':'acm','label':'AWS Certificate Manager'},
+                     {'id':'utility','label':'EC2 Utility Host','subtitle':'Hosted dependency stubs'}],
+            'edges':[{'source':'utility','target':'acm','label':'certificate'}],
+            'architecture_plan':{}}
+    before['content']['architecture_diagram_assets'][0]['spec']=copy.deepcopy(design)
+    before['final_state']['pricing_result']={'monthly_cost':123}
+    asset={**good_asset(),'spec':copy.deepcopy(design)}
+    with patch('app.preview.architecture_regeneration.DiagramService') as factory:
+        service=factory.return_value;service.generate_assets.return_value=[asset]
+        result=regenerate(before,'Reduce crossings and use straight arrows with larger icons',SimpleNamespace())
+        args=service.generate_assets.call_args.args
+        assert args[0]['_architecture_retry_spec']['nodes']==design['nodes']
+        service.llm.generate.assert_not_called()
+    assert result['content']['scope_of_work']==before['content']['scope_of_work']
+    assert result['content']['architecture_diagram']==before['content']['architecture_diagram']
+    assert result['final_state']['pricing_result']=={'monthly_cost':123}
+    assert result['content']['architecture_diagram_assets'][0]['spec']['nodes']==design['nodes']
+
+
+def test_functional_changes_are_not_classified_as_layout_only():
+    from app.preview.architecture_regeneration import layout_only_request
+    assert not layout_only_request('Reduce crossings and replace EC2 with Lambda')
+    assert not layout_only_request('Move the app into private subnets and straighten arrows')
+    assert layout_only_request('Remove unnecessary connectors and put labels below icons')
+
+
 def good_asset():
     return {'image_base64': 'image', 'spec': {'nodes': [], 'edges': [], 'architecture_plan': {'view': 'logical'}},
             'layout_metrics': {'estimated_label_pt': 10, 'connector_crossings': 0},

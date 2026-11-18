@@ -1331,6 +1331,11 @@ Reference diagrams teach containment and composition; do not transplant their
 services, retrieval stacks or analytics pipelines into this project's architecture.
 
 Design a coherent proposed AWS implementation of the in-scope capabilities.
+Start with the project's main user-to-outcome story. Keep runtime, migration and
+operations as distinct paths; do not turn migration tools into runtime hops.
+Connect only real functional dependencies, not every service that shares an
+account. The overview will show representative runtime branches and shared
+controls without fan-out. Preserve all exact relationships in the detailed graph.
 Service candidates marked inferred are implementation OPTIONS, not confirmed client
 infrastructure. Select only what is useful. Keep existing customer products and
 their identity intact; their unknown hosting does not prohibit proposing AWS adapters.
@@ -2348,7 +2353,9 @@ SOURCE:
         history, best = [], None
         feedback = ''
         retry_requirements = dict(requirements)
-        for attempt in (1, 2):
+        for attempt in (1, 2, 3):
+            # Initial generation plus two corrections. Reuse the accepted graph
+            # for visual repairs so retries do not invent a new architecture.
             token = pipeline_attempt.set(attempt)
             started = time.monotonic()
             try:
@@ -2369,9 +2376,9 @@ SOURCE:
                 best = candidates
             if not defects:
                 break
-            if all(a.get('used_fallback') for a in candidates) and (model_attempts.get() or {}).get('Architecture Diagram', 0) >= 2:
-                break  # Planning already used its corrective call; retain the real error.
-            print(f'[DIAGRAM][RETRY] attempt={attempt}/2; issues={defects}', flush=True)
+            if all(a.get('used_fallback') for a in candidates) and (model_attempts.get() or {}).get('Architecture Diagram', 0) >= 3:
+                break  # Planning already used both corrective calls; retain the real error.
+            print(f'[DIAGRAM][RETRY] attempt={attempt}; issues={defects}', flush=True)
             feedback = ('\nCorrective attempt: the previous architecture failed these checks. '
                         'Correct the cause while preserving all BRD constraints.\n' + json.dumps(defects)
                         + '\nImage review findings:\n' + json.dumps(history[-1]['reviews'], default=str))
@@ -2382,14 +2389,15 @@ SOURCE:
             if candidate.get('retry_service_design'):
                 retry_requirements['service_design'] = candidate['retry_service_design']
             review = candidate.get('vision_review') or {}
-            if (candidate.get('spec') and not candidate.get('used_fallback')
+            if (candidate.get('spec') and (not candidate.get('used_fallback') or candidate.get('retained_planned_spec'))
                     and not review.get('unresolved_architecture')
                     and not any(i.get('kind') == 'architecture' for i in review.get('issues', []) if isinstance(i, dict))):
-                retry_requirements['_architecture_retry_spec'] = candidate['spec']
+                from app.diagram.routing_repair import prepare as prepare_routing_repair
+                retry_requirements['_architecture_retry_spec'] = prepare_routing_repair(candidate['spec'], review)
         for asset in best:
             asset['pipeline_attempts'] = history
-            asset['retry_exhausted'] = bool(history[-1]['issues'] and (len(history) == 2 or
-                any(count >= 2 for count in (model_attempts.get() or {}).values())))
+            asset['retry_exhausted'] = bool(history[-1]['issues'] and (len(history) >= 3 or
+                any(count >= 3 for count in (model_attempts.get() or {}).values())))
             if asset['retry_exhausted']:
                 asset['quality_warnings'] = retry_issues(asset)
         return best
@@ -2427,6 +2435,7 @@ SOURCE:
             return [asset]
         errors: List[str] = []
         for diagram_type, placement, spec in planned[:MAX_DIAGRAMS]:
+            spec=replace(spec,architecture_plan={**spec.architecture_plan,'story_overview':True})
             spec = expand_security_icons(spec, self.icon_registry)
             asset = None
             try:
@@ -2544,6 +2553,7 @@ def expand_security_icons(spec, registry):
 def local_fallback_asset(config, requirements, metadata, reason, spec=None):
     """Render without model calls or external engines, retaining the plan when possible."""
     registry = AwsIconRegistry(config.ASSETS_DIR)
+    retained_planned_spec = spec is not None
     if spec is None:
         spec = fallback_spec(requirements or {}, metadata or {}, registry)
     spec = expand_security_icons(spec, registry)
@@ -2559,6 +2569,7 @@ def local_fallback_asset(config, requirements, metadata, reason, spec=None):
         'type': 'drawio_architecture', 'diagram_type': 'architecture_overview',
         'placement_heading': 'Solution Architecture', 'title': spec.title,
         'status': 'review_required', 'used_fallback': True,
+        'retained_planned_spec': retained_planned_spec,
         'validation_warnings': [str(reason)[:1000]], 'layout_engine': 'builtin',
         'image_base64': base64.b64encode(png).decode('ascii'),
         'drawio_xml': xml, 'edit_url': edit_url(xml, getattr(config, 'DRAWIO_EDITOR_URL', None)),

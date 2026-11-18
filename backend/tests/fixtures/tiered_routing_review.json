@@ -1,0 +1,747 @@
+{
+  "title": "Resilient application",
+  "nodes": [
+    {
+      "id": "users",
+      "label": "Customers and Staff",
+      "kind": "external",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "aws.resource.general-icons.client",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "waf",
+      "label": "AWS WAF",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-waf",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "acm",
+      "label": "AWS Certificate Manager",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-certificate-manager",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "cognito",
+      "label": "Amazon Cognito",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.amazon-cognito",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "alb",
+      "label": "Application Load Balancer",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.elastic-load-balancing-application-load-balancer",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "network_delivery",
+      "placement_role": "entry",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "nat_a",
+      "label": "NAT Gateway",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-nat-gateway",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "az",
+      "availability_zone": "az_a",
+      "subnet": "public",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "POC VPC",
+      "flow_id": "notify"
+    },
+    {
+      "id": "nat_b",
+      "label": "NAT Gateway",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-nat-gateway",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "az",
+      "availability_zone": "az_b",
+      "subnet": "public",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "POC VPC",
+      "flow_id": "notify"
+    },
+    {
+      "id": "ecs_a",
+      "label": "ECS Fargate Tasks",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.containers.amazon-elastic-container-service",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "compute",
+      "scope": "az",
+      "availability_zone": "az_a",
+      "subnet": "private",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "ecs_b",
+      "label": "ECS Fargate Tasks",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.containers.amazon-elastic-container-service",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "compute",
+      "scope": "az",
+      "availability_zone": "az_b",
+      "subnet": "private",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "rds_w",
+      "label": "RDS Multi-AZ Writer",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.databases.amazon-rds",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "az",
+      "availability_zone": "az_a",
+      "subnet": "isolated",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "rds_s",
+      "label": "RDS Multi-AZ Standby",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.databases.amazon-rds",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "az",
+      "availability_zone": "az_b",
+      "subnet": "isolated",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "igw",
+      "label": "Internet Gateway",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-internet-gateway",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "POC VPC",
+      "flow_id": "notify"
+    },
+    {
+      "id": "vpce",
+      "label": "S3 Gateway Endpoint",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-endpoints",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "POC VPC",
+      "flow_id": "reports"
+    },
+    {
+      "id": "s3",
+      "label": "Amazon S3",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "notif",
+      "label": "Notification Endpoint",
+      "kind": "external",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "notify"
+    },
+    {
+      "id": "ecr",
+      "label": "Amazon ECR",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.containers.amazon-elastic-container-registry",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "integration",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "deploy"
+    },
+    {
+      "id": "secrets",
+      "label": "AWS Secrets Manager",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-secrets-manager",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "kms",
+      "label": "AWS Key Management Service",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-key-management-service",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "cw",
+      "label": "Amazon CloudWatch",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.amazon-cloudwatch",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "sns",
+      "label": "Amazon SNS",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.application-integration.amazon-simple-notification-service",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "eventbridge",
+      "label": "Amazon EventBridge",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.application-integration.amazon-eventbridge",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "cloudtrail",
+      "label": "AWS CloudTrail",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.aws-cloudtrail",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "cfn",
+      "label": "AWS CloudFormation",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.aws-cloudformation",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "fis",
+      "label": "AWS Fault Injection Service",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.developer-tools.aws-fault-injection-service",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "budgets",
+      "label": "AWS Budgets",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.cloud-financial-management.aws-budgets",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "costexplorer",
+      "label": "AWS Cost Explorer",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.cloud-financial-management.aws-cost-explorer",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "iam",
+      "label": "AWS Identity and Access Management",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-identity-and-access-management",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    }
+  ],
+  "edges": [
+    {
+      "source": "users",
+      "target": "alb",
+      "label": "HTTPS"
+    },
+    {
+      "source": "alb",
+      "target": "cognito",
+      "label": "Authenticate"
+    },
+    {
+      "source": "alb",
+      "target": "ecs_a",
+      "label": "Route"
+    },
+    {
+      "source": "alb",
+      "target": "ecs_b",
+      "label": "Route"
+    },
+    {
+      "source": "ecs_a",
+      "target": "rds_w",
+      "label": "SQL"
+    },
+    {
+      "source": "ecs_b",
+      "target": "rds_w",
+      "label": "SQL"
+    },
+    {
+      "source": "rds_w",
+      "target": "rds_s",
+      "label": "Sync replication"
+    },
+    {
+      "source": "ecs_a",
+      "target": "vpce",
+      "label": "Reports"
+    },
+    {
+      "source": "ecs_b",
+      "target": "vpce",
+      "label": "Reports"
+    },
+    {
+      "source": "vpce",
+      "target": "s3",
+      "label": ""
+    },
+    {
+      "source": "ecs_a",
+      "target": "nat_a",
+      "label": "HTTPS notify"
+    },
+    {
+      "source": "ecs_b",
+      "target": "nat_b",
+      "label": "HTTPS notify"
+    },
+    {
+      "source": "nat_a",
+      "target": "igw",
+      "label": ""
+    },
+    {
+      "source": "nat_b",
+      "target": "igw",
+      "label": ""
+    },
+    {
+      "source": "igw",
+      "target": "notif",
+      "label": "HTTPS"
+    },
+    {
+      "source": "ecr",
+      "target": "ecs_a",
+      "label": "Pull image"
+    },
+    {
+      "source": "ecr",
+      "target": "ecs_b",
+      "label": "Pull image"
+    }
+  ],
+  "note": "Proposed logical architecture; validate during discovery.",
+  "groups": [
+    {
+      "id": "application_processing",
+      "label": "Application & Operations",
+      "kind": "functional"
+    },
+    {
+      "id": "security_identity",
+      "label": "Security & Identity",
+      "kind": "security"
+    },
+    {
+      "id": "network_delivery",
+      "label": "Networking & Delivery",
+      "kind": "network"
+    },
+    {
+      "id": "data_storage",
+      "label": "Data & Storage",
+      "kind": "data"
+    }
+  ],
+  "description": "Two-AZ booking portal on ECS Fargate with Multi-AZ RDS, AZ-local NAT egress to an external HTTPS notification endpoint, and private S3 report storage.",
+  "spacing_scale": 1.0,
+  "architecture_plan": {
+    "functional_deployment_view": true,
+    "narrative_view": {
+      "groups": [
+        {
+          "id": "g1",
+          "label": "Secure Customer Access",
+          "rows": [
+            [
+              "waf",
+              "acm"
+            ],
+            [
+              "alb",
+              "cognito"
+            ]
+          ]
+        },
+        {
+          "id": "g2",
+          "label": "Booking Application and Data",
+          "rows": [
+            [
+              "ecs_a",
+              "ecs_b"
+            ],
+            [
+              "rds_w",
+              "rds_s"
+            ],
+            [
+              "ecr"
+            ]
+          ]
+        },
+        {
+          "id": "g3",
+          "label": "Staff Report Exports",
+          "rows": [
+            [
+              "vpce",
+              "s3"
+            ]
+          ]
+        },
+        {
+          "id": "g4",
+          "label": "Partner Notification Egress",
+          "rows": [
+            [
+              "nat_a",
+              "nat_b"
+            ],
+            [
+              "igw"
+            ]
+          ]
+        }
+      ],
+      "support": [
+        "budgets",
+        "cfn",
+        "cloudtrail",
+        "costexplorer",
+        "cw",
+        "eventbridge",
+        "fis",
+        "iam",
+        "kms",
+        "secrets",
+        "sns"
+      ],
+      "roles": {
+        "waf": "Request filtering",
+        "acm": "TLS certificate",
+        "alb": "Public entry",
+        "cognito": "Sign-in",
+        "ecs_a": "App tasks AZ A",
+        "ecs_b": "App tasks AZ B",
+        "rds_w": "Booking writer",
+        "rds_s": "Standby copy",
+        "ecr": "Image registry",
+        "vpce": "Private S3 path",
+        "s3": "Report exports",
+        "nat_a": "Outbound AZ A",
+        "nat_b": "Outbound AZ B",
+        "igw": "Internet egress"
+      },
+      "links": [
+        {
+          "source": "users",
+          "target": "g1",
+          "label": "HTTPS"
+        },
+        {
+          "source": "g1",
+          "target": "g2",
+          "label": "Route"
+        },
+        {
+          "source": "g2",
+          "target": "g3",
+          "label": "Reports"
+        },
+        {
+          "source": "g2",
+          "target": "g4",
+          "label": "HTTPS notify"
+        },
+        {
+          "source": "g4",
+          "target": "notif",
+          "label": "HTTPS"
+        }
+      ]
+    }
+  }
+}

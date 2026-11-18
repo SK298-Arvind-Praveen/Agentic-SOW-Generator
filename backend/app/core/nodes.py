@@ -1143,7 +1143,7 @@ def scope_architecture_node(state: AgentState) -> AgentState:
     if not plan:
         scope_status = "Scope classification requires review"
     elif plan.get("classification_warning"):
-        scope_status = "Scope classification completed with local fallback"
+        scope_status = "Scope classification completed with review notes"
     else:
         scope_status = "Scope architecture approved"
     _report_progress(state, 63, scope_status)
@@ -1277,6 +1277,8 @@ def content_generation_node(state: AgentState) -> AgentState:
             from app.diagram.service import local_fallback_asset
             poc_content[ARCHITECTURE_ASSETS_KEY] = [local_fallback_asset(
                 config, final_requirements, metadata, str(exc))]
+            from app.diagram.architecture_text import synchronize
+            synchronize(None, poc_content, poc_content[ARCHITECTURE_ASSETS_KEY], final_requirements)
 
     if selected_sections and 'conceptual_flow_diagram' in selected_sections:
         _report_progress(state, 95, 'Generating conceptual flow diagram')

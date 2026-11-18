@@ -140,14 +140,16 @@ def test_image_is_bounded_and_valid():
         assert max(image.size) <= 2400
 
 
-def test_review_call_has_short_timeout_no_retries_and_image(monkeypatch):
+@pytest.mark.parametrize('budget', [15,60,300])
+def test_review_call_bounds_upload_and_read_time_without_sdk_retries(monkeypatch, budget):
     config = SimpleNamespace(BEDROCK_REGION='us-east-1', FAST_MODEL_ID='haiku',
                              DIAGRAM_REVIEW_MODEL_ID='vision', DIAGRAM_MODEL_ID='planner')
     closed = []
     def factory(*args, **kwargs):
         sdk = kwargs['config']
-        assert sdk.read_timeout <= 22
-        assert sdk.connect_timeout == 2
+        assert 0 < sdk.connect_timeout <= min(30,budget/3)
+        assert sdk.connect_timeout >= min(30,budget/3)-1
+        assert sdk.connect_timeout + sdk.read_timeout <= budget-3
         assert sdk.retries['total_max_attempts'] == 1
         return SimpleNamespace(close=lambda: closed.append(True))
     def generate(self, prompt, **kwargs):
@@ -158,7 +160,7 @@ def test_review_call_has_short_timeout_no_retries_and_image(monkeypatch):
         return SimpleNamespace(text='{}')
     monkeypatch.setattr(reviewer.boto3, 'client', factory)
     monkeypatch.setattr(reviewer.BedrockLLM, 'generate', generate)
-    reviewer._call(SimpleNamespace(config=config), 'review', reviewer.time.monotonic()+60, b'PNG bytes')
+    reviewer._call(SimpleNamespace(config=config), 'review', reviewer.time.monotonic()+budget, b'PNG bytes')
     assert closed == [True]
 
 

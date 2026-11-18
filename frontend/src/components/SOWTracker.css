@@ -1,5 +1,5 @@
 /* ============================================================
-   SOW TRACKER — Dark Purple Theme
+   SOW TRACKER — Blue Theme
    ============================================================ */
 
 .sow-tracker {
@@ -65,7 +65,7 @@
 .stat-card-success { border-color: rgba(16, 185, 129, 0.2); }
 .stat-card-blue    { border-color: rgba(56, 189, 248, 0.2); }
 .stat-card-green   { border-color: rgba(16, 185, 129, 0.2); }
-.stat-card-purple  { border-color: rgba(168, 85, 247, 0.2); }
+.stat-card-purple  { border-color: rgba(0, 39, 90, 0.2); }
 
 .stat-icon {
   width: 48px;

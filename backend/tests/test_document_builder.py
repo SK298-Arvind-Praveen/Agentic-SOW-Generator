@@ -392,14 +392,14 @@ class DocumentBuilderTests(unittest.TestCase):
             signature_table = document.tables[-1]
             shading = signature_table.cell(0, 0)._tc.tcPr.find(qn("w:shd"))
             self.assertIsNotNone(shading)
-            self.assertEqual(shading.get(qn("w:fill")), "7F00FF")
+            self.assertEqual(shading.get(qn("w:fill")), "00275A")
             self.assertEqual(signature_table.cell(1, 0).text, "Name:")
             self.assertNotIn("Bhuvanesh", "\n".join(cell.text for row in signature_table.rows for cell in row.cells))
 
             control_header = document.tables[0].cell(0, 0)._tc.tcPr.find(qn("w:shd"))
             self.assertEqual(control_header.get(qn("w:val")), "clear")
             self.assertEqual(control_header.get(qn("w:color")), "auto")
-            self.assertEqual(control_header.get(qn("w:fill")), "7F00FF")
+            self.assertEqual(control_header.get(qn("w:fill")), "00275A")
 
             content_section = document.sections[-1]
             self.assertAlmostEqual(content_section.left_margin.inches, 0.68, places=2)

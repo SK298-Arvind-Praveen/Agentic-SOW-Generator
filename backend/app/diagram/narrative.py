@@ -16,6 +16,12 @@ from xml.etree import ElementTree as ET
 
 
 RULES = '''Organise this fixed AWS architecture into a readable functional overview.
+Start with one clear user-to-outcome spine, left to right or top to bottom.
+Branch only for a distinct operation or failure domain. Keep migration/import
+flows beside the runtime path, never serialised into it. Prefer short direct
+routes: rearrange peers instead of long detours or gratuitous bends. Repeated
+replica interactions and control fan-out belong in Connection detail; preserve
+every service and all hosting decisions in the fixed graph.
 Choose 2-4 meaningful subsystems in the order a reader should follow the project.
 Prefer three groups when they explain the system clearly. Avoid a separate data
 inventory: keep the source-document store with extraction, and case/audit records
@@ -76,14 +82,21 @@ def eligible(spec):
     allowed = {'regional', 'managed', 'global'}
     if spec.architecture_plan.get('functional_deployment_view'):
         allowed |= {'vpc', 'az'}
+    # Unspecified account/region placeholders are not additional deployments.
+    # Security-icon expansion may use these alongside the one named account.
+    accounts = {n.account.strip().casefold() for n in internal
+                if n.account.strip().casefold() not in {'', 'aws account'}}
+    regions = {n.region.strip().casefold() for n in internal if n.scope != 'global'
+               and n.region.strip().casefold() not in {'', 'region', 'aws region'}}
     return (8 <= len(spec.nodes) <= 48 and all(n.scope in allowed for n in internal)
-            and len({n.account for n in internal}) <= 1
-            and len({n.region for n in internal if n.scope != 'global'}) <= 1)
+            and len(accounts) <= 1 and len(regions) <= 1)
 
 
 def validate(value, spec):
-    if not isinstance(value, dict) or not isinstance(value.get('groups'), list) or not 2 <= len(value['groups']) <= 4:
-        raise ValueError('Overview needs 2-4 functional groups')
+    physical = bool(spec.architecture_plan.get('functional_deployment_view'))
+    max_groups, max_rows = (6,6) if physical else (4,3)
+    if not isinstance(value, dict) or not isinstance(value.get('groups'), list) or not 2 <= len(value['groups']) <= max_groups:
+        raise ValueError(f'Overview needs 2-{max_groups} functional groups')
     nodes = {n.id: n for n in spec.nodes}
     support = support_ids(spec)
     regional = {n.id for n in spec.nodes if n.scope not in {'external', 'global'}} - support
@@ -96,8 +109,8 @@ def validate(value, spec):
         if not isinstance(group.get('label'), str) or not group['label'].strip() or len(group['label'])>180:
             raise ValueError('Functional groups need nonempty text labels')
         rows = group.get('rows')
-        if not isinstance(rows, list) or not 1 <= len(rows) <= 3:
-            raise ValueError('Each group needs 1-3 rows')
+        if not isinstance(rows, list) or not 1 <= len(rows) <= max_rows:
+            raise ValueError(f'Each group needs 1-{max_rows} rows')
         for row in rows:
             if not isinstance(row, list) or not 1 <= len(row) <= 2 or any(n not in regional for n in row):
                 raise ValueError('Invalid row ' + str(row) + '. ONLY these IDs may be grouped: '
@@ -152,7 +165,8 @@ def prepare(service, spec):
     composition_spent = (model_attempts.get() or {}).get('Architecture Narrative Composition', 0) >= 2
     # A corrective attempt must consume the review feedback. Reusing the same
     # view here previously exported and reviewed identical pixels twice.
-    if current and (not spec.architecture_plan.get('retry_feedback') or composition_spent):
+    if current and (not spec.architecture_plan.get('retry_feedback') or composition_spent
+                    or spec.architecture_plan.get('routing_repair')):
         try:
             validate(current, spec)
             overview_xml(spec, service.icon_registry)
@@ -203,6 +217,15 @@ def prepare(service, spec):
             context['starting_group_guidance'] = ('Use these three groups: private access, application and its data, '
                 'migration and its evidence. An ingress-only access group is appropriate. Keep runtime and migration separate.')
     try:
+        composition_rules = RULES
+        if spec.architecture_plan.get('functional_deployment_view'):
+            composition_rules += ('\nPHYSICAL VIEW CAPACITY: For larger mixed managed/VPC architectures, '
+                'use 4-6 functional groups and up to 6 two-component rows per group. This overrides '
+                'the smaller logical-view limits above. Separate access, core application, specialised AI, '
+                'private enterprise connectors, and reporting where those functions exist. Keep a VPC and '
+                'its network resources together with its connector compute. Avoid a single giant managed-service '
+                'inventory. The renderer arranges these groups in a compact grid and places AZs side by side. '
+                'Keep services with the subsystem that uses them; do not add resources or change edges.\n')
         def checked_view(value):
             plan = validate(value, spec)
             candidate = replace(spec, architecture_plan={**spec.architecture_plan,'narrative_view':plan})
@@ -210,7 +233,7 @@ def prepare(service, spec):
             return plan
         plan = structured_retry(lambda p: planner.generate(p, task='diagram', max_tokens=5000,
             temperature=0, call_name='Architecture Narrative Composition').text,
-            RULES + '\nFIXED GRAPH:\n' + json.dumps(context)
+            composition_rules + '\nFIXED GRAPH:\n' + json.dumps(context)
             +'\nPrevious attempt findings (correct the view only):\n'+str(spec.architecture_plan.get('retry_feedback','')),
             checked_view, attempts=3)
         return improve_rows(replace(spec, architecture_plan={
@@ -275,30 +298,37 @@ def geometry(spec, plan):
         and nodes[e.target].scope == 'external' and nodes[e.target].kind != 'actor'
         for e in spec.edges) else 0
     group_gap = 150
-    width = 130 + len(groups)*330 + (len(groups)-1)*group_gap
+    group_width = 410
+    width = 130 + len(groups)*group_width + (len(groups)-1)*group_gap
     group_indices = {g['id']:i for i,g in enumerate(groups)}
     long_links = sum(abs(group_indices[l['source']]-group_indices[l['target']]) > 1
                      for l in projection(spec, plan)['links'] if l['source'] in group_indices and l['target'] in group_indices)
-    group_top = 440 + channel_tier + max(0,long_links-1)*24
-    physical = bool(spec.architecture_plan.get('functional_deployment_view'))
-    row_height = 198 if physical else 180
+    regional_support = [k for k in plan['support'] if nodes[k].scope != 'global']
+    busy_interfaces = sum(n.scope == 'external' for n in spec.nodes) >= 5
+    header_controls = busy_interfaces and len(groups) >= 3 and len(regional_support) <= 6
+    group_top = (510 if header_controls else 440) + channel_tier + max(0,long_links-1)*24
+    row_height = 220
     group_height = 62 + max(len(g['rows']) for g in groups)*row_height
     group_bottom = group_top + group_height
-    # Reserve a separate rail BELOW the workload. Multiple human/data inputs can
-    # then enter from above without running through shared security icons.
-    region_bottom = group_bottom + (260 if len(plan['support']) > 6 and len(groups) < 3 else 160)
+    # Reserve space for controls and integration routes. On a wide, busy diagram
+    # controls use the quiet right-hand header, leaving the bottom for callbacks.
+    region_bottom = group_bottom + (60 if header_controls else
+        260 if len(plan['support']) > 6 and len(groups) < 3 else 160)
     cloud_bottom = region_bottom + 22
     cloud_top, region_top, global_top = 155+channel_tier,330+channel_tier,185+channel_tier
     positions, boxes = {}, {'cloud': (25, cloud_top, width-50, cloud_bottom-cloud_top),
                             'region': (45, region_top, width-90, region_bottom-region_top)}
     parents = {}
     for i, group in enumerate(groups):
-        x = 65+i*(330+group_gap)
-        boxes[group['id']] = (x, group_top, 330, group_height)
+        x = 65+i*(group_width+group_gap)
+        boxes[group['id']] = (x, group_top, group_width, group_height)
         parents[group['id']] = 'region'
         for r, row in enumerate(group['rows']):
             for c, key in enumerate(row):
-                positions[key] = (x+25+c*160, group_top+52+r*row_height, 120, row_height-10)
+                # Reserve clear routing corridors around the actual icon and
+                # caption footprint. Inflating node height to row_height-10
+                # sealed every vertical port behind the adjacent row's label.
+                positions[key] = (x+40+c*210, group_top+52+r*row_height, 120, 168)
                 parents[key] = group['id']
     owner = projection(spec, plan)['owner']
     ungrouped = [n for n in spec.nodes if n.id not in positions and n.id not in support]
@@ -306,6 +336,14 @@ def geometry(spec, plan):
     global_ids = {n.id for n in ungrouped if n.scope == 'global'}
     ungrouped.sort(key=lambda n: (0 if n.scope=='global' else
         1 if n.kind=='actor' else 2, n.id))
+    # Only people, their channels and source-only systems belong above AWS.
+    # Bidirectional business integrations belong on the integration rail too;
+    # treating every sender as an input crowded all of them over the first API.
+    actor_channels = {e.target for e in spec.edges if nodes[e.source].kind == 'actor'
+                      and nodes[e.target].scope == 'external'}
+    integration_ids = {n.id for n in ungrouped if n.scope == 'external'
+        and n.kind != 'actor' and n.id not in actor_channels
+        and any(e.target == n.id and nodes[e.source].scope != 'external' for e in spec.edges)}
     occupied = {0:[], channel_tier:[], global_top:[], cloud_bottom+96:[]}
     for node in ungrouped:
         if node.id in positions:
@@ -318,30 +356,48 @@ def geometry(spec, plan):
             y = global_top
             parents[node.id] = 'cloud'
         else:
-            incoming = any(e.target == node.id for e in spec.edges)
-            outgoing = any(e.source == node.id for e in spec.edges)
-            y = cloud_bottom+96 if incoming and not outgoing else (0 if node.kind=='actor' else channel_tier)
+            y = cloud_bottom+96 if node.id in integration_ids else (0 if node.kind=='actor' else channel_tier)
             parents[node.id] = 'root'
         candidates = sorted(range(65, int(width-155), 20), key=lambda trial: abs(trial-x))
         x = next((trial for trial in [x]+candidates if all(abs(trial-other)>=160 for other in occupied[y])), None)
         if x is None:
             raise ValueError('No unobstructed entry/exit lane for ' + node.id)
-        positions[node.id] = (x, y, 120, 95)
+        positions[node.id] = (x, y, 120, 108)
         occupied[y].append(x)
+    # Allocate generous, ordered lanes across the relevant subsystem span.
+    # The previous nearest-free-slot packing left most of the header empty while
+    # several unrelated entry wires competed for the same 160-pixel corridor.
+    for top in (0, cloud_bottom+96):
+        keys = [n.id for n in ungrouped if parents.get(n.id) == 'root' and positions[n.id][1] == top]
+        if len(keys) < 2:
+            continue
+        def anchor(key):
+            peers = [owner.get(e.target, e.target) for e in spec.edges if e.source == key]
+            peers += [owner.get(e.source, e.source) for e in spec.edges if e.target == key]
+            centres = [boxes[p][0]+boxes[p][2]/2 for p in peers if p in boxes]
+            return sum(centres)/len(centres) if centres else boxes[groups[0]['id']][0]+165
+        keys.sort(key=lambda key:(anchor(key), key))
+        spacing = min(280, (width-250)/max(1,len(keys)-1))
+        span = spacing*(len(keys)-1)
+        centre = sum(anchor(key) for key in keys)/len(keys)
+        left = max(85,min(width-205-span,centre-60-span/2))
+        for i,key in enumerate(keys):
+            x,y,w,h = positions[key]
+            positions[key] = (left+i*spacing,y,w,h)
+    # Keep each customer-facing channel directly underneath its caller. Move
+    # the channel, not the actor: moving actors back into packed channel slots
+    # undid the independent entry lanes.
     for node in ungrouped:
-        if node.kind != 'actor' or not channel_tier:
+        if node.id not in actor_channels or not channel_tier:
             continue
-        channels = [positions[e.target] for e in spec.edges if e.source == node.id
-            and e.target in positions and parents.get(e.target) == 'root'
-            and positions[e.target][1] == channel_tier]
-        if not channels:
-            continue
-        ideal = sum(x+w/2 for x,y,w,h in channels)/len(channels)-60
+        callers = [positions[e.source] for e in spec.edges if e.target == node.id
+                   and nodes[e.source].kind == 'actor']
+        ideal = sum(x+w/2 for x,y,w,h in callers)/len(callers)-60
+        others = [r[0] for key,r in positions.items() if key != node.id and r[1] == channel_tier]
         candidates = sorted(range(65,int(width-155),20),key=lambda trial:abs(trial-ideal))
-        others = [r[0] for key,r in positions.items() if key != node.id and r[1] == 0]
-        x = next((trial for trial in candidates if all(abs(trial-other)>=160 for other in others)),None)
+        x = next((trial for trial in [ideal]+candidates if all(abs(trial-other)>=180 for other in others)),None)
         if x is not None:
-            positions[node.id] = (x,0,120,95)
+            positions[node.id] = (x,channel_tier,120,95)
     # Shared edge entry sits between its callers. Pinning it below the first
     # caller blocks that caller's independent API/authentication route and forces
     # a page-edge detour. Other global cards still keep their own clear slots.
@@ -361,10 +417,17 @@ def geometry(spec, plan):
     output_columns = [x+w/2 for key,(x,y,w,h) in positions.items() if y>cloud_bottom]
     global_columns = [x+w/2 for key,(x,y,w,h) in positions.items() if nodes[key].scope=='global']
     for scope, columns, top, parent in [('global',source_columns+global_columns,global_top,'cloud'),
-                                      ('regional',output_columns,group_bottom+48,'region')]:
+                                      ('regional',source_columns if header_controls else output_columns,
+                                       region_top+48 if header_controls else group_bottom+48,'region')]:
         keys = [k for k in plan['support'] if (nodes[k].scope=='global') == (scope=='global')]
         slots = [x for x in range(65,int(width-180),150) if all(abs(x+65-c)>90 for c in columns)]
-        if scope=='global':
+        if scope == 'regional' and header_controls and len(slots) < len(keys):
+            # A crowded header must not spill its second control row into the
+            # workload. The existing expanding bottom rail is still available.
+            slots = [x for x in range(65,int(width-180),150)
+                     if all(abs(x+65-c)>90 for c in output_columns)]
+            top = group_bottom+48
+        if scope=='global' or header_controls:
             slots.reverse()
         if keys and not slots:
             raise ValueError('No free support rail slots')
@@ -469,11 +532,17 @@ def overview_xml(spec, registry):
             name = re.sub(r'Application Load Balancer', 'ALB', name, flags=re.I)
         small = node.id in support or node.scope in {'external','global'}
         size = 42 if small else 64
+        if node.icon_key and node.id not in support:
+            # Bottom ports deliberately clear the caption rather than drawing
+            # through it. A visible component card makes that endpoint explicit
+            # instead of leaving a wire apparently starting in empty space.
+            cell('card_'+node.id, '', (x,y,w,h),
+                 'rounded=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#CBD5E1;strokeWidth=1;')
         shown = icon(node.id, node.icon_key, (x+(w-size)/2,y+5,size,size)) if node.icon_key else False
         if shown:
-            text('name_'+node.id, name, (x-10,y+size+8,w+20,40 if small else 44), 14 if small else 16, True)
+            text('name_'+node.id, name, (x+4,y+size+8,w-8,40 if small else 52), 14, True)
             if not small and roles.get(node.id):
-                text('role_'+node.id, roles[node.id], (x-10,y+size+58,w+20,34), 13, False, '#64748B')
+                text('role_'+node.id, roles[node.id], (x+4,y+size+68,w-8,32), 12, False, '#64748B')
             if not small and spec.architecture_plan.get('functional_deployment_view') and node.scope in {'vpc','az'}:
                 scope_label = ' · '.join(filter(None, [node.subnet.title(),
                     node.availability_zone.replace('az_', 'AZ ').upper() if node.availability_zone else 'VPC']))
@@ -481,7 +550,7 @@ def overview_xml(spec, registry):
         else:
             cell(node.id, html.escape(node.label), (x,y,w,h if small else 70),
                  'rounded=1;arcSize=10;whiteSpace=wrap;fillColor=#F8FAFC;strokeColor=#64748B;'
-                 'fontSize=16;fontStyle=1;fontColor=#334155;')
+                 'fontSize=16;fontStyle=1;fontColor=#334155;spacing=10;')
             if not small and roles.get(node.id):
                 text('role_'+node.id, roles[node.id], (x-10,y+80,w+20,24), 13, False, '#64748B')
             if not small and spec.architecture_plan.get('functional_deployment_view') and node.scope in {'vpc','az'}:
@@ -525,7 +594,7 @@ def overview_xml(spec, registry):
         local_spec = replace(spec, nodes=tuple(n for n in spec.nodes if n.id in members),
             edges=tuple(internal[i] for i in indices))
         routes = local_routes(local_spec, local_pos, {'heading':(0,0,gw,40)}, {},
-            gw,gh,time.monotonic()+8,iconic=True,max_terminal_gap=16)
+            gw,gh,time.monotonic()+8,iconic=True,icon_bottom=True,max_terminal_gap=16)
         for i,path in zip(indices,routes):
             inner_paths[i] = [(x+gx,y+gy) for x,y in path]
     seen = set()
@@ -548,6 +617,16 @@ def overview_xml(spec, registry):
     outward_sides = {(l['source'],l['target']):{l['source']:{'bottom'},l['target']:{'top'}}
         for l in peer_links if l['source'] in boxes and l['target'] in pos
         and pos[l['target']][1] > boxes['cloud'][1]+boxes['cloud'][3]}
+    busy_interfaces = sum(n.scope == 'external' for n in spec.nodes) >= 5
+    for link in peer_links if busy_interfaces else []:
+        source,target = link['source'],link['target']
+        if source in pos and pos[source][1] > boxes['cloud'][1]+boxes['cloud'][3] and target in boxes:
+            outward_sides[(source,target)] = {source:{'top'},target:{'bottom'}}
+        elif source in pos and parents.get(source) == 'root' and pos[source][1] < boxes['cloud'][1]:
+            # Downward user entry starts below the complete icon/name footprint,
+            # avoiding sideways hooks around user symbols and page-edge detours.
+            if interface_positions[target][1] > pos[source][1]+pos[source][3]:
+                outward_sides[(source,target)] = {source:{'bottom'},target:{'top'}}
     external_ids = {n.id for n in spec.nodes if n.scope == 'external'}
     # A staff-to-CRM relationship does not pass through AWS. Keep such external
     # relationships outside the cloud instead of bisecting the application flow.
@@ -556,14 +635,14 @@ def overview_xml(spec, registry):
     def route_peers(candidate, sides):
         try:
             return local_routes(candidate, interface_positions, header_obstacles, {}, width, height,
-                time.monotonic()+20, {}, True, max_terminal_gap=32, terminal_sides=sides,
+                time.monotonic()+20, {}, True, icon_bottom=busy_interfaces, max_terminal_gap=32, terminal_sides=sides,
                 edge_obstacles=exterior_obstacles)
         except (ValueError, TimeoutError):
             if not exterior_obstacles:
                 raise
             # The exterior lane is a preference, not a new publication gate.
             return local_routes(candidate, interface_positions, header_obstacles, {}, width, height,
-                time.monotonic()+20, {}, True, max_terminal_gap=32, terminal_sides=sides)
+                time.monotonic()+20, {}, True, icon_bottom=busy_interfaces, max_terminal_gap=32, terminal_sides=sides)
     try:
         peer_paths = route_peers(peer_spec, outward_sides)
     except (ValueError, TimeoutError):
@@ -679,7 +758,7 @@ def improve_rows(spec, registry, budget=8):
     # Optimise each subsystem independently before expensive whole-page search.
     # Otherwise a busy first group consumes the budget and later groups (often
     # analytics/storage) never get even a single candidate arrangement.
-    row_height = 198 if spec.architecture_plan.get('functional_deployment_view') else 180
+    row_height = 220
     for group in plan['groups']:
         keys = [k for row in group['rows'] for k in row]
         inner = tuple(e for e in spec.edges if e.source in keys and e.target in keys)
@@ -688,10 +767,10 @@ def improve_rows(spec, registry, budget=8):
         local_spec = replace(spec,nodes=tuple(n for n in spec.nodes if n.id in keys),edges=inner)
         group_deadline = min(deadline,time.monotonic()+max(.2,budget/len(plan['groups'])))
         def assess_rows(rows):
-            positions = {k:(25+c*160,52+r*row_height,120,row_height-10)
+            positions = {k:(40+c*210,52+r*row_height,120,168)
                 for r,row in enumerate(rows) for c,k in enumerate(row)}
-            paths = local_routes(local_spec,positions,{'heading':(0,0,330,40)}, {},
-                330,62+len(rows)*row_height,group_deadline,iconic=True,max_terminal_gap=16)
+            paths = local_routes(local_spec,positions,{'heading':(0,0,410,40)}, {},
+                410,62+len(rows)*row_height,group_deadline,iconic=True,icon_bottom=True,max_terminal_gap=16)
             metrics = geometry_report(local_spec,positions,paths)
             return (metrics['ambiguous_connector_pairs'],metrics['connector_crossings'],
                 metrics['connector_bends'],metrics['connector_length_normalized'])
@@ -847,7 +926,12 @@ Return an empty issues list if there is no observable defect.\nFIXED GRAPH AND V
                     prompt += ('\nThis mixed deployment uses functional columns with real VPC/AZ/subnet islands. '
                                'Managed services remain outside those physical islands. Arrows between functional '
                                'column borders summarize the supplied original_edge_paths, with two heads only '
-                               'when both directions exist. Internal service edges remain visible; all exact '
+                               'when both directions exist. Human actors with identical directed destinations '
+                               'may share a User access boundary: its arrows summarize their actual edges, '
+                               'not a shared login or additional processing hop. External systems with identical '
+                               'incoming subsystem sets and no outgoing connections may share an External '
+                               'systems boundary; each actual system stays visible inside it. Duplicate service-pair '
+                               'connections share one wire; two heads represent real reverse edges. All exact '
                                'connections are on the detail page. Do not mistake functional borders for network boundaries.\n')
                 elif tiered(spec):
                     prompt += ('\nThis physical tiered overview retains actual application, database, replica and network edges. '
@@ -878,7 +962,8 @@ Return an empty issues list if there is no observable defect.\nFIXED GRAPH AND V
             return issues
         issues = structured_retry(lambda p: _call(service, p, deadline,
                     image=image_for_review(base64.b64decode(asset['image_base64'])),
-                    call_name='Architecture Narrative Image Review'),
+                    call_name=('Architecture Routing Repair Image Review' if spec.architecture_plan.get('routing_repair')
+                               else 'Architecture Narrative Image Review')),
                     prompt+json.dumps(context), checked_review, attempts=2, deadline=deadline)
         report.update(status='reviewed', image_reviewed=True, issues=issues,
                       unresolved_architecture=any(i['kind']=='architecture' for i in issues))

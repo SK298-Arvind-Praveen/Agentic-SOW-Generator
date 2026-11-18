@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterable, List, Tuple
 
 
 def _safe(value: Any) -> str:
-    return str(value or "").replace("|", "\\|").replace("\n", " ").strip()
+    return str('' if value is None else value).replace("|", "/").replace("\n", " ").strip()
 
 
 def _money(value: Any) -> str:
@@ -119,11 +119,22 @@ def render_aws_pricing_section(result: Dict[str, Any]) -> str:
         label = re.sub(r"[_\s]+", " ", label).strip()
         if any(term in label.casefold() for term in _CALCULATOR_FIELD_TERMS) or _is_workflow_setting(label):
             continue
+        if re.search(r'cost.*ceiling|rollback|database tables',label,re.I):
+            continue
         if re.search(r"backend.*api", label, re.I) and re.search(r"%|\bpercent", value, re.I):
             label = "Interactions requiring backend API calls"
+        if item.get('status') == 'Approximated':
+            value += ' (Approximated)'
         pair = f"{label}: {value}"
         if pair not in metrics:
             metrics.append(pair)
+    # A failed planner may still have useful sizing. Show only a few primary
+    # workload quantities, never the complete calculator field inventory.
+    if not metrics:
+        for row in result.get('sizing_details') or []:
+            label=_safe(row.get('input'));value=_safe(row.get('value'))
+            if value and re.search(r'invocations|monthly requests|database size|storage volume|node count|document volume',label,re.I):
+                metrics.append(f"{label}: {value} ({_safe(row.get('status') or 'Approximated')})")
     environment = _environment_summary(result)
     item = "AWS infrastructure" + (f" ({environment})" if environment else "")
     rows = []
@@ -139,17 +150,19 @@ def render_aws_pricing_section(result: Dict[str, Any]) -> str:
         # A partial calculator subtotal must never masquerade as the whole workload.
         subtotal = result.get('calculator_monthly_cost')
         rows.append(("Calculator-priced components only", _money(subtotal) if subtotal and Decimal(str(subtotal)) > 0 else '', link))
-        rows.append((item + " total", "", ""))
+        rows.append((item + " total", "Unavailable", "Incomplete calculator coverage; see pricing diagnostics"))
     elif status in {"priced", "url_only"}:
-        rows.append((item, _money(result.get("monthly_cost")), link))
+        rows.append((item, _money(result.get("monthly_cost")), "Approximate monthly estimate" if result.get("sizing_details") else "AWS Pricing Calculator"))
     else:
-        rows.append((item, "", _safe(result.get('error') or result.get('cost_read_warning') or '')))
+        rows.append((item, "Pending", _safe(result.get('error') or result.get('cost_read_warning') or 'Sizing inputs require confirmation')))
     lines = [f"| Item | Monthly ({currency}) | Estimate |", "|---|---:|---|"]
     lines.extend(f"| {label} | {amount} | {estimate} |" for label, amount, estimate in rows)
     lines.extend(['', '| Pricing basis | Details |', '|---|---|'])
     if region:
         lines.append(f'| AWS region | {region} |')
-    for metric in metrics[:3]:
+    if result.get('region_warning'):
+        lines.append(f"| Region confirmation | {_safe(result['region_warning'])} |")
+    for metric in metrics[:6]:
         label, _, value = metric.partition(': ')
         lines.append(f'| {label} | {value} |')
     if status in {'fallback_priced', 'hybrid_priced'}:
@@ -157,5 +170,9 @@ def render_aws_pricing_section(result: Dict[str, Any]) -> str:
             lines.append(f'| Monthly planning range | {currency} {low}–{high} |')
         lines.append('| Estimate basis | Non-binding planning estimate, not an AWS quote. |')
     if not region and not metrics and status not in {'fallback_priced', 'hybrid_priced'}:
-        lines.append('| AWS region |  |')
+        lines.append('| AWS region | Not selected |')
+    if result.get('sizing_details'):
+        lines.extend(['', 'Amounts are approximate monthly estimates based on the stated sizing; actual usage and AWS charges may vary.'])
+    if valid_url:
+        lines = [f'AWS Pricing Calculator: [Open Link]({url})', ''] + lines
     return "\n".join(lines).strip()

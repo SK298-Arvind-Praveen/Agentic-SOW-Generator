@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import copy
+import logging
 import re
 from typing import Any, Callable, Dict, List, Optional
 
@@ -148,11 +150,21 @@ class ScopeArchitectAgent:
             print("[SCOPE-ARCHITECT] No valid capability inventory returned", flush=True)
             return {}
         print(f"[SCOPE-ARCHITECT] Built {len(inventory)} source capability unit(s)", flush=True)
-        plan = self._classify(
-            inventory, requirements, metadata, source_context, refinement_constraints
-        )
+        classification_errors = []
+        plan = {}
+        for attempt in (1, 2):
+            try:
+                plan = self._classify(
+                    inventory, requirements, metadata, source_context, refinement_constraints
+                )
+                if plan:
+                    break
+                classification_errors.append("Scope classification returned empty or invalid JSON")
+            except Exception as exc:
+                classification_errors.append(f"Scope classification unavailable ({type(exc).__name__})")
+                logging.getLogger(__name__).exception("Scope classification attempt %s failed", attempt)
         if not plan:
-            raise RuntimeError("Scope boundary classification returned invalid or empty JSON")
+            return self._recover_plan({}, inventory, metadata, refinement_constraints, classification_errors)
         discovered = self._validated_discovered_capabilities(
             plan.pop("discovered_capabilities", []), source_context, inventory
         )
@@ -167,8 +179,9 @@ class ScopeArchitectAgent:
         plan = self._enforce_refinement_constraints(plan, inventory, refinement_constraints)
         requested_count = int(refinement_constraints.get("requested_deliverable_count") or 0)
         if requested_count and len(plan.get("deliverables") or []) != requested_count:
-            raise RuntimeError(
-                f"Scope architecture did not preserve the required {requested_count} deliverable boundaries"
+            return self._recover_plan(
+                plan, inventory, metadata, refinement_constraints,
+                [f"Scope classification needs review against the requested {requested_count} deliverables"],
             )
         plan, issues = self._normalise_plan(plan, inventory)
         deliverable_fragmentation = (
@@ -188,10 +201,18 @@ class ScopeArchitectAgent:
                 flush=True,
             )
         if issues or deliverable_fragmentation or fragmentation:
-            revised = self._repair(
-                plan, inventory, requirements, metadata, source_context,
-                issues + deliverable_fragmentation + fragmentation, refinement_constraints,
-            )
+            try:
+                revised = self._repair(
+                    copy.deepcopy(plan), inventory, requirements, metadata, source_context,
+                    issues + deliverable_fragmentation + fragmentation, refinement_constraints,
+                )
+            except Exception as exc:
+                logging.getLogger(__name__).exception("Scope consolidation retry failed; retaining sourced scope")
+                return self._recover_plan(
+                    plan, inventory, metadata, refinement_constraints,
+                    issues + deliverable_fragmentation + fragmentation
+                    + [f"Scope consolidation unavailable ({type(exc).__name__})"],
+                )
             revised = self._complete_assignments(revised, inventory)
             revised = self._enforce_refinement_constraints(
                 revised, inventory, refinement_constraints
@@ -219,6 +240,10 @@ class ScopeArchitectAgent:
                     flush=True,
                 )
             else:
+                # A structurally complete revision remains usable even when a
+                # wording/cohesion heuristic would prefer different headings.
+                if not revised_issues:
+                    plan = revised
                 issues = revised_issues + revised_deliverable_fragmentation + revised_fragmentation
         if issues:
             # If the only unresolved problem is unsupported top-level splitting,
@@ -248,14 +273,35 @@ class ScopeArchitectAgent:
                     if not remaining:
                         issues = []
             if issues:
-                print(f"[SCOPE-ARCHITECT] Plan rejected: {', '.join(issues)}", flush=True)
-                raise RuntimeError("Scope architecture validation failed; generation halted: " + "; ".join(issues))
+                return self._recover_plan(plan, inventory, metadata, refinement_constraints, issues)
         print(
             f"[SCOPE-ARCHITECT] Approved {len(plan['deliverables'])} deliverable(s), "
             f"{sum(len(item['modules']) for item in plan['deliverables'])} module(s)",
             flush=True,
         )
         return plan
+
+    def _recover_plan(self, plan, inventory, metadata, constraints, issues):
+        """Keep usable scope; repair coverage locally instead of aborting preview."""
+        candidate = self._complete_assignments(copy.deepcopy(plan), inventory)
+        candidate = self._enforce_refinement_constraints(candidate, inventory, constraints)
+        candidate, structural_issues = self._normalise_plan(candidate, inventory)
+        if structural_issues:
+            candidate = self._fallback_plan(inventory, metadata, issues + structural_issues)
+            candidate = self._enforce_refinement_constraints(candidate, inventory, constraints)
+            candidate, structural_issues = self._normalise_plan(candidate, inventory)
+        # Preserve exclusions even when a model response omitted open_boundaries.
+        boundaries = list(candidate.get("open_boundaries") or [])
+        known = {item.get("capability_id") for item in boundaries if isinstance(item, dict)}
+        for item in inventory:
+            if str(item.get("disposition") or "in_scope").casefold() != "in_scope" and item["id"] not in known:
+                boundaries.append({"capability_id": item["id"], "reason": "Preserved outside committed scope: " + str(item["disposition"])})
+        candidate["open_boundaries"] = boundaries
+        warning = "; ".join(dict.fromkeys(issues + structural_issues))
+        candidate["classification_warning"] = "Scope grouping requires review: " + warning
+        candidate["classification_status"] = "review_required"
+        logging.getLogger(__name__).warning("[SCOPE-ARCHITECT] Continuing generation: %s", warning)
+        return candidate
 
     @staticmethod
     def _explicit_source_deliverables(
@@ -961,6 +1007,7 @@ Classification rules:
         stopwords = {
             "and", "the", "for", "with", "requirements", "requirement", "implementation",
             "capabilities", "capability", "system", "platform", "management", "support",
+            "pack", "package", "workstream", "module", "delivery",
         }
         repeated_topics: Dict[str, int] = {}
         for module in modules:

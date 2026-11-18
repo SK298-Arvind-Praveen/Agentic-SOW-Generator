@@ -188,6 +188,57 @@ def test_architect_consolidates_fragmented_module_plan():
     assert len(plan["deliverables"][0]["modules"]) == 2
 
 
+def test_generic_pack_suffix_is_not_a_shared_capability_family():
+    inventory = [{"id":str(i)} for i in range(10)]
+    names = ['Design pack', 'Recovery pack', 'Closure pack', 'Authentication',
+             'Notifications', 'Booking workflow', 'Data integration']
+    ids = [[0],[1],[2],[3],[4],[5,6],[7,8,9]]
+    plan = {'deliverables':[{'modules':[
+        {'name':name,'capability_ids':group} for name,group in zip(names,ids)]}]}
+    assert ScopeArchitectAgent._module_fragmentation_issues(plan, inventory) == []
+
+
+def test_unresolved_heading_heuristic_keeps_complete_scope_with_warning():
+    inventory = {'capability_units':[
+        {'id':f'CAP-{i:03d}','name':f'Agent workflow {i}'} for i in range(1,9)]}
+    fragmented = {'deliverables':[{'name':'Platform','modules':[
+        {'name':f'Agent workflow {i}','capability_ids':[f'CAP-{i:03d}']} for i in range(1,9)]}]}
+    plan = _agent(inventory,fragmented,fragmented).architect({}, {}, 'Source')
+    assigned = [k for d in plan['deliverables'] for m in d['modules'] for k in m['capability_ids']]
+    assert sorted(assigned) == [f'CAP-{i:03d}' for i in range(1,9)]
+    assert plan['classification_status'] == 'review_required'
+    assert 'one-for-one' in plan['classification_warning']
+
+
+def test_scope_repair_transport_failure_does_not_abort_generation():
+    inventory = {'capability_units':[{'id':f'CAP-{i:03d}','name':f'Workflow {i}'} for i in range(1,9)]}
+    plan = {'deliverables':[{'name':'Platform','modules':[
+        {'name':f'Workflow {i}','capability_ids':[f'CAP-{i:03d}']} for i in range(1,9)]}]}
+    responses = iter([inventory,plan])
+    def call(prompt, **kwargs):
+        if 'AUDIT FAILURES' in prompt:
+            raise TimeoutError('test timeout')
+        return json.dumps(next(responses))
+    result = ScopeArchitectAgent(SimpleNamespace(),call_fn=call).architect({}, {}, 'Source')
+    assert len(result['deliverables'][0]['modules']) == 8
+    assert 'TimeoutError' in result['classification_warning']
+
+
+def test_invalid_classification_retries_then_preserves_constraints_and_exclusions(monkeypatch):
+    inventory = [{'id':'CAP-001','name':'Web channel'}, {'id':'CAP-002','name':'Reporting'},
+                 {'id':'CAP-003','name':'Voice bot','disposition':'future'}]
+    calls = []
+    agent = ScopeArchitectAgent(SimpleNamespace(),call_fn=lambda *a,**k: calls.append(1) or 'invalid JSON')
+    monkeypatch.setattr(agent,'_fallback_inventory',lambda _: inventory)
+    result = agent.architect({}, {}, 'Source', {'requested_deliverable_count':2,
+        'requested_deliverable_names':['Customer channels','Reporting']})
+    assert len(calls) == 2
+    assert [d['name'] for d in result['deliverables']] == ['Customer channels','Reporting']
+    assert [k for d in result['deliverables'] for m in d['modules'] for k in m['capability_ids']] == ['CAP-001','CAP-002']
+    assert result['open_boundaries'][0]['capability_id'] == 'CAP-003'
+    assert result['classification_warning']
+
+
 def test_explicit_refinement_deliverables_override_single_package_bias():
     requirements = {
         "key_deliverables": [
@@ -488,6 +539,7 @@ def test_scope_node_skips_when_scope_is_not_selected():
 def test_all_graphs_include_scope_architecture_before_pricing():
     for graph in (create_graph(), create_preview_graph(), create_fast_preview_graph()):
         edges = {(edge.source, edge.target) for edge in graph.get_graph().edges}
-        assert ("validate", "scope_architecture") in edges
+        assert ("validate", "solution_design") in edges
+        assert ("solution_design", "scope_architecture") in edges
         assert ("scope_architecture", "pricing") in edges
         assert ("validate", "pricing") not in edges

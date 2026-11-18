@@ -116,15 +116,17 @@ def test_stage_limit_cannot_multiply_across_pipeline_restarts():
     try:
         model.generate('Graph',task='diagram',call_name='Architecture Diagram')
         model.generate('Correct graph',task='diagram',call_name='Architecture Diagram')
-        with pytest.raises(RuntimeError,match='one corrective retry'):
-            model.generate('Third graph',task='diagram',call_name='Architecture Diagram')
+        model.generate('Third graph',task='diagram',call_name='Architecture Diagram')
+        with pytest.raises(RuntimeError,match='two corrective retries'):
+            model.generate('Fourth graph',task='diagram',call_name='Architecture Diagram')
         # A later independent stage still gets its own first and retry calls.
         model.generate('View',task='diagram',call_name='Architecture Narrative Composition')
         model.generate('Semantic repair',task='diagram',call_name='Architecture Plan Correction')
         model.generate('Repair transport retry',task='diagram',call_name='Architecture Plan Correction')
-        with pytest.raises(RuntimeError,match='one corrective retry'):
-            model.generate('Third repair',task='diagram',call_name='Architecture Plan Correction')
-        assert len(client.calls) == 5
+        model.generate('Third repair',task='diagram',call_name='Architecture Plan Correction')
+        with pytest.raises(RuntimeError,match='two corrective retries'):
+            model.generate('Fourth repair',task='diagram',call_name='Architecture Plan Correction')
+        assert len(client.calls) == 7
     finally:
         model_attempts.reset(ledger_token)
         pipeline_attempt.reset(run_token)
@@ -137,11 +139,11 @@ def test_revised_image_retains_its_review_and_transport_retry_allowance():
     model = BedrockLLM(_Config(),client)
     run_token, ledger_token = pipeline_attempt.set(1), model_attempts.set({})
     try:
-        for _ in range(4):
+        for _ in range(6):
             model.generate('Review', image_bytes=b'png', call_name='Architecture Narrative Image Review')
-        with pytest.raises(RuntimeError,match='corrective retry'):
+        with pytest.raises(RuntimeError,match='corrective retr'):
             model.generate('Review', image_bytes=b'png', call_name='Architecture Narrative Image Review')
-        assert len(client.calls) == 4
+        assert len(client.calls) == 6
     finally:
         model_attempts.reset(ledger_token)
         pipeline_attempt.reset(run_token)

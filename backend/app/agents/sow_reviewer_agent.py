@@ -166,7 +166,7 @@ class SOWReviewerAgent:
         try:
             # One attempt: a truncated correction is discarded, never partially applied.
             return BedrockLLM(self.config, client)._generate_once(
-                self.config.FAST_MODEL_ID, prompt, max_tokens=6000,
+                getattr(self.config, 'REVIEW_MODEL_ID', self.config.FAST_MODEL_ID), prompt, max_tokens=6000,
                 temperature=0.1, call_name='SOW Targeted Corrections').text
         finally:
             client.close()
@@ -223,7 +223,7 @@ class SOWReviewerAgent:
         record = {
             'created_at': now.isoformat(),
             'project': (context.get('metadata') or {}).get('project_title'),
-            'model': getattr(self.config, 'FAST_MODEL_ID', None),
+            'model': getattr(self.config, 'REVIEW_MODEL_ID', getattr(self.config, 'FAST_MODEL_ID', None)),
             'seconds': round(time.monotonic() - started, 2),
             'words_before': sum(len(v.split()) for v in original.values()),
             'words_after': sum(len(v.split()) for v in result.values()),
@@ -282,9 +282,7 @@ class SOWReviewerAgent:
               'Under modules use separate Markdown - bullets, each a short action sentence. Never merge bullet lists into paragraphs, '
               'even if that reduces word count. Do not put several sentences into one bullet. '
               'The architecture image is rendered separately: never emit ASCII art, Mermaid, code fences or text-box drawings. '
-              'Architecture prose explains the solution; do not add a second diagram or a service catalogue table. '
-              'Solution Architecture MUST be a list of short, one-sentence Markdown bullets, not flowing prose or paragraphs. '
-              'Group components by request flow, data/retrieval, handover and security only where relevant; remove repeated service explanations. '
+              'Solution Architecture: return only one Markdown table: Service name | Role in the project. Include every selected architecture service, including shared security, networking and operations. Give each component a brief project-specific role, normally 5-16 words. Keep repeated services with different purposes as separate rows. Order rows along the actual request/data flow, followed by shared controls; do not sort alphabetically. Do not invent services, deployment details or guarantees. The diagram is generated separately: no bullets, introductory prose, ASCII art, Mermaid or diagram code. '
               'To consolidate scope modules, return a separate correction with section, reason and module_groups (instead of after): '
               '{"section":"scope_of_work","module_groups":[{"deliverable":"exact deliverable heading text without hashes, or empty for a single unwrapped deliverable",'
               '"heading":"cohesive merged module name","modules":["exact old module name without hashes","another old module name"]}],"reason":"why these belong together"}. '

@@ -43,6 +43,16 @@ def test_request_database_replication_and_egress_edges_never_disappear_into_one_
     assert all(item['paths']==[[i]] for i,item in enumerate(links))
 
 
+def test_story_projection_uses_representative_replica_edges_without_deleting_graph():
+    value=spec();original=value.edges
+    value=replace(value,architecture_plan={**value.architecture_plan,'story_overview':True})
+    links,indices=projection(value)
+    assert value.edges==original
+    assert all(link['edge']==original[link['paths'][0][0]] for link in links)
+    assert any(e.source=='dba' and e.target=='dbb' for e in (l['edge'] for l in links))
+    assert len({e.target for e in (l['edge'] for l in links) if e.source=='entry'})==2
+
+
 def test_no_extra_subnets_or_standby_are_invented_for_a_shared_database():
     value=spec()
     nodes=tuple(n for n in value.nodes if n.id not in {'dba','dbb'})+(
@@ -92,3 +102,19 @@ def test_dependency_validation_ignores_explicit_omissions_but_keeps_real_require
     assert unlisted_dependencies(omitted)==[]
     omitted['capabilities'].append({'implementation':'Use Amazon S3 to store reports.'})
     assert any('Storage' in n or 'S3' in n for n in unlisted_dependencies(omitted))
+
+
+def test_migration_ingress_alignment_keeps_external_cards_apart():
+    value=spec()
+    value=replace(value,nodes=value.nodes+(
+        Node('dms','DMS','service',0,scope='az',vpc='App',availability_zone='a',subnet='private',placement_role='integration'),
+        Node('source','Source database','external',0,scope='external'),
+        Node('ops','Operations','actor',0,scope='external'),
+        Node('repo','Repository','external',0,scope='external'),
+    ),edges=value.edges+(Edge('source','dms'),Edge('dms','dba')))
+    positions,*_=geometry(value)
+    top=[positions[n.id] for n in value.nodes if n.scope=='external' and positions[n.id][1]==15]
+    for i,(x,y,w,h) in enumerate(top):
+        for xx,yy,ww,hh in top[i+1:]:
+            assert x+w<=xx or xx+ww<=x
+    assert positions['user'][0]==positions['entry'][0]

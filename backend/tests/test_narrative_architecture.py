@@ -138,8 +138,13 @@ def test_actual_xml_has_clear_routes_and_all_icons_in_correct_scopes(architectur
 def test_do_not_flatten_physical_deployment_or_multiple_accounts(architecture):
     spec, _, _ = architecture
     assert narrative.eligible(spec)
-    for changes in ({'scope':'vpc','subnet':'private'}, {'account':'another'}, {'region':'another'}):
-        assert not narrative.eligible(replace(spec,nodes=(replace(spec.nodes[0],**changes),)+spec.nodes[1:]))
+    assert not narrative.eligible(replace(spec,nodes=(replace(spec.nodes[0],scope='vpc',subnet='private'),)+spec.nodes[1:]))
+    for field in ('account','region'):
+        # An unspecified placeholder plus one real owner is one deployment;
+        # two explicitly different owners must never be flattened together.
+        assert narrative.eligible(replace(spec,nodes=(replace(spec.nodes[0],**{field:'named'}),)+spec.nodes[1:]))
+        multiple=(replace(spec.nodes[0],**{field:'first'}),replace(spec.nodes[1],**{field:'second'}))+spec.nodes[2:]
+        assert not narrative.eligible(replace(spec,nodes=multiple))
 
 
 def test_explicit_functional_deployment_view_preserves_scope_and_separate_exits(architecture):
@@ -162,7 +167,10 @@ def test_explicit_functional_deployment_view_preserves_scope_and_separate_exits(
     assert cells['vpc_0_az_0'].get('parent') == 'vpc_0'
     functional_parent = cells['vpc_0'].get('parent')
     assert cells[functional_parent].get('parent') == 'region'
-    assert all(cells[key].get('parent') == '1' for key in ('external','target2','target3'))
+    external_parent=cells['external'].get('parent')
+    assert all(cells[key].get('parent') == external_parent for key in ('external','target2','target3'))
+    assert cells[external_parent].get('parent') == '1'
+    assert cells[external_parent].get('value') == 'External systems'
     assert next(n for n in spec.nodes if n.id=='worker').vpc == 'Application VPC'
 
 
@@ -253,6 +261,44 @@ def test_actors_and_their_external_channels_have_distinct_entry_rows(architectur
     assert parents['channel'] == 'root'
     _,metrics = narrative.overview_xml(spec,registry)
     assert metrics['node_overlaps'] == metrics['connector_node_intersections'] == 0
+
+
+def test_busy_interfaces_keep_entry_and_integration_routes_separate():
+    raw = json.loads((Path(__file__).parent/'fixtures/multichannel_narrative.json').read_text(encoding='utf-8-sig'))
+    spec = DiagramSpec('Multichannel support',
+        tuple(Node(**n, layer=0) for n in raw['nodes']),
+        tuple(Edge(**e) for e in raw['edges']), architecture_plan=raw['architecture_plan'])
+    plan = spec.architecture_plan['narrative_view']
+    registry = AwsIconRegistry(Path(__file__).parents[1]/'assets')
+    before = copy.deepcopy(spec)
+    positions,boxes,parents,width,height = narrative.geometry(spec,plan)
+    cloud_bottom = boxes['cloud'][1]+boxes['cloud'][3]
+    # Reply-capable customer channels stay with their users, while incoming
+    # callbacks from business systems do not drag those systems into the header.
+    assert positions['bsp'][1]+positions['bsp'][3] < boxes['cloud'][1]
+    assert abs(positions['admins'][0]-positions['customers'][0]) >= 260
+    for key in ('crm','notif','idp','mixpanel','hybris','otp'):
+        assert positions[key][1] > cloud_bottom and parents[key] == 'root'
+    for key in ('cloudtrail','cloudwatch','kms','secrets','sns'):
+        assert parents[key] == 'region'
+        assert positions[key][1]+positions[key][3] < boxes['g1'][1]
+    xml,metrics = narrative.overview_xml(spec,registry)
+    assert metrics['connector_crossings'] <= 3
+    assert metrics['node_overlaps'] == metrics['connector_node_intersections'] == 0
+    assert metrics['ambiguous_connector_pairs'] == metrics['out_of_bounds'] == 0
+    assert spec == before
+    projected = narrative.projection(spec,plan)
+    covered = projected['internal']+projected['shared']+[i for link in projected['links'] for i in link['edge_indices']]
+    assert sorted(covered) == list(range(len(spec.edges)))
+    # Every selected AWS/user icon must actually embed, not silently turn into
+    # an anonymous rectangle; third-party systems retain neutral external cards.
+    cells = {cell.get('id'):cell for cell in ET.fromstring(xml).iter('mxCell')}
+    for node in spec.nodes:
+        if node.icon_key:
+            assert 'shape=image' in cells[node.id].get('style','')
+        elif node.scope == 'external':
+            assert 'spacing=10;' in cells[node.id].get('style','')
+    assert 'badge_cloud' in cells and 'badge_region' in cells
 
 
 def test_local_row_search_preserves_semantics_and_does_not_worsen_quality(architecture):
@@ -363,3 +409,28 @@ def test_actor_entry_routes_around_global_service(architecture, monkeypatch):
     assert metrics['connector_node_intersections'] == 0
     assert metrics['out_of_bounds'] == 0
     assert 'overview_link_' in xml
+
+
+def test_dense_runtime_routes_to_every_dependency_without_floating_endpoints():
+    raw=json.loads((Path(__file__).parent/'fixtures/dense_logical_routing.json').read_text())
+    spec=DiagramSpec(raw['title'],tuple(Node(**n) for n in raw['nodes']),
+        tuple(Edge(**e) for e in raw['edges']),architecture_plan=raw['architecture_plan'])
+    before=copy.deepcopy(spec)
+    registry=AwsIconRegistry(Path(__file__).parents[1]/'assets')
+    xml,metrics=narrative.overview_xml(spec,registry)
+    assert metrics['original_edges']==36
+    assert metrics['node_overlaps']==metrics['connector_node_intersections']==0
+    assert metrics['ambiguous_connector_pairs']==metrics['out_of_bounds']==0
+    assert metrics['long_connector_count']==0
+    assert spec==before
+    positions,boxes,*_=narrative.geometry(spec,spec.architecture_plan['narrative_view'])
+    bounds={**positions,**boxes}
+    root=ET.fromstring(xml)
+    assert root.find(".//mxCell[@id='card_lambda']") is not None
+    assert root.find(".//mxCell[@id='card_appconfig']") is not None
+    for edge in root.findall(".//mxCell[@edge='1']"):
+        for attr,point_name in [('overviewSource','sourcePoint'),('overviewTarget','targetPoint')]:
+            point=edge.find("mxGeometry/mxPoint[@as='"+point_name+"']")
+            x,y,w,h=bounds[edge.get(attr)]
+            assert x<=float(point.get('x'))<=x+w
+            assert y<=float(point.get('y'))<=y+h

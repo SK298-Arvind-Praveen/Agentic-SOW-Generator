@@ -8,6 +8,13 @@ import {
 } from './SOWPreviewMarkdown';
 
 describe('SOW preview Markdown', () => {
+  it('shows every service row and safely decodes literal cell characters', () => {
+    const { container } = render(<MarkdownRenderer markdown={'| Service name | Role in the project |\n| --- | --- |\n| Clinical &#124; Worker | Validates A &amp; B &lt;records&gt; |\n| Amazon S3 | Stores reports |'} />);
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(2);
+    expect(screen.getByText('Clinical | Worker')).toBeInTheDocument();
+    expect(screen.getByText('Validates A & B <records>')).toBeInTheDocument();
+    expect(container.querySelector('records')).toBeNull();
+  });
   it('renders Gantt activity cells with delivery and support colours', () => {
     const { container } = render(<MarkdownRenderer markdown={'| S.No | Activity | M1 | M2 |\n|---|---|---|---|\n|1|Build|■||\n|2|Support||◆|'} />);
     expect(container.querySelectorAll('table')).toHaveLength(1);

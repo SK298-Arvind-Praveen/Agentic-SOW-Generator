@@ -1,5 +1,5 @@
 /* ============================================================
-   SOW GENERATOR — Dark Purple Theme
+   SOW GENERATOR — Blue Theme
    ============================================================ */
 
 /* ── Main Container ── */
@@ -343,7 +343,7 @@ textarea.field-input:read-only {
   justify-content: space-between;
   align-items: center;
   padding: 16px 18px;
-  background: linear-gradient(135deg, rgba(2, 173, 239, 0.1) 0%, rgba(168, 85, 247, 0.06) 100%);
+  background: linear-gradient(135deg, rgba(2, 173, 239, 0.1) 0%, rgba(0, 39, 90, 0.06) 100%);
   border: 1px solid var(--border-accent);
   border-radius: var(--radius-xl);
   gap: 16px;
@@ -873,7 +873,7 @@ textarea.field-input:read-only {
 .preview-content-section:hover { background: var(--bg-surface); }
 
 .preview-content-section.edited-section {
-  background: rgba(123, 63, 242, 0.05);
+  background: rgba(0, 39, 90, 0.05);
   border-left: 3px solid var(--accent);
 }
 
@@ -1114,7 +1114,7 @@ textarea.field-input:read-only {
   background: var(--gradient-brand);
   border-radius: var(--radius-full);
   transition: width 0.4s ease;
-  box-shadow: 0 0 8px rgba(123, 63, 242, 0.4);
+  box-shadow: 0 0 8px rgba(0, 39, 90, 0.4);
 }
 
 .current-step-section {
@@ -1393,7 +1393,7 @@ textarea.field-input:read-only {
 
 .section-input-textarea:focus {
   outline: none;
-  background: rgba(123, 63, 242, 0.03);
+  background: rgba(0, 39, 90, 0.03);
 }
 
 .section-input-textarea::placeholder { color: var(--text-muted); }
@@ -1422,7 +1422,7 @@ textarea.field-input:read-only {
 }
 
 .review-preview-button:hover {
-  background: rgba(123, 63, 242, 0.08);
+  background: rgba(0, 39, 90, 0.08);
   transform: translateY(-1px);
 }
 
@@ -1743,7 +1743,7 @@ textarea.field-input:read-only {
   margin-bottom: 8px;
 }
 
-.preview-progress-bar { height: 100%; background: var(--gradient-brand); border-radius: var(--radius-full); box-shadow: 0 0 8px rgba(123, 63, 242, 0.5); }
+.preview-progress-bar { height: 100%; background: var(--gradient-brand); border-radius: var(--radius-full); box-shadow: 0 0 8px rgba(0, 39, 90, 0.5); }
 .preview-progress-fill { height: 100%; background: var(--gradient-brand); transition: width 0.4s ease; }
 .preview-progress-text { font-size: 11px; color: var(--text-muted); }
 

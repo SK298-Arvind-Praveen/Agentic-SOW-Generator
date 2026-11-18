@@ -75,6 +75,7 @@ class AwsPricingTests(unittest.TestCase):
     def setUp(self):
         self.config = SimpleNamespace(
             AWS_PRICING_ENABLED=True,
+            AWS_PRICING_ESTIMATE_MISSING=False,
             WRITER_MODEL_ID="writer",
             AWS_PRICING_COST_READER=Path("missing"),
             AWS_PRICING_NODE_BINARY="node",
@@ -192,7 +193,7 @@ class AwsPricingTests(unittest.TestCase):
         self.assertIn("| AWS infrastructure | 12.50 |", content)
         self.assertNotIn("AWS ARR", content)
         self.assertIn("calculator.aws", content)
-        self.assertGreater(content.index("calculator.aws"), content.index("| Item |"))
+        self.assertLess(content.index("calculator.aws"), content.index("| Item |"))
 
     def test_renderer_places_volume_metrics_before_cost_summary(self):
         content = render_aws_pricing_section({
@@ -203,7 +204,7 @@ class AwsPricingTests(unittest.TestCase):
             "volume_metrics": [{"metric": "Monthly conversations", "value": "100,000"}],
         })
         self.assertIn("| Monthly conversations | 100,000 |", content)
-        self.assertTrue(all(line.startswith('|') for line in content.splitlines() if line.strip()))
+        self.assertTrue(all(line.startswith('|') for line in content.splitlines()[2:] if line.strip()))
 
     def test_renderer_does_not_expose_unresolved_calculator_fields(self):
         content = render_aws_pricing_section({
@@ -235,14 +236,14 @@ class AwsPricingTests(unittest.TestCase):
         content = render_aws_pricing_section({"status": "needs_input", "currency": "USD"})
         self.assertNotIn("Annual interaction volume", content)
         self.assertNotIn("Monthly interaction volume", content)
-        self.assertIn("| AWS infrastructure |  |  |", content)
+        self.assertIn("| AWS infrastructure | Pending | Sizing inputs require confirmation |", content)
         self.assertNotIn("AWS ARR", content)
         self.assertNotIn("not provided", content.casefold())
         self.assertNotIn("pending completion", content.casefold())
 
     def test_renderer_blocks_stale_pricing_from_looking_current(self):
         content = render_aws_pricing_section({"status": "stale", "monthly_cost": "99.00"})
-        self.assertIn("| AWS infrastructure |  |  |", content)
+        self.assertIn("| AWS infrastructure | Pending | Sizing inputs require confirmation |", content)
         self.assertNotIn("99.00", content)
 
     def test_volumetric_fallback_produces_a_visible_planning_range(self):
@@ -434,7 +435,7 @@ class AwsPricingTests(unittest.TestCase):
 
     def test_renderer_exposes_plain_calculator_url_on_one_line(self):
         content = render_aws_pricing_section({"status": "needs_input"})
-        self.assertIn("| AWS infrastructure |  |  |", content)
+        self.assertIn("| AWS infrastructure | Pending | Sizing inputs require confirmation |", content)
         self.assertNotIn("](https://calculator.aws/)", content)
 
     def test_vendored_mcp_runtime_handshake(self):
@@ -447,3 +448,33 @@ class AwsPricingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_service_resolution_never_chooses_first_unrelated_database():
+    hits=[{'name':'Amazon RDS for Oracle','key':'oracle'},
+          {'name':'Amazon RDS for PostgreSQL','key':'postgres'}]
+    assert AwsPricingService._select_service_hit(hits,'Amazon RDS for PostgreSQL')['key']=='postgres'
+    assert AwsPricingService._select_service_hit(hits,'Amazon RDS') is None
+    assert AwsPricingService._select_service_hit(hits,'Amazon VPC') is None
+
+
+def test_pending_pricing_explains_region_mismatch():
+    text=render_aws_pricing_section({'status':'needs_input','region':'ap-south-1',
+        'region_warning':'Source requires eu-west-2; selected ap-south-1.'})
+    assert 'Pending' in text and 'Source requires eu-west-2' in text
+
+
+def test_database_and_alb_aliases_select_verified_calculator_products():
+    assert AwsPricingService._calculator_service_code('Amazon RDS for PostgreSQL')[0]=='amazonRDSPostgreSQLDB'
+    assert AwsPricingService._calculator_service_code('Internal ALB')[0]=='applicationLoadBalancer'
+
+
+def test_cloudtrail_optional_data_events_are_not_required_for_management_audit():
+    contract={'fields':[{'id':key} for key in ['numberOfWriteEvents','numberOfS3Ops','numberOfLambdaOps','numberOfNetworkActivityEvents']]}
+    service={'service_name':'AWS CloudTrail','usage_facts':{'audit':'management API activity'}}
+    active=AwsPricingService._active_field_contract(contract,service)
+    assert [f['id'] for f in active['fields']]==['numberOfWriteEvents']
+    service['usage_facts']['audit']='management and S3 data events'
+    active=AwsPricingService._active_field_contract(contract,service)
+    assert [f['id'] for f in active['fields']]==['numberOfWriteEvents','numberOfS3Ops']
+    assert len(contract['fields'])==4

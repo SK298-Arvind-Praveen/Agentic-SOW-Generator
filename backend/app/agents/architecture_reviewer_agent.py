@@ -163,11 +163,16 @@ def _call(service, prompt, deadline, image=None, planner=False, call_name=None):
         raise TimeoutError('Diagram review time budget exhausted')
     # Independent client prevents the generation client's long timeouts/retries
     # from turning an optional visual check into another multi-minute stall.
+    # TLS image uploads also use the connection socket's timeout. Five seconds
+    # caused intermittent SSL write/connection-closed failures for full diagrams.
+    # Allocate transport time from, rather than beyond, the shared deadline.
+    transport_timeout = min(30, max(1, remaining/3))
     client = boto3.client('bedrock-runtime', region_name=service.config.BEDROCK_REGION,
                          aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
                          aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
                          aws_session_token=os.getenv('AWS_SESSION_TOKEN'),
-                         config=SDKConfig(connect_timeout=5, read_timeout=max(1, remaining-3),
+                         config=SDKConfig(connect_timeout=transport_timeout,
+                                          read_timeout=max(1, remaining-transport_timeout-3),
                                           retries={'total_max_attempts': 1}))
     try:
         from app.diagram.reliability import pipeline_attempt

@@ -5,7 +5,8 @@
   "templateId": "template",
   "status": "verified",
   "traps": [
-    "vcpuPerTask is a dropdown of fixed values: 0.25, 0.5, 1, 2, 4, 8, 16. Off-list values silently rehydrate as the field's default."
+    "vcpuPerTask is a dropdown of fixed values: 0.25, 0.5, 1, 2, 4, 8, 16. Off-list values silently rehydrate as the field's default.",
+    "Memory is conditional on vCPU: 0.25 uses smallMemory; 0.5, 1, 2 and 4 use memoryStandardFargateOnDemand as {value: memoryGB, unit: gb|NA}; 8 uses smallMemory_8 and 16 uses smallMemory_16. Never use smallMemory for 0.5 vCPU."
   ],
   "minimalConfig": {
     "region": "us-east-1",

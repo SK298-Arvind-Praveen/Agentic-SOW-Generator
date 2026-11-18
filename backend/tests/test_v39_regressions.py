@@ -1,7 +1,7 @@
 from pathlib import Path
 from docx import Document
 from app.core.section_formats import sequence_gantt_rows, sequence_gantt_markdown
-from app.document.document_builder import DocumentBuilder, PURPLE
+from app.document.document_builder import DocumentBuilder, BRAND_BLUE
 from app.pricing.renderer import render_aws_pricing_section
 
 
@@ -30,12 +30,12 @@ def test_correct_timeline_and_non_gantt_are_unchanged():
     assert sequence_gantt_markdown('A normal paragraph.') == 'A normal paragraph.'
 
 
-def test_headings_all_purple_and_one_point_five_spacing():
+def test_headings_all_brand_blue_and_one_point_five_spacing():
     builder = DocumentBuilder.__new__(DocumentBuilder)
     builder.doc = Document()
     builder._configure_styles()
     for name in ['Heading 1', 'Heading 2', 'Heading 3', 'Heading 4']:
-        assert str(builder.doc.styles[name].font.color.rgb) == PURPLE
+        assert str(builder.doc.styles[name].font.color.rgb) == BRAND_BLUE
         assert builder.doc.styles[name].paragraph_format.line_spacing == 1.5
 
 

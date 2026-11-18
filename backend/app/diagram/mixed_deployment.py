@@ -33,21 +33,124 @@ def ownership(spec):
     return owner,vpcs,vpc_owner
 
 
+def audiences(spec):
+    """Group only human actors with identical directed overview destinations.
+
+    This is a presentation boundary, not an authentication or processing hop.
+    Individual actors and every original service-level edge remain available.
+    """
+    from app.diagram.narrative_boundaries import controls
+    owner, _, _ = ownership(spec)
+    support = controls(spec)
+    candidates = [n.id for n in spec.nodes if n.scope == 'external' and
+                  (n.kind == 'actor' or '.general-icons.user' in n.icon_key)]
+    buckets = {}
+    for key in candidates:
+        # Incoming responses can carry role-specific semantics: keep those
+        # actors separate rather than treating an audience as a two-way peer.
+        if any(e.target == key for e in spec.edges):
+            continue
+        targets = frozenset(owner.get(e.target, e.target) for e in spec.edges
+                            if e.source == key and e.target not in support)
+        if len(targets) >= 2:
+            buckets.setdefault(targets, []).append(key)
+    groups = {}
+    occupied = {n.id for n in spec.nodes} | set(owner.values())
+    for members in buckets.values():
+        if len(members) < 2:
+            continue
+        key = '__audience_' + str(len(groups))
+        while key in occupied:
+            key += '_'
+        groups[key] = members
+        occupied.add(key)
+    return groups
+
+
+def interface_groups(spec):
+    groups = audiences(spec)
+    owner, _, _ = ownership(spec)
+    buckets = {}
+    for node in spec.nodes:
+        if node.scope != 'external' or node.kind == 'actor' or '.general-icons.user' in node.icon_key:
+            continue
+        if any(e.source == node.id for e in spec.edges):
+            continue
+        sources = frozenset(owner.get(e.source, e.source) for e in spec.edges if e.target == node.id)
+        if sources:
+            buckets.setdefault(sources, []).append(node.id)
+    occupied = {n.id for n in spec.nodes} | set(owner.values()) | set(groups)
+    for members in buckets.values():
+        if len(members) < 2:continue
+        key = '__integrations_' + str(len(groups))
+        while key in occupied:key += '_'
+        groups[key] = members
+        occupied.add(key)
+    return groups
+
+
+def audience_geometry(spec, data):
+    groups = interface_groups(spec)
+    if not groups:
+        return data
+    pos, boxes, parents, width, height, captions, kinds = data
+    # Reserve a heading above the actor cards, retaining their individual icons.
+    for collection in (pos, boxes):
+        for key, (x, y, w, h) in list(collection.items()):
+            collection[key] = (x, y + 40, w, h)
+    rails = {}
+    for node in spec.nodes:
+        if node.scope == 'external' and parents[node.id] == 'root':
+            rails.setdefault(pos[node.id][1], []).append(node.id)
+    for members_on_rail in rails.values():
+        ordered = [k for members in groups.values() for k in members if k in members_on_rail]
+        ordered += [k for k in sorted(members_on_rail,key=lambda k:pos[k][0]) if k not in ordered]
+        for key, rect in zip(ordered, sorted(pos[k] for k in members_on_rail)):
+            pos[key] = rect
+    for key, members in groups.items():
+        left = min(pos[k][0] for k in members) - 12
+        top = min(pos[k][1] for k in members) - 32
+        right = max(pos[k][0] + pos[k][2] for k in members) + 12
+        bottom = max(pos[k][1] + pos[k][3] for k in members) + 12
+        boxes[key] = (left, top, right-left, bottom-top)
+        parents[key], captions[key], kinds[key] = 'root', ('User access' if key.startswith('__audience_') else 'External systems'), 'functional'
+        for member in members:
+            parents[member] = key
+    return pos, boxes, parents, width, height + 40, captions, kinds
+
+
 def projection(spec):
     from app.diagram.narrative_boundaries import controls
     from app.diagram.service import Edge
     owner,_,_=ownership(spec);support=controls(spec);pairs={};links=[]
+    actor_owner = {k:g for g, members in interface_groups(spec).items() for k in members}
+    owner.update(actor_owner)
+    local_pairs = {}
     labels={(l['source'],l['target']):l['label'] for l in spec.architecture_plan['narrative_view'].get('links',[])}
     for i,e in enumerate(spec.edges):
         if e.source in support or e.target in support:continue
         a,b=owner.get(e.source,e.source),owner.get(e.target,e.target)
-        if a==b:links.append({'edge':e,'paths':[[i]]})
+        if a==b:local_pairs.setdefault((e.source,e.target),[]).append(i)
         else:pairs.setdefault((a,b),[]).append(i)
+    # One connector per service pair; use two arrowheads only when the graph
+    # actually contains both directions. Never remove an intermediate service.
+    local_done = set()
+    for (a,b), indices in local_pairs.items():
+        if (a,b) in local_done:continue
+        reverse = local_pairs.get((b,a),[]) if a != b else []
+        local_done.update({(a,b),(b,a)})
+        texts = list(dict.fromkeys(spec.edges[i].label for i in indices+reverse if spec.edges[i].label))
+        links.append({'edge':Edge(a,b,' / '.join(texts)), 'paths':[[i] for i in indices+reverse],
+                      'both':bool(reverse)})
     done=set()
     for (a,b),indices in pairs.items():
         if (a,b) in done:continue
         reverse=pairs.get((b,a),[]);done.update({(a,b),(b,a)})
         label=labels.get((a,b)) or labels.get((b,a)) or spec.edges[indices[0]].label
+        if a in actor_owner.values():
+            label='Web access' if any(n.id==b and 'cloudfront' in n.icon_key for n in spec.nodes) else 'App access'
+        if b.startswith('__integrations_'):
+            label='External calls'
         links.append({'edge':Edge(a,b,label),'paths':[[i] for i in indices+reverse],
                       'both':bool(reverse),'interface':True})
     return links,sorted(i for l in links for path in l['paths'] for i in path)
@@ -61,22 +164,82 @@ def routes(view,positions,boxes,parents,width,height,deadline,captions,links):
     """
     from dataclasses import replace
     from app.diagram.review import local_routes,geometry_report
-    group_ids={g['id'] for g in view.architecture_plan['narrative_view']['groups']}
+    iconic=bool(view.architecture_plan.get('story_overview'))
+    group_ids={g['id'] for g in view.architecture_plan['narrative_view']['groups']} | {k for k in boxes if k.startswith(('__audience_','__integrations_'))}
     indices=[i for i,l in enumerate(links) if not l.get('interface')]
     peers=[i for i in range(len(view.edges)) if i not in indices]
     result=[None]*len(view.edges)
+    from app.diagram.compact_mixed import enabled as compact
+    if compact(view):
+        # Internal connectors cannot escape their functional tile to find a
+        # cheaper page-wide detour. Smaller routing grids also avoid timeouts.
+        for group in view.architecture_plan['narrative_view']['groups']:
+            gid=group['id'];gx,gy,gw,gh=boxes[gid]
+            def belongs(key):
+                while key in parents and key!=gid:key=parents[key]
+                return key==gid
+            p={k:(x-gx,y-gy,w,h) for k,(x,y,w,h) in positions.items() if belongs(k)}
+            b={k:(x-gx,y-gy,w,h) for k,(x,y,w,h) in boxes.items() if belongs(k)}
+            par={k:('root' if k==gid else parents[k]) for k in {*p,*b}}
+            selected=[i for i in indices if view.edges[i].source in p and view.edges[i].target in p]
+            if not selected:continue
+            subset=replace(view,edges=tuple(view.edges[i] for i in selected))
+            paths=local_routes(subset,p,b,par,gw,gh,deadline,captions,iconic,True,24,True)
+            def local_score(candidate):
+                m=geometry_report(subset,p,candidate)
+                return (m['ambiguous_connector_pairs'],m['connector_crossings'],
+                        m['connector_length_normalized'],m['connector_bends'])
+            best=local_score(paths)
+            orders=[list(reversed(range(len(selected)))),sorted(range(len(selected)),key=lambda i:
+                abs(p[subset.edges[i].source][0]-p[subset.edges[i].target][0])+abs(p[subset.edges[i].source][1]-p[subset.edges[i].target][1]))]
+            for order in orders:
+                if time.monotonic()>deadline-2:break
+                try:
+                    trial=local_routes(replace(subset,edges=tuple(subset.edges[i] for i in order)),p,b,par,
+                                       gw,gh,deadline,captions,iconic,True,24,True)
+                    restored=[None]*len(selected)
+                    for i,path in zip(order,trial):restored[i]=path
+                    score=local_score(restored)
+                    if score<best:paths,best=restored,score
+                except (ValueError,TimeoutError):pass
+            for i,path in zip(selected,paths):result[i]=[(x+gx,y+gy) for x,y in path]
+        indices=[]
     for selected,p,b,par in [
         (indices,positions,boxes,parents),
-        (peers,{**{k:v for k,v in positions.items() if not any(k in row for g in view.architecture_plan['narrative_view']['groups'] for row in g['rows'])},
+        (peers,{**{k:v for k,v in positions.items() if parents.get(k)=='regional_controls' or not any(k in row for g in view.architecture_plan['narrative_view']['groups'] for row in g['rows'])},
                 **{k:boxes[k] for k in group_ids},
-                **({'regional_controls':boxes['regional_controls']} if 'regional_controls' in boxes else {})},
-         {k:v for k,v in boxes.items() if k in {'cloud','account','region'}},parents)]:
+                **({'regional_controls':boxes['regional_controls']} if 'regional_controls' in boxes and not compact(view) else {})},
+         {**{k:v for k,v in boxes.items() if k in {'cloud','account','region'}},
+          **({'control_heading':(*boxes['regional_controls'][:2],400,38)}
+             if compact(view) and 'regional_controls' in boxes else {})},parents)]:
+        if not selected:continue
         subset=replace(view,edges=tuple(view.edges[i] for i in selected))
-        paths=local_routes(subset,p,b,par,
-                           width,height,deadline,captions,False,True,24,True)
-        if selected is indices and len(selected)>1:
+        sides={}
+        if compact(view) and selected is peers:
+            for edge in subset.edges:
+                a,z=p[edge.source],p[edge.target]
+                if edge.source in group_ids and parents.get(edge.target)=='root':
+                    if z[1]>boxes['cloud'][1]+boxes['cloud'][3]:
+                        sides[(edge.source,edge.target)]={edge.source:{'bottom'},edge.target:{'top'}}
+                    elif z[1]<boxes['cloud'][1]:
+                        sides[(edge.source,edge.target)]={edge.source:{'top'},edge.target:{'bottom'}}
+                elif parents.get(edge.source)=='root' and a[1]+a[3]<z[1]:
+                    sides[(edge.source,edge.target)]={edge.source:{'bottom'},edge.target:{'top'}}
+        crossing_penalty=350 if compact(view) else 180
+        def route(candidate):
+            return local_routes(candidate,p,b,par,width,height,deadline,captions,iconic,True,24,True,terminal_sides=sides,
+                                crossing_penalty=crossing_penalty)
+        try:paths=route(subset)
+        except (ValueError,TimeoutError):
+            if not sides:raise
+            sides={};paths=route(subset)
+        if len(selected)>1 and (selected is indices or compact(view)):
             def score(candidate):
-                m=geometry_report(subset,p,candidate)
+                if compact(view) and selected is peers:
+                    combined=list(result)
+                    for i,path in zip(selected,candidate):combined[i]=path
+                    m=geometry_report(view,positions,combined)
+                else:m=geometry_report(subset,p,candidate)
                 return (m['connector_node_intersections'],m['ambiguous_connector_pairs'],
                         m['connector_crossings']*8+m['connector_length_normalized']*18+
                         m['connector_bends']*2+m['long_connector_count']*30)
@@ -84,22 +247,54 @@ def routes(view,positions,boxes,parents,width,height,deadline,captions,links):
             def span(i):
                 e=subset.edges[i];a,z=p[e.source],p[e.target]
                 return abs(a[0]-z[0])+abs(a[1]-z[1])
-            for order in (list(reversed(range(len(selected)))),sorted(range(len(selected)),key=span,reverse=True)):
+            for order in (list(reversed(range(len(selected)))),sorted(range(len(selected)),key=span,reverse=True),
+                          sorted(range(len(selected)),key=span)):
                 if time.monotonic()>deadline-2:break
                 try:
-                    candidate=local_routes(replace(subset,edges=tuple(subset.edges[i] for i in order)),p,b,par,
-                                           width,height,deadline,captions,False,True,24,True)
+                    candidate=route(replace(subset,edges=tuple(subset.edges[i] for i in order)))
                 except (ValueError,TimeoutError):
                     continue  # Optional improvement cannot discard valid routes.
                 restored=[None]*len(selected)
                 for i,path in zip(order,candidate):restored[i]=path
                 candidate_score=score(restored)
                 if candidate_score<best:paths,best=restored,candidate_score
+            if sides and compact(view):
+                # Entry-side preferences are cosmetic. Compare unrestricted
+                # routes too; forcing a port must not create a page-wide loop.
+                sides={}
+                for order in (list(range(len(selected))),list(reversed(range(len(selected)))),
+                              sorted(range(len(selected)),key=span)):
+                    if time.monotonic()>deadline-2:break
+                    try:
+                        trial=route(replace(subset,edges=tuple(subset.edges[i] for i in order)))
+                        restored=[None]*len(selected)
+                        for i,path in zip(order,trial):restored[i]=path
+                        trial_score=score(restored)
+                        if trial_score<best:paths,best=restored,trial_score
+                    except (ValueError,TimeoutError):continue
+            if compact(view) and selected is peers:
+                for crossing_penalty in (180,700):
+                    for order in (list(range(len(selected))),list(reversed(range(len(selected)))),sorted(range(len(selected)),key=span)):
+                        if time.monotonic()>deadline-2:break
+                        try:
+                            trial=route(replace(subset,edges=tuple(subset.edges[i] for i in order)))
+                            restored=[None]*len(selected)
+                            for i,path in zip(order,trial):restored[i]=path
+                            trial_score=score(restored)
+                            if trial_score<best:paths,best=restored,trial_score
+                        except (ValueError,TimeoutError):continue
         for i,path in zip(selected,paths):result[i]=path
     return result
 
 
 def geometry(spec, ordering=None):
+    return audience_geometry(spec, _geometry(spec, ordering))
+
+
+def _geometry(spec, ordering=None):
+    from app.diagram import compact_mixed
+    if compact_mixed.enabled(spec):
+        return compact_mixed.geometry(spec, ordering)
     from app.diagram.narrative_boundaries import controls
     from app.diagram.tiered_deployment import subnet_order
     support=controls(spec);nodes={n.id:n for n in spec.nodes}

@@ -45,7 +45,7 @@ def run_test():
 
         "project_overview": """
         This document is created to validate:
-        - Footer violet divider
+        - Footer blue divider
         - Correct TOC page numbers
         """,
 

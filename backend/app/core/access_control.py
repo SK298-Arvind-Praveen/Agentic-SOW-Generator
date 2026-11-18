@@ -8,6 +8,8 @@ import logging
 import hashlib
 import hmac
 import secrets
+import time
+from logging.handlers import RotatingFileHandler
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from functools import wraps
@@ -18,13 +20,29 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from botocore.config import Config as BotoConfig
 from dotenv import load_dotenv
-from flask import g, jsonify, request
+from flask import g, jsonify, request, has_request_context
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
 load_dotenv(Path(__file__).resolve().parents[2] / "config" / ".env")
 logger = logging.getLogger(__name__)
+availability_logger = logging.getLogger('sow.auth.availability')
+
+
+def configure_auth_diagnostics():
+    """Persist safe identity-store diagnostics even when launched in a terminal."""
+    if availability_logger.handlers or os.getenv('PYTEST_CURRENT_TEST'):
+        return
+    try:
+        target = Path(__file__).resolve().parents[2] / 'output' / 'auth-availability.log'
+        target.parent.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(target, maxBytes=2_000_000, backupCount=3, encoding='utf-8')
+        handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+        availability_logger.addHandler(handler)
+        availability_logger.setLevel(logging.INFO)
+    except OSError:
+        logger.warning('Could not open authentication diagnostic log; using console logging')
 
 BUSINESS_UNITS = (
     "GenAI",
@@ -149,9 +167,14 @@ class Identity:
 class AuthServiceUnavailable(RuntimeError):
     """The identity store could not be read; this is not invalid credentials."""
 
+    def __init__(self, message='Authentication service temporarily unavailable', *, retryable=True):
+        super().__init__(message)
+        self.retryable = retryable
+
 
 class RBACStore:
     def __init__(self) -> None:
+        configure_auth_diagnostics()
         region = os.getenv("AWS_REGION", "us-east-1")
         table_name = os.getenv("DYNAMODB_TABLE_RBAC", "agentic-sow-rbac")
         self.table = boto3.resource(
@@ -160,22 +183,43 @@ class RBACStore:
             aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
             aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
             aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
-            config=BotoConfig(connect_timeout=2, read_timeout=3, retries={"max_attempts": 1}),
+            config=BotoConfig(connect_timeout=5, read_timeout=8,
+                              retries={"mode": "standard", "total_max_attempts": 2}),
         ).Table(table_name)
 
     def get_user(self, email: str) -> Optional[Dict[str, Any]]:
         email = email.casefold().strip()
+        started = time.monotonic()
+        route = (request.url_rule.rule if request.url_rule else request.path) if has_request_context() else 'background'
         try:
             response = self.table.get_item(
                 Key={"PK": f"USER#{email}", "SK": "PROFILE"}, ConsistentRead=True,
             )
+            metadata = response.get('ResponseMetadata', {})
+            if metadata.get('RetryAttempts', 0):
+                availability_logger.info('identity_read recovered route=%s elapsed_ms=%d sdk_retries=%s request_id=%s',
+                    route, (time.monotonic()-started)*1000, metadata['RetryAttempts'], metadata.get('RequestId', ''))
             return response.get("Item")
         except (BotoCoreError, ClientError) as exc:
             code = (exc.response.get("Error", {}).get("Code", "ClientError")
                     if isinstance(exc, ClientError) else type(exc).__name__)
+            retryable = code in {
+                'ThrottlingException', 'Throttling', 'ProvisionedThroughputExceededException',
+                'RequestLimitExceeded', 'InternalServerError', 'ServiceUnavailable',
+                'ServiceUnavailableException', 'RequestTimeout', 'RequestTimeoutException',
+                'EndpointConnectionError', 'ConnectionClosedError', 'ConnectTimeoutError',
+                'ReadTimeoutError', 'HTTPClientError',
+            }
+            if code == 'SSLError':
+                # Only a TLS transport timeout is transient; certificate errors
+                # remain hard failures and certificate validation stays enabled.
+                retryable = any(term in str(exc).lower() for term in ('timed out', 'did not complete (write)'))
+            metadata = exc.response.get('ResponseMetadata', {}) if isinstance(exc, ClientError) else {}
             # Do not log credentials, tokens, password hashes or the user item.
-            logger.error("[AUTH] Identity store unavailable: %s; check AWS credentials, permissions and connectivity", code)
-            raise AuthServiceUnavailable("Authentication service temporarily unavailable") from exc
+            availability_logger.error('identity_read failed code=%s retryable=%s route=%s elapsed_ms=%d sdk_retries=%s request_id=%s',
+                code, retryable, route, (time.monotonic()-started)*1000,
+                metadata.get('RetryAttempts', ''), metadata.get('RequestId', ''))
+            raise AuthServiceUnavailable(retryable=retryable) from exc
 
     def authenticate(self, email: str, password: str) -> Optional[Identity]:
         email = email.casefold().strip()

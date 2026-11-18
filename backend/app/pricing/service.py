@@ -29,7 +29,7 @@ def _json_object(text: str) -> Dict[str, Any]:
     if start < 0 or end <= start:
         return {}
     try:
-        parsed = json.loads(value[start:end + 1])
+        parsed, _ = json.JSONDecoder().raw_decode(value[start:])
         return parsed if isinstance(parsed, dict) else {}
     except json.JSONDecodeError:
         return {}
@@ -91,6 +91,36 @@ def _field_contracts(fields: Any) -> Dict[str, Dict[str, Any]]:
 
 
 CALCULATOR_SERVICE_CODES = {
+    'waf': ('awsWebApplicationFirewall', 'AWS Web Application Firewall'),
+    'inspector': ('amazonInspector', 'Amazon Inspector'),
+    'sqs': ('amazonSimpleQueueService', 'Amazon Simple Queue Service'),
+    'simple queue service': ('amazonSimpleQueueService', 'Amazon Simple Queue Service'),
+
+    'fargate': ('awsFargate', 'AWS Fargate'),
+    'nat gateway': ('networkAddressTranslationNatGatewayVpc', 'NAT Gateway'),
+    'privatelink': ('awsPrivateLinkVpc', 'AWS PrivateLink'),
+    'interface endpoint': ('awsPrivateLinkVpc', 'AWS PrivateLink'),
+    'kms': ('awsKeyManagementService', 'AWS Key Management Service'),
+    'key management service': ('awsKeyManagementService', 'AWS Key Management Service'),
+    'textract': ('amazonTextract', 'Amazon Textract'),
+    'cloudwatch logs': ('amazonCloudWatch', 'Amazon CloudWatch'),
+    'cloudtrail': ('awsCloudTrail', 'AWS CloudTrail'),
+    'cloudformation': ('awsCloudFormation', 'AWS CloudFormation'),
+    'cost explorer': ('awsCostExplorer', 'AWS Cost Explorer'),
+    'budgets': ('awsBudgets', 'AWS Budgets'),
+    'certificate manager': ('amazonCertificateManager', 'AWS Certificate Manager'),
+    'route 53': ('amazonRoute53', 'Amazon Route 53'),
+    'datasync': ('aWSDataSync', 'AWS DataSync'),
+    'fault injection': ('awsFaultINjectorSimulator', 'AWS Fault Injection Service'),
+
+    'rds for postgresql': ('amazonRDSPostgreSQLDB', 'Amazon RDS for PostgreSQL'),
+    'rds postgresql': ('amazonRDSPostgreSQLDB', 'Amazon RDS for PostgreSQL'),
+    'aurora postgresql': ('amazonRDSAuroraPostgreSQLCompatibleDB', 'Amazon Aurora PostgreSQL-Compatible DB'),
+    'application load balancer': ('applicationLoadBalancer', 'Application Load Balancer'),
+    'internal alb': ('applicationLoadBalancer', 'Application Load Balancer'),
+    'aws dms': ('awsDatabaseMigrationService', 'AWS Database Migration Service'),
+    'database migration service': ('awsDatabaseMigrationService', 'AWS Database Migration Service'),
+    'amazon ec2': ('ec2Enhancement', 'Amazon EC2'),
     "bedrock": ("amazon", "Amazon Bedrock (Amazon model provider)"),
     "sagemaker": ("sageMakerServerlessInference", "Amazon SageMaker Serverless Inference"),
     "api gateway": ("amazonApiGateway", "Amazon API Gateway"),
@@ -190,7 +220,9 @@ class AwsPricingService:
                     'previous_monthly_cost': metadata.get('pricing_previous_monthly_cost'),
                     'result': {k: (result or {}).get(k) for k in ('status', 'monthly_cost', 'calculator_monthly_cost', 'rejected_monthly_cost',
                         'cost_read_attempts', 'cost_read_warning', 'missing_inputs', 'error', 'fallback_estimate',
-                        'calculator_priced_services', 'calculator_planned_services', 'volume_metrics')}}, default=str))
+                        'calculator_priced_services', 'calculator_planned_services', 'volume_metrics',
+                        'sizing_details', 'estimate_url', 'calculator_entries', 'calculator_build_attempts',
+                        'zero_cost_services', 'calculator_config_summaries')}}, default=str))
             except OSError:
                 logger.exception('Could not write pricing audit %s', audit_id)
 
@@ -235,6 +267,8 @@ class AwsPricingService:
             if source_region and _normalise_evidence(source_region) not in _normalise_evidence(source_text):
                 source_region = ""
             region = str(metadata.get("pricing_region") or source_region).strip()
+            if metadata.get('pricing_region'):
+                base['region_basis'] = 'Website selection (overrides document region)'
             if region and not _valid_aws_region(region):
                 base["missing_inputs"].append({
                     "field": "AWS region",
@@ -250,6 +284,22 @@ class AwsPricingService:
 
             planned_services = self._validated_plan_services(plan, candidates, source_text)
             base["volume_metrics"] = self._validated_volume_metrics(plan, source_text)
+            estimating = getattr(self.config, 'AWS_PRICING_ESTIMATE_MISSING', True)
+            if estimating:
+                by_name = {_normalise_evidence(s['service_name']): s for s in planned_services}
+                planned_services = [by_name.get(_normalise_evidence(name), {
+                    'service_name':name, 'environment':'POC' if 'poc' in source_text.lower() else 'Shared',
+                    'usage_facts':{}, 'evidence_quote':'Proposed architecture service'
+                }) for name in candidates]
+                for service in planned_services:
+                    service['_estimate_missing'] = True
+                    service['_sizing_context'] = select_section_evidence(source_text,
+                        'AWS architecture sizing traffic users documents capacity volume retention duration',
+                        requirements=requirements,max_chars=16000)
+                    design = requirements.get('service_design') or {}
+                    relevant = [s for s in design.get('services',[]) if s['name'] in {service['service_name'], 'Amazon VPC'}]
+                    service['_sizing_context'] += '\nSELECTED ARCHITECTURE (proposed, not BRD facts):\n' + json.dumps({'summary':design.get('summary'), 'services':relevant},default=str)
+
             print(
                 f"[PRICING] Extracted source-backed services={len(planned_services)}/{len(candidates)}; "
                 f"volume_metrics={len(base['volume_metrics'])}",
@@ -276,12 +326,24 @@ class AwsPricingService:
 
             with self.client_factory() as client:
                 entries = []
-                for service in planned_services[:12]:
+                for service_index, service in enumerate(planned_services):
                     service = self._enrich_service_with_volumetrics(
                         service, base["volume_metrics"]
                     )
-                    entry, missing = self._prepare_service(client, service, region)
+                    planned_services[service_index] = service
+                    for preparation_attempt in range(2):
+                        try:
+                            entry, missing = self._prepare_service(client, service, region)
+                            break
+                        except (PricingCalculatorError, OSError) as exc:
+                            if preparation_attempt == 1:
+                                entry, missing = None, [{'field':service['service_name'], 'basis':'Calculator connection', 'reason':str(exc)}]
+                            else:
+                                print(f'[PRICING][CONNECTION-RETRY] {service["service_name"]}: {exc}',flush=True)
                     base["missing_inputs"].extend(missing)
+                    base.setdefault('sizing_details', []).extend(service.get('_sizing_details') or [])
+                    if service.get('_no_direct_charge'):
+                        base.setdefault('no_direct_charge_services', []).append(service['service_name'])
                     if entry:
                         for assumption in service.get("planning_assumptions") or []:
                             base["assumptions"].append({
@@ -312,11 +374,41 @@ class AwsPricingService:
                 base["calculator_priced_services"] = len(entries)
                 base["calculator_planned_services"] = len(planned_services)
                 base["calculator_candidate_services"] = len(candidates)
-                result = client.call("build_estimate", {
-                    "services": json.dumps(entries, separators=(",", ":")),
-                    "name": "SOW infrastructure estimate",
-                    "partition": "aws",
-                })
+                base['calculator_entries'] = entries
+                for build_attempt in range(2):
+                    try:
+                        result = client.call("build_estimate", {
+                            "services": json.dumps(entries, separators=(",", ":")),
+                            "name": str(metadata.get('project_title') or 'SOW')[:100] + ' - approximate monthly estimate',
+                            "partition": "aws",
+                        })
+                    except PricingCalculatorError as exc:
+                        result = {'error':str(exc)}
+                    base.setdefault('calculator_build_attempts', []).append(result)
+                    incomplete = [row for row in result.get('services',[]) if isinstance(row,dict) and
+                        (row.get('partial') or row.get('success') is False or row.get('missing_required_fields'))] if isinstance(result,dict) else []
+                    if isinstance(result,dict) and result.get('sharable_url') and not incomplete:
+                        break
+                    if build_attempt == 0 and estimating:
+                        print('[PRICING][BUILD-RETRY] Repairing calculator inputs: '+str(result)[:1200],flush=True)
+                        inspect = result.get('services_to_inspect',[]) if isinstance(result,dict) else []
+                        inspect = inspect or [str(row.get('service','')).split(':')[0] for row in incomplete]
+                        if not inspect:
+                            # Export lint can arrive as JSON inside an MCP error
+                            # string. Match exact known service codes in it.
+                            error_text=json.dumps(result,default=str)
+                            inspect=[e['service'] for e in entries if re.search(
+                                r'(?<![A-Za-z0-9])'+re.escape(e['service'])+r'(?![A-Za-z0-9])',error_text)]
+                        for service in planned_services:
+                            previous=service.get('_calculator_entry')
+                            if not previous or (inspect and previous['service'] not in inspect):
+                                continue
+                            service['_calculator_feedback']=json.dumps(result,default=str)
+                            repaired, missing = self._prepare_service(client,service,region)
+                            if repaired:
+                                entries=[repaired if e is previous else e for e in entries]
+                        base['sizing_details']=[row for service in planned_services for row in service.get('_sizing_details',[])]
+                        base['calculator_entries'] = entries
                 if not isinstance(result, dict) or not result.get("sharable_url"):
                     failed = {
                         **base,
@@ -326,6 +418,10 @@ class AwsPricingService:
                     return self._pricing_fallback(
                         failed, candidates, "the AWS calculator did not return a saved estimate"
                     )
+                base['calculator_entries'] = entries
+                for row in incomplete:
+                    base['missing_inputs'].append({'field':row.get('service'), 'basis':'Calculator validation',
+                        'reason':row.get('next_step') or 'Service configuration remained incomplete after retry'})
                 base.update({
                     "status": "url_only",
                     "estimate_url": result.get("sharable_url"),
@@ -348,6 +444,8 @@ class AwsPricingService:
                     base["monthly_cost"] = cost["monthlyCost"]
                     base["calculator_monthly_cost"] = cost["monthlyCost"]
                     base["monthly_by_service"] = cost.get("monthlyByService") or {}
+                    base['calculator_config_summaries'] = cost.get('configByService') or {}
+                    base['zero_cost_services'] = [name for name,amount in base['monthly_by_service'].items() if float(amount)==0]
                     base["status"] = "priced"
                     print(f"[PRICING] Monthly calculator total read successfully: {base['monthly_cost']}", flush=True)
                 elif cost.get("error"):
@@ -359,7 +457,7 @@ class AwsPricingService:
                 )
             if (
                 base["status"] == "priced"
-                and len(entries) < len(planned_services)
+                and (incomplete or len(entries) + len(base.get("no_direct_charge_services", [])) < len(planned_services))
                 and base.get("missing_inputs")
             ):
                 return self._pricing_fallback(
@@ -621,18 +719,19 @@ Rules:
 - User guidance may exclude/defer services but may not manufacture a sizing fact.
 - missing_inputs may contain only rate-driving AWS consumption or configuration fields for an allowed service.
 """
-        result = self.llm.generate(
-            prompt,
-            task="fast",
-            max_tokens=8000,
-            temperature=0.0,
-            call_name="AWS Pricing Input Plan",
-            fallback_model_id=getattr(self.config, "ANALYSIS_MODEL_ID", None),
-        )
-        parsed = _json_object(result.text)
-        if not parsed:
-            raise RuntimeError("AWS pricing input plan returned invalid or empty JSON")
-        return parsed
+        for attempt in range(2):
+            try:
+                result = self.llm.generate(prompt, task="fast", max_tokens=8000, temperature=0.0,
+                    call_name="AWS Pricing Input Plan", fallback_model_id=getattr(self.config,"ANALYSIS_MODEL_ID",None))
+                parsed = _json_object(result.text)
+                if parsed:
+                    return parsed
+                raise ValueError('Invalid or empty JSON input plan')
+            except Exception as exc:
+                if attempt == 1:
+                    raise RuntimeError('AWS pricing input plan failed after one retry') from exc
+                prompt += '\nCorrective attempt: return one complete JSON object matching the schema.'
+
 
     @staticmethod
     def _candidate_services(
@@ -642,8 +741,16 @@ Rules:
     ) -> List[str]:
         design = requirements.get('service_design') or {}
         if design.get('status') == 'ready' and not (requirements.get('architecture_design') or {}).get('nodes'):
-            return list(dict.fromkeys(s['name'] for s in design['services']
-                if s['status'] == 'confirmed' or metadata.get('pricing_include_proposed', True)))
+            chosen = [s for s in design['services'] if s['status'] == 'confirmed' or metadata.get('pricing_include_proposed', True)]
+            names = ['Amazon CloudWatch' if s['name'] == 'Amazon CloudWatch Logs' else s['name'] for s in chosen]
+            # VPC is free, but its selected egress/endpoints are not. Price the
+            # components explicitly described in the shared architecture plan.
+            network = ' '.join(str(s.get('purpose') or '') for s in chosen if s['name'] == 'Amazon VPC')
+            if re.search(r'\bNAT gateway',network,re.I) and not re.search(r'no NAT|without NAT',network,re.I):
+                names.append('AWS NAT Gateway')
+            if re.search(r'interface endpoint|PrivateLink',network,re.I):
+                names.append('AWS PrivateLink')
+            return list(dict.fromkeys(names))
         services = list(requirements.get("confirmed_aws_services") or [])
         proposed = list(requirements.get("proposed_aws_services") or [])
         if not services and not proposed:
@@ -785,8 +892,19 @@ Rules:
         return rows[:16]
 
     def _prepare_service(self, client: Any, service: Dict[str, Any], region: str):
+        if service.get('_estimate_missing'):
+            from .sizing import prepare_estimated_service
+            return prepare_estimated_service(self, client, service, region)
         name = str(service["service_name"])
         alias = self._calculator_service_code(name)
+        evidence = _normalise_evidence(str(service.get('evidence_quote') or '') + ' ' +
+                                       json.dumps(service.get('usage_facts') or {}))
+        if not alias and re.search(r'\b(rds|relational database)\b', _normalise_evidence(name)):
+            if 'postgresql' in evidence and not re.search(r'\b(aurora|oracle|mysql)\b', evidence):
+                alias = self._calculator_service_code('RDS for PostgreSQL')
+        if not alias and re.search(r'load.?balanc', name, re.I):
+            if re.search(r'\b(alb|application load balancer)\b', evidence):
+                alias = self._calculator_service_code('Application Load Balancer')
         if alias:
             code, calculator_name = alias
             print(
@@ -794,7 +912,7 @@ Rules:
                 flush=True,
             )
         else:
-            query = re.split(r"\s+(?:for|to)\s+", name, maxsplit=1, flags=re.I)[0].strip()
+            query = name.strip()
             search = client.call("search_services", {"query": query, "partition": "aws"})
             hit = self._select_service_hit(search, query)
             if not hit:
@@ -803,6 +921,12 @@ Rules:
         if not code:
             return None, [{"field": name, "basis": "", "reason": "Calculator service code was unavailable"}]
         fields = client.call("get_service_fields", {"service": code, "partition": "aws"})
+        # Optional feature contracts must not become mandatory sizing questions.
+        fields = self._active_field_contract(fields, service)
+        if code == 'awsDatabaseMigrationService' and not re.search(
+                r'serverless|provisioned|replication instance|dms\.[a-z0-9]', evidence):
+            return None, [{'field':'DMS capacity and runtime', 'basis':'Full load and CDC',
+                           'reason':'Confirm provisioned replication instance size or serverless capacity, and operating hours.'}]
         deterministic = self._deterministic_config(code, service)
         if deterministic:
             mapped = {"config": deterministic, "missing_inputs": []}
@@ -840,10 +964,16 @@ Rules:
                     None,
                 )
                 label = _normalise_evidence((selected or {}).get("label"))
-                if not label or label not in categorical_source:
+                option_id = _normalise_evidence((selected or {}).get('id'))
+                if not label or not any(re.search(r'\b'+re.escape(term)+r'\b', categorical_source)
+                                        for term in (label, option_id) if term):
                     categorical_errors.append(str(contract.get("label") or field_id))
             else:
-                mapped_numbers.update(_numeric_values(value))
+                # A documented zero default disables an optional calculator
+                # feature; it is not invented customer consumption.
+                if not (_numeric_values(value) == {'0'} and
+                        _numeric_values(contract.get('defaultValue')) == {'0'}):
+                    mapped_numbers.update(_numeric_values(value))
         if categorical_errors:
             return None, [{
                 "field": f"{name} categorical configuration",
@@ -1054,6 +1184,23 @@ Rules:
         enriched["planning_assumptions"] = assumptions
         return enriched
 
+    @staticmethod
+    def _active_field_contract(fields: Any, service: Dict[str, Any]) -> Any:
+        if not isinstance(fields, dict) or not isinstance(fields.get('fields'), list):
+            return fields
+        evidence = _normalise_evidence(json.dumps(service.get('usage_facts') or {}) + ' ' +
+                                       str(service.get('evidence_quote') or ''))
+        name = _normalise_evidence(service.get('service_name'))
+        inactive = set()
+        if 'cloudtrail' in name:
+            optional = {
+                'numberOfS3Ops': r's3.{0,30}data.event|data.event.{0,30}s3',
+                'numberOfLambdaOps': r'lambda.{0,30}data.event|data.event.{0,30}lambda',
+                'numberOfNetworkActivityEvents': r'network.activity.event',
+            }
+            inactive = {key for key, signal in optional.items() if not re.search(signal,evidence)}
+        return {**fields, 'fields':[f for f in fields['fields'] if f.get('id') not in inactive]}
+
     def _map_fields(self, service: Dict[str, Any], region: str, fields: Any) -> Dict[str, Any]:
         prompt = f"""Map source-backed usage facts to live AWS Pricing Calculator fields. Return JSON only.
 
@@ -1073,6 +1220,11 @@ SERVICE PLAN, including explicitly labelled planning facts derived deterministic
 volumetrics. Catalogue examples and minimalConfig values explain shape but are not customer sizing
 evidence and must not be copied unless the same value is explicitly present in SERVICE PLAN. If any
 rate-driving required field cannot be populated, return it in missing_inputs and do not guess.
+Do not require unused optional features: S3 Select, asymmetric KMS operations, CloudTrail
+Insights, or Reserved-only term/payment fields when On-Demand is selected. Omit inactive
+fields. A documented zero default may remain zero. Match categorical synonyms to the
+exact contract option (for example shared -> Shared Instances); do not demand that the
+source repeats the calculator UI wording. Distinguish required sizing from optional usage.
 """
         result = self.llm.generate(
             prompt,
@@ -1104,7 +1256,15 @@ rate-driving required field cannot be populated, return it in missing_inputs and
             label = _normalise_evidence(item.get("name") or item.get("displayName") or item.get("key"))
             if label.replace("amazon ", "").replace("aws ", "") == wanted:
                 return item
-        return candidates[0] if candidates else None
+        # Search results are broad recommendations, not ranked identity matches.
+        # Never silently select Oracle/Aurora/MySQL for a PostgreSQL request.
+        words = set(wanted.split()) - {'for', 'service', 'services'}
+        matching = []
+        for item in candidates:
+            label = _normalise_evidence(item.get('name') or item.get('displayName') or '')
+            if words and words <= set(label.split()):
+                matching.append(item)
+        return matching[0] if len(matching) == 1 else None
 
     @staticmethod
     def _calculator_message(result: Any) -> str:

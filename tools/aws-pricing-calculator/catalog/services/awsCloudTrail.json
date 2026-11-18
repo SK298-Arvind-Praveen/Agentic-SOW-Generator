@@ -4,6 +4,12 @@
   "displayName": "AWS CloudTrail",
   "templateId": "template",
   "status": "verified",
+  "defaultFields": {
+    "OpsMult": "1",
+    "dataOpsMult": "1",
+    "networkActivityOpsMult": "1",
+    "eventMult": "1"
+  },
   "traps": [
     "The *Mult fields (OpsMult, dataOpsMult, networkActivityOpsMult, eventMult) are dropdowns whose option ids ARE the multiplier numbers ('1000000' = millions). They don't multiply unless paired with a count field (numberOfS3Ops, numberOfWriteEvents, etc.) — sending only multipliers produces $0 because there's nothing to multiply against.",
     "CloudTrail's FIRST management trail is free. To get non-zero management-events cost set numberOfWriteTrails to >= 2. Data event trails (S3, Lambda, network activity) are paid from the first trail — modeling those is the cheapest way to a meaningful CloudTrail estimate.",

@@ -21,11 +21,11 @@ def test_confidential_footer_and_table_header_colour():
     assert all(not p.text for p in builder.doc.sections[0].header.paragraphs)
     assert not builder.doc.sections[0].header.tables
     assert 'Copyright' not in '\n'.join(p.text for p in footer.paragraphs)
-    assert str(paragraph.runs[0].font.color.rgb) == '7F00FF'
+    assert str(paragraph.runs[0].font.color.rgb) == '00275A'
     table = SectionBuilder(builder.doc, builder.config)._build_table_rows([
         ['Item', 'Monthly (USD)', 'Estimate'], ['Infrastructure', '100', 'Planning estimate']])
     for cell in table.rows[0].cells:
-        assert cell._tc.tcPr.find(qn('w:shd')).get(qn('w:fill')) == '7F00FF'
+        assert cell._tc.tcPr.find(qn('w:shd')).get(qn('w:fill')) == '00275A'
         assert str(cell.paragraphs[0].runs[0].font.color.rgb) == 'FFFFFF'
 
 

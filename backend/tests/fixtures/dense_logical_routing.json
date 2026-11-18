@@ -1,0 +1,1087 @@
+{
+  "title": "Multichannel support architecture",
+  "nodes": [
+    {
+      "id": "customers",
+      "label": "Web and App Customers",
+      "kind": "actor",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "aws.resource.general-icons.users",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "whatsapp",
+      "label": "WhatsApp Business Platform",
+      "kind": "external",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "agents",
+      "label": "Agents and Admins",
+      "kind": "actor",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "aws.resource.general-icons.users",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "idp",
+      "label": "Enterprise IdP",
+      "kind": "external",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "admin"
+    },
+    {
+      "id": "cloudfront",
+      "label": "Amazon CloudFront",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.service.networking-content-delivery.amazon-cloudfront",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "network_delivery",
+      "placement_role": "entry",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "waf",
+      "label": "AWS WAF",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-waf",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "controls"
+    },
+    {
+      "id": "apigw",
+      "label": "Amazon API Gateway",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.service.networking-content-delivery.amazon-api-gateway",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "network_delivery",
+      "placement_role": "entry",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "cognito",
+      "label": "Amazon Cognito",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.amazon-cognito",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "admin"
+    },
+    {
+      "id": "s3assets",
+      "label": "S3 Web Assets",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "lambda",
+      "label": "AWS Lambda",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.compute.aws-lambda",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "compute",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "sqs",
+      "label": "Amazon SQS",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.application-integration.amazon-simple-queue-service",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "integration",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "runtime"
+    },
+    {
+      "id": "stepfn",
+      "label": "AWS Step Functions",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.application-integration.aws-step-functions",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "integration",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "eventbridge",
+      "label": "Amazon EventBridge",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.application-integration.amazon-eventbridge",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "integration",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "proactive"
+    },
+    {
+      "id": "appconfig",
+      "label": "AWS AppConfig",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.aws-appconfig",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "integration",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "admin"
+    },
+    {
+      "id": "dynamodb",
+      "label": "Amazon DynamoDB",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.databases.amazon-dynamodb",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "bedrock",
+      "label": "Amazon Bedrock",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.artificial-intelligence.amazon-bedrock",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "processing_ai",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "kb",
+      "label": "Bedrock Knowledge Bases",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.artificial-intelligence.amazon-bedrock",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "processing_ai",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "knowledge"
+    },
+    {
+      "id": "vectors",
+      "label": "S3 Vectors",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "knowledge"
+    },
+    {
+      "id": "s3kb",
+      "label": "S3 Knowledge Docs",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "knowledge"
+    },
+    {
+      "id": "firehose",
+      "label": "Amazon Data Firehose",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.analytics.amazon-data-firehose",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "processing_ai",
+      "placement_role": "integration",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "evidence"
+    },
+    {
+      "id": "s3dl",
+      "label": "S3 Data Lake",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "evidence"
+    },
+    {
+      "id": "s3audit",
+      "label": "S3 Audit Archive",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "evidence"
+    },
+    {
+      "id": "athena",
+      "label": "Amazon Athena",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.analytics.amazon-athena",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "processing_ai",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "evidence"
+    },
+    {
+      "id": "glue",
+      "label": "AWS Glue Data Catalog",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.resource.analytics.aws-glue-data-catalog",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "processing_ai",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "evidence"
+    },
+    {
+      "id": "hybris",
+      "label": "SAP Hybris",
+      "kind": "external",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "otp",
+      "label": "Existing OTP Service",
+      "kind": "external",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "cs",
+      "label": "Customer Service Platform",
+      "kind": "external",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "notification",
+      "label": "Notification Channels",
+      "kind": "external",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "mixpanel",
+      "label": "Mixpanel",
+      "kind": "external",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "secrets",
+      "label": "AWS Secrets Manager",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-secrets-manager",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "controls"
+    },
+    {
+      "id": "kms",
+      "label": "AWS Key Management Service",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-key-management-service",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "controls"
+    },
+    {
+      "id": "cloudwatch",
+      "label": "Amazon CloudWatch",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.amazon-cloudwatch",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "controls"
+    },
+    {
+      "id": "sns",
+      "label": "Amazon SNS",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.application-integration.amazon-simple-notification-service",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "controls"
+    },
+    {
+      "id": "cloudtrail",
+      "label": "AWS CloudTrail",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.aws-cloudtrail",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "controls"
+    },
+    {
+      "id": "budgets",
+      "label": "AWS Budgets",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.cloud-financial-management.aws-budgets",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "controls"
+    },
+    {
+      "id": "iam",
+      "label": "AWS Identity and Access Management",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-identity-and-access-management",
+      "selection": "inferred",
+      "evidence": "",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "Region",
+      "vpc": "",
+      "flow_id": "controls"
+    }
+  ],
+  "edges": [
+    {
+      "source": "customers",
+      "target": "cloudfront",
+      "label": "Load widget"
+    },
+    {
+      "source": "customers",
+      "target": "apigw",
+      "label": "Chat"
+    },
+    {
+      "source": "whatsapp",
+      "target": "apigw",
+      "label": "Webhook"
+    },
+    {
+      "source": "apigw",
+      "target": "lambda",
+      "label": "Invoke"
+    },
+    {
+      "source": "lambda",
+      "target": "sqs",
+      "label": "Queue turns"
+    },
+    {
+      "source": "sqs",
+      "target": "lambda",
+      "label": "Deliver turns"
+    },
+    {
+      "source": "lambda",
+      "target": "dynamodb",
+      "label": "Session state"
+    },
+    {
+      "source": "lambda",
+      "target": "bedrock",
+      "label": "Invoke model"
+    },
+    {
+      "source": "lambda",
+      "target": "kb",
+      "label": "Retrieve passages"
+    },
+    {
+      "source": "kb",
+      "target": "vectors",
+      "label": "Query index"
+    },
+    {
+      "source": "s3kb",
+      "target": "kb",
+      "label": "Sync content"
+    },
+    {
+      "source": "lambda",
+      "target": "s3kb",
+      "label": "Store articles"
+    },
+    {
+      "source": "lambda",
+      "target": "hybris",
+      "label": "Order APIs"
+    },
+    {
+      "source": "lambda",
+      "target": "otp",
+      "label": "Verify OTP"
+    },
+    {
+      "source": "lambda",
+      "target": "cs",
+      "label": "Create cases"
+    },
+    {
+      "source": "cs",
+      "target": "apigw",
+      "label": "Agent replies"
+    },
+    {
+      "source": "lambda",
+      "target": "whatsapp",
+      "label": "Send replies"
+    },
+    {
+      "source": "lambda",
+      "target": "stepfn",
+      "label": "Start workflow"
+    },
+    {
+      "source": "stepfn",
+      "target": "lambda",
+      "label": "Run tasks"
+    },
+    {
+      "source": "lambda",
+      "target": "notification",
+      "label": "Send messages"
+    },
+    {
+      "source": "eventbridge",
+      "target": "lambda",
+      "label": "Trigger notifications"
+    },
+    {
+      "source": "lambda",
+      "target": "appconfig",
+      "label": "Read config"
+    },
+    {
+      "source": "dynamodb",
+      "target": "lambda",
+      "label": "Stream changes"
+    },
+    {
+      "source": "lambda",
+      "target": "firehose",
+      "label": "Write events"
+    },
+    {
+      "source": "firehose",
+      "target": "s3dl",
+      "label": "Deliver events"
+    },
+    {
+      "source": "firehose",
+      "target": "s3audit",
+      "label": "Deliver audit"
+    },
+    {
+      "source": "lambda",
+      "target": "mixpanel",
+      "label": "Forward events"
+    },
+    {
+      "source": "lambda",
+      "target": "athena",
+      "label": "Run queries"
+    },
+    {
+      "source": "athena",
+      "target": "s3dl",
+      "label": "Query data"
+    },
+    {
+      "source": "athena",
+      "target": "glue",
+      "label": "Read schemas"
+    },
+    {
+      "source": "cloudfront",
+      "target": "s3assets",
+      "label": "Read assets"
+    },
+    {
+      "source": "agents",
+      "target": "cloudfront",
+      "label": "Open workbench"
+    },
+    {
+      "source": "agents",
+      "target": "cognito",
+      "label": "Sign in"
+    },
+    {
+      "source": "cognito",
+      "target": "idp",
+      "label": "Federate SSO"
+    },
+    {
+      "source": "agents",
+      "target": "apigw",
+      "label": "Call APIs"
+    },
+    {
+      "source": "cloudwatch",
+      "target": "sns",
+      "label": "Notify"
+    }
+  ],
+  "note": "Proposed logical architecture; validate during discovery.",
+  "groups": [
+    {
+      "id": "application_processing",
+      "label": "Application & Processing",
+      "kind": "functional"
+    },
+    {
+      "id": "network_delivery",
+      "label": "Networking & Delivery",
+      "kind": "network"
+    },
+    {
+      "id": "security_identity",
+      "label": "Security & Identity",
+      "kind": "security"
+    },
+    {
+      "id": "data_storage",
+      "label": "Data & Storage",
+      "kind": "data"
+    },
+    {
+      "id": "processing_ai",
+      "label": "Processing, Analytics & AI",
+      "kind": "functional"
+    }
+  ],
+  "description": "Serverless AWS conversational layer in ap-south-1 that integrates with the existing Tata CLiQ systems without replacing them.",
+  "spacing_scale": 1.0,
+  "architecture_plan": {
+    "narrative_view": {
+      "groups": [
+        {
+          "id": "g1",
+          "label": "Access and Workbench",
+          "rows": [
+            [
+              "waf",
+              "apigw"
+            ],
+            [
+              "cognito",
+              "s3assets"
+            ]
+          ]
+        },
+        {
+          "id": "g2",
+          "label": "Conversation Orchestration",
+          "rows": [
+            [
+              "eventbridge",
+              "appconfig"
+            ],
+            [
+              "lambda",
+              "sqs"
+            ],
+            [
+              "stepfn",
+              "dynamodb"
+            ]
+          ]
+        },
+        {
+          "id": "g3",
+          "label": "AI Knowledge Answers",
+          "rows": [
+            [
+              "bedrock",
+              "kb"
+            ],
+            [
+              "vectors",
+              "s3kb"
+            ]
+          ]
+        },
+        {
+          "id": "g4",
+          "label": "Analytics and Audit",
+          "rows": [
+            [
+              "firehose",
+              "s3dl"
+            ],
+            [
+              "s3audit",
+              "athena"
+            ],
+            [
+              "glue"
+            ]
+          ]
+        }
+      ],
+      "support": [
+        "budgets",
+        "cloudtrail",
+        "cloudwatch",
+        "iam",
+        "kms",
+        "secrets",
+        "sns"
+      ],
+      "roles": {
+        "waf": "Edge protection",
+        "apigw": "Chat and API entry",
+        "cognito": "Agent sign-in",
+        "s3assets": "UI assets",
+        "lambda": "Turn orchestrator",
+        "sqs": "Ordered message queue",
+        "stepfn": "Handover workflows",
+        "dynamodb": "Session and case state",
+        "eventbridge": "Notification triggers",
+        "appconfig": "Bot rules config",
+        "bedrock": "LLM reasoning",
+        "kb": "FAQ retrieval",
+        "vectors": "Vector index",
+        "s3kb": "Knowledge docs",
+        "firehose": "Event delivery",
+        "s3dl": "Transcript data lake",
+        "s3audit": "Audit trail",
+        "athena": "Report queries",
+        "glue": "Schema catalog"
+      },
+      "links": [
+        {
+          "source": "customers",
+          "target": "cloudfront",
+          "label": "Load widget"
+        },
+        {
+          "source": "agents",
+          "target": "cloudfront",
+          "label": "Open workbench"
+        },
+        {
+          "source": "cloudfront",
+          "target": "g1",
+          "label": "Read assets"
+        },
+        {
+          "source": "customers",
+          "target": "g1",
+          "label": "Chat"
+        },
+        {
+          "source": "whatsapp",
+          "target": "g1",
+          "label": "Webhook"
+        },
+        {
+          "source": "agents",
+          "target": "g1",
+          "label": "Sign in / APIs"
+        },
+        {
+          "source": "g1",
+          "target": "idp",
+          "label": "Federate SSO"
+        },
+        {
+          "source": "cs",
+          "target": "g1",
+          "label": "Agent replies"
+        },
+        {
+          "source": "g1",
+          "target": "g2",
+          "label": "Invoke"
+        },
+        {
+          "source": "g2",
+          "target": "g3",
+          "label": "Ask / retrieve"
+        },
+        {
+          "source": "g2",
+          "target": "g4",
+          "label": "Events / queries"
+        },
+        {
+          "source": "g2",
+          "target": "whatsapp",
+          "label": "Send replies"
+        },
+        {
+          "source": "g2",
+          "target": "hybris",
+          "label": "Order APIs"
+        },
+        {
+          "source": "g2",
+          "target": "otp",
+          "label": "Verify OTP"
+        },
+        {
+          "source": "g2",
+          "target": "cs",
+          "label": "Create cases"
+        },
+        {
+          "source": "g2",
+          "target": "notification",
+          "label": "Send messages"
+        },
+        {
+          "source": "g2",
+          "target": "mixpanel",
+          "label": "Forward events"
+        }
+      ]
+    }
+  }
+}

@@ -1,7 +1,7 @@
 """Professional, deterministic DOCX builder for generated SOW content.
 
 Design system: the ShellKode benchmark proposal system using DM Sans,
-benchmark-matched purple/blue accents, compact tables, and fixed Letter geometry.
+benchmark-matched blue accents, compact tables, and fixed Letter geometry.
 First page pattern: ``proposal_centerpiece`` over the existing brand artwork.
 """
 
@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 import uuid
 import zipfile
+from html import unescape
 from xml.sax.saxutils import escape as xml_escape
 from datetime import datetime
 from pathlib import Path
@@ -57,9 +58,9 @@ CONTENT_WIDTH_DXA = 10282
 TABLE_INDENT_DXA = 0
 FONT_NAME = "Albert Sans"
 HEADING_FONT_NAME = "Space Grotesk"
-PURPLE = "7F00FF"
+BRAND_BLUE = "00275A"
 BLUE = "1A4BD2"
-DARK_PURPLE = "3E2A91"
+DARK_BLUE = "001C42"
 INK = "434343"
 MUTED = "6F6F6F"
 LIGHT_FILL = "F2F2F2"
@@ -983,6 +984,7 @@ class SectionBuilder:
         # Stable semantic layouts keep control fields compact and reserve room
         # for the narrative evidence/criteria columns that need it most.
         semantic_patterns = (
+            (("service", "sizing input", "value", "basis"), [2100, 1900, 3100, 3182]),
             (("module", "open item", "status"), [2450, 5000, 2832]),
             (("area", "open item", "note"), [2450, 5000, 2832]),
             (("week", "phase", "activities", "deliverable", "dependency", "owner"),
@@ -1015,6 +1017,7 @@ class SectionBuilder:
                 return scaled
         patterns = {
             2: {
+                ("service name", "role in the project"): [3400, 6882],
                 ("timeframe", "milestones"): [2100, 7260],
                 ("id", "description"): [1500, 7860],
             },
@@ -1078,7 +1081,7 @@ class SectionBuilder:
         cols = len(rows[0])
         # A single-row Markdown table is used by the legacy signature block
         # for signer names and acceptance dates. It is a continuation/data
-        # row, not a header, so do not render it as a purple header band.
+        # row, not a header, so do not render it as a blue header band.
         has_header = len(rows) > 1
         widths = self._column_widths(rows)
         if len(rows[0]) == 3 and rows[0][0].strip() == 'Item' and rows[0][1].startswith('Monthly ('):
@@ -1108,7 +1111,7 @@ class SectionBuilder:
                 cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
                 self._set_cell_margins(cell)
                 self._set_cell_width(cell, widths[col_index])
-                fill = PURPLE if has_header and row_index == 0 else (LIGHT_FILL if row_index % 2 == 1 else "FFFFFF")
+                fill = BRAND_BLUE if has_header and row_index == 0 else (LIGHT_FILL if row_index % 2 == 1 else "FFFFFF")
                 if gantt:
                     fill = 'D9D9D9' if row_index == 0 else 'FFFFFF'
                     if row_index and col_index >= 2 and value.strip() in {'■', '◆'}:
@@ -1126,7 +1129,7 @@ class SectionBuilder:
                         paragraph.add_run().add_break(WD_BREAK.LINE)
                     self._add_rich_runs(
                         paragraph,
-                        re.sub(r"^[•-]\s*", "", piece.strip()),
+                        unescape(re.sub(r"^[•-]\s*", "", piece.strip())),
                         size=font_size,
                         color="FFFFFF" if has_header and row_index == 0 and not gantt else INK,
                     )
@@ -1214,7 +1217,7 @@ class SectionBuilder:
             shading = OxmlElement("w:shd")
             tcpr.append(shading)
         # Word requires an explicit shading pattern; LibreOffice is more
-        # forgiving. Without w:val, Word may omit the purple fill while the
+        # forgiving. Without w:val, Word may omit the blue fill while the
         # white header text remains, making every table header look blank.
         shading.set(qn("w:val"), "clear")
         shading.set(qn("w:color"), "auto")
@@ -1329,10 +1332,10 @@ class DocumentBuilder:
         normal.paragraph_format.widow_control = True
 
         tokens = {
-            "Heading 1": (20.0, PURPLE, 18, 8),
-            "Heading 2": (16.0, PURPLE, 12, 5),
-            "Heading 3": (14.0, PURPLE, 9, 4),
-            "Heading 4": (12.0, PURPLE, 7, 3),
+            "Heading 1": (20.0, BRAND_BLUE, 18, 8),
+            "Heading 2": (16.0, BRAND_BLUE, 12, 5),
+            "Heading 3": (14.0, BRAND_BLUE, 9, 4),
+            "Heading 4": (12.0, BRAND_BLUE, 7, 3),
         }
         for style_name, (size, color, before, after) in tokens.items():
             style = styles[style_name]
@@ -1395,7 +1398,7 @@ class DocumentBuilder:
         shading = OxmlElement("w:shd")
         shading.set(qn("w:val"), "clear")
         shading.set(qn("w:color"), "auto")
-        shading.set(qn("w:fill"), PURPLE)
+        shading.set(qn("w:fill"), BRAND_BLUE)
         cell_properties.append(shading)
         first_row.extend([run_properties, cell_properties])
         style_element.extend([based_on, priority, table_properties, first_row])
@@ -1542,7 +1545,7 @@ class DocumentBuilder:
         project_font = self._fit_cover_text(draw, project, regular_path, round(height * 0.020), maximum)
         detail_bold = ImageFont.truetype(str(bold_path), round(height * 0.014))
         detail = ImageFont.truetype(str(regular_path), round(height * 0.013))
-        draw.text((left, round(height * 0.165)), company, font=company_font, fill="#7F00FF")
+        draw.text((left, round(height * 0.165)), company, font=company_font, fill=f"#{BRAND_BLUE}")
         draw.text((left, round(height * 0.225)), project, font=project_font, fill="#222222")
         lower_y = round(height * 0.685)
         draw.text((left, lower_y), organisation, font=detail_bold, fill="#FFFFFF")
@@ -1666,7 +1669,7 @@ class DocumentBuilder:
             """)
             artwork_paragraph._p.append(drawing)
 
-        add_textbox("Cover Company", company, 0.79, 3.42, 6.45, 0.62, 32, "7F00FF")
+        add_textbox("Cover Company", company, 0.79, 3.42, 6.45, 0.62, 32, BRAND_BLUE)
         add_textbox("Cover Project", project, 0.79, 4.18, 6.45, 0.40, 15, "222222")
         add_textbox("Cover Organisation", organisation, 0.79, 9.38, 4.75, 0.38, 14, "FFFFFF", True)
         add_textbox("Cover Prepared By", "Prepared by:", 0.79, 9.86, 4.75, 0.32, 12, "FFFFFF")
@@ -1792,11 +1795,11 @@ class DocumentBuilder:
             paragraph.paragraph_format.line_spacing = 1.0
             self._set_paragraph_top_border(paragraph, BORDER)
             _set_font(paragraph.add_run("Shellkode Confidential - for limited purpose only"),
-                      size=8, italic=True, color=PURPLE)
-            _set_font(paragraph.add_run("    "), size=8, color=PURPLE)
+                      size=8, italic=True, color=BRAND_BLUE)
+            _set_font(paragraph.add_run("    "), size=8, color=BRAND_BLUE)
             _add_field(paragraph, "PAGE", "1", size=8)
             for run in paragraph.runs:
-                _set_font(run, size=8, color=PURPLE)
+                _set_font(run, size=8, color=BRAND_BLUE)
 
     @staticmethod
     def _remove_table_borders(table) -> None:
@@ -1885,7 +1888,7 @@ class DocumentBuilder:
         title = self.doc.add_paragraph()
         title.paragraph_format.keep_with_next = True
         title.paragraph_format.space_after = Pt(8)
-        _set_font(title.add_run("Table of Contents"), name=HEADING_FONT_NAME, size=20.0, bold=True, color=PURPLE)
+        _set_font(title.add_run("Table of Contents"), name=HEADING_FONT_NAME, size=20.0, bold=True, color=BRAND_BLUE)
         entries = self.expanded_toc_entries or [
             (entry, _bookmark_name(entry, index), 1)
             for index, entry in enumerate(self.toc_entries, 1)
@@ -2013,7 +2016,7 @@ class DocumentBuilder:
             asset = sections.get('conceptual_flow_asset')
             if asset and asset.get('image_base64'):
                 heading = self.doc.add_paragraph(style='Heading 1')
-                _set_font(heading.add_run(section_name), name=HEADING_FONT_NAME, size=20.0, bold=True, color=PURPLE)
+                _set_font(heading.add_run(section_name), name=HEADING_FONT_NAME, size=20.0, bold=True, color=BRAND_BLUE)
                 self._add_bookmark_to_heading(heading, section_name, position + 1)
                 self._add_architecture_diagram(asset)
             return
@@ -2022,7 +2025,7 @@ class DocumentBuilder:
             print(f"⚠ No content for {section_name!r}; omitted from body")
             return
         heading = self.doc.add_paragraph(style="Heading 1")
-        _set_font(heading.add_run(section_name), name=HEADING_FONT_NAME, size=20.0, bold=True, color=PURPLE)
+        _set_font(heading.add_run(section_name), name=HEADING_FONT_NAME, size=20.0, bold=True, color=BRAND_BLUE)
         self._add_bookmark_to_heading(heading, section_name, position + 1)
         assignments = getattr(self, "_diagram_section_assignments", None)
         if assignments is None:

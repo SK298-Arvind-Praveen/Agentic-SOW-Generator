@@ -70,6 +70,18 @@ async function fetchCostFromDOM(url) {
     try {
       const page = await context.newPage();
       await page.goto(url, { waitUntil: 'networkidle', timeout: NAVIGATION_TIMEOUT_MS });
+      // Saved read-only views can show zero in subservice rows (S3, ALB,
+      // SNS) while the summary includes their cost. Rehydrate the editable
+      // view locally to read current prices and configuration summaries.
+      const update = page.getByRole('button', { name: 'Update estimate button', exact: true });
+      // The saved estimate mounts this control after navigation/networkidle.
+      // An immediate visibility check intermittently skips recalculation and
+      // returns stale zero subservice rows against a nonzero summary.
+      const canUpdate = await update.waitFor({state:'visible',timeout:15000}).then(()=>true,()=>false);
+      if (canUpdate) {
+        await update.click();
+        await page.waitForLoadState('networkidle');
+      }
 
       const exportSelector = await firstVisible(page, EXPORT_SELECTORS, EXPORT_VISIBLE_TIMEOUT_MS);
       if (!exportSelector) {
@@ -103,6 +115,7 @@ async function fetchCostFromDOM(url) {
       // hasn't changed since 2026-05 but we don't trust it.
       const monthlyByService = new Map();
       const configByService = new Map();
+      for (let pageNumber=0; pageNumber<100; pageNumber++) {
       const rows = await page.locator('tr, [role="row"]').all();
       for (const row of rows) {
         const cells = await row.locator('td, [role="cell"]').all().catch(() => []);
@@ -116,7 +129,8 @@ async function fetchCostFromDOM(url) {
         if (usdCellCount < 2) continue;
         const firstUsdIdx = cellTexts.findIndex(t => /USD/.test(t));
         if (firstUsdIdx < 1) continue;
-        const service = cellTexts[firstUsdIdx - 1].trim();
+        // Editable tables insert an empty support column before Upfront.
+        const service = cellTexts.slice(0,firstUsdIdx).map(t=>t.trim()).find(t=>t && t !== '-');
         const monthly = parseUsd(cellTexts[firstUsdIdx + 1] || '');
         // Config summary lives 4 cells after the Monthly cell:
         //   firstUsdIdx+1 = Monthly, +2 = Description, +3 = Region,
@@ -129,12 +143,18 @@ async function fetchCostFromDOM(url) {
           configByService.set(service, config);
         }
       }
+      const next = page.getByRole('button',{name:'Next page',exact:true});
+      if (!await next.isVisible().catch(()=>false) || await next.isDisabled()) break;
+      const before = await page.locator('table').innerText();
+      await next.click();
+      await page.waitForFunction(old => document.querySelector('table')?.innerText !== old, before);
+      }
 
       const subtotal = [...monthlyByService.values()].reduce((sum, cost) => sum + cost, 0);
       // Never publish a zero summary while priced service rows show a positive total.
       // Treat disagreement as an extraction failure, rather than guessing which DOM
       // number represents the full estimate.
-      if (monthlyCost === null || monthlyCost <= 0 || (subtotal > 0 && Math.abs(subtotal - monthlyCost) > 0.02)) {
+      if (monthlyCost === null || monthlyCost <= 0 || Math.abs(subtotal - monthlyCost) > Math.max(0.02,monthlyByService.size*0.005)) {
         return { monthlyCost: null, monthlyByService, configByService,
           error: 'Calculator total was zero, missing, or inconsistent with service rows',
           diagnostics: { summaryMonthlyCost: monthlyCost, serviceSubtotal: subtotal, serviceCount: monthlyByService.size } };
@@ -149,12 +169,14 @@ async function fetchCostFromDOM(url) {
 }
 
 async function firstVisible(page, selectors, timeoutMs) {
-  for (const sel of selectors) {
-    const opts = timeoutMs ? { timeout: timeoutMs } : undefined;
-    const visible = await page.locator(sel).first().isVisible(opts).catch(() => false);
-    if (visible) return sel;
-  }
-  return null;
+  // isVisible() returns immediately; its timeout option does not wait for SPA
+  // hydration. Wait for any supported control under one shared deadline.
+  try {
+    return await Promise.any(selectors.map(async sel => {
+      await page.locator(sel).first().waitFor({state:'visible',timeout:timeoutMs || 30000});
+      return sel;
+    }));
+  } catch { return null; }
 }
 
 async function waitForExportEnabled(page, exportSelector) {

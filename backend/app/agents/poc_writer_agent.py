@@ -1613,10 +1613,7 @@ NON-NEGOTIABLE AUTHORING STANDARD
   benchmark-defined boundary and do not append generic SOW boilerplate.
 - Omit generic background, textbook explanations, marketing language, and implementation
   possibilities that do not change scope, ownership, dependency, acceptance, or a decision.
-- When writing Solution Architecture, explain the end-to-end flow and how the relevant logical layers
-  and chosen services interact, followed by only material deployment, data and security decisions.
-  Do not duplicate the visual as a long component
-  catalogue, and never claim that a source-supplied diagram exists when it does not.
+- Solution Architecture: Return only one Markdown table: Service name | Role in the project. Include every selected architecture service, including shared security, networking and operations. Give each component a brief project-specific role, normally 5-16 words. Keep repeated services with different purposes as separate rows. Order rows along the actual request/data flow, followed by shared controls; do not sort alphabetically. Do not invent services, deployment details or guarantees. The diagram is generated separately: no bullets, introductory prose, ASCII art, Mermaid or diagram code.
 - The section should be complete enough for commercial and technical review, without filler or repetition.
 - For About Client, write exactly two short factual paragraphs about the company, without engagement commentary or bullets. Never invent facts to pad them.
 """

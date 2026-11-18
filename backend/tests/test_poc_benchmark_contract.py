@@ -118,7 +118,7 @@ class PocBenchmarkContractTests(unittest.TestCase):
             ("## Document Version Control", "compact table"),
             ("## 1. Objective", "end result"),
             ("## 3. Scope of Work", "Preserve distinct business rules"),
-            ("## Solution Architecture", "Name relevant AWS services in context"),
+            ("## Solution Architecture", "Service name | Role in the project"),
             ("## 5. Open Clarifications", "Do not carry every upstream unknown"),
             ("## 6. Out of Scope", "Never infer an exclusion"),
             ("## 7. Assumptions", "material project-specific delivery premises"),

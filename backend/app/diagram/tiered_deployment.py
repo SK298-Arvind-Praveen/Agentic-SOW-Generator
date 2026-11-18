@@ -51,10 +51,17 @@ def geometry(spec, ordering=None):
         zones={v:sorted(azs,key=lambda az:(not any(n.id in migration_helpers and
             n.availability_zone==az and (n.vpc or 'VPC')==v for n in scoped),az))
             for v,azs in zones.items()}
-    zone_step=705 if migration else 430
+    repair=bool(spec.architecture_plan.get('routing_repair'))
+    shared_endpoints={n.id for n in scoped if n.scope=='vpc' and 'endpoint' in n.icon_key
+        and len({node_map[e.source].availability_zone for e in spec.edges if e.target==n.id
+                 and node_map[e.source].availability_zone})>=2}
+    zone_step=705 if migration else 740 if repair and shared_endpoints else 520 if repair else 430
     zone_width=565 if migration else 405
     core=max(1180,max(len(zones[v])+int(any(n.subnet and not n.availability_zone and (n.vpc or 'VPC')==v for n in scoped)) for v in vpcs)*zone_step+(340 if migration else 300))
-    width=core+510
+    # Reserve distinct vertical tracks between VPC egress and regional auth/data.
+    # A narrow gutter makes the auth drop look attached to the outbound gateway.
+    regional_gutter=60 if repair else 0
+    width=core+510+regional_gutter
     pos,boxes,parents,captions,kinds={},{},{},{},{}
     def box(key,rect,parent,label,kind):
         boxes[key]=rect;parents[key]=parent;captions[key]=label;kinds[key]=kind
@@ -84,7 +91,10 @@ def geometry(spec, ordering=None):
         # Stable request-first order; network egress must not displace ingress.
         for i,n in enumerate(sorted(entry,key=order)+sorted(top_network,key=order)):
             ex=110+(len(zones[vpc])-1)*zone_step/2+(300 if migration else 50)
-            place(n,(ex if migration else 165)+i*300,y+60,key)
+            x=(ex if migration else 165)+i*300
+            if repair and not migration:
+                x=(110+(len(zones[vpc])-1)*zone_step/2+65) if n in entry else core-175
+            place(n,x,y+60,key)
         y+=60+(128 if entry+top_network else 0)+40
         # Every AZ uses the same tier heights, so a reader can compare replicas.
         az_names=zones[vpc]
@@ -95,7 +105,7 @@ def geometry(spec, ordering=None):
             if not migration:return len(entries)
             return max(sum(n.id in migration_helpers for n in entries),
                        sum(n.id not in migration_helpers for n in entries))
-        tier_heights={s:max([row_count(s,az) for az in az_names]+[0])*120+(100 if migration else 50) for s in tiers}
+        tier_heights={s:max([row_count(s,az) for az in az_names]+[0])*120+(100 if migration else 80 if repair else 50) for s in tiers}
         tier_gap=100 if migration else 75
         az_top=y
         az_height=48+sum(tier_heights.values())+max(0,len(tiers)-1)*tier_gap+25
@@ -120,17 +130,30 @@ def geometry(spec, ordering=None):
                             helper=n.id in migration_helpers
                             # Top ports need room below the boundary header;
                             # otherwise the router cannot enter an app from above.
-                            place(n,ax+(40 if helper else 300),sy+88+lane_counts[helper]*120,sk,235)
+                            mirrored=bool(spec.architecture_plan.get('story_overview') and ai==len(az_names)-1 and ai>0)
+                            offset=(300 if helper else 40) if mirrored else (40 if helper else 300)
+                            place(n,ax+offset,sy+88+lane_counts[helper]*120,sk,235)
                             lane_counts[helper]+=1
                             continue
                         is_nat='nat-gateway' in n.icon_key
-                        place(n,ax+(153 if is_nat else 50),sy+48+ni*120,sk,215 if is_nat else 280)
+                        place(n,ax+(153 if is_nat else 50),sy+(78 if repair else 48)+ni*120,sk,215 if is_nat else 280)
                 sy+=tier_heights[subnet]+tier_gap
         y=az_top+az_height+55
         y=row(data,150,y,key,max(1,int((core-100)/280)))
         # Private endpoints sit beside their callers, not below the database.
         ny=az_top+48
         for n in sorted(network,key=order):
+            if repair and not migration and n.id in shared_endpoints and len(zones[vpc])==2:
+                callers=[e.source for e in spec.edges if e.target==n.id and e.source in pos]
+                peers=[pos[source][1] for source in callers]
+                endpoint_y=min(peers)
+                if callers and all(node_map[source].subnet in tiers[:-1] for source in callers):
+                    # Put exports in the gap after the app tier, with a clear
+                    # horizontal path to storage outside the application boxes.
+                    endpoint_y=max(boxes[parents[source]][1]+boxes[parents[source]][3]
+                                   for source in callers)+tier_gap/2-50
+                place(n,110+zone_width+(zone_step-zone_width-235)/2,endpoint_y,key,235,100)
+                continue
             peers=[pos[e.source][1]+pos[e.source][3]+30 for e in spec.edges if e.target==n.id and e.source in pos]
             ny=max(ny,min(peers) if peers else ny)
             place(n,core-175,ny,key,235,100);ny+=135
@@ -144,11 +167,11 @@ def geometry(spec, ordering=None):
     for n in sorted(regional,key=order):
         peers=[pos[e.source][1] for e in spec.edges if e.target==n.id and e.source in pos and e.source not in support]
         desired=min(peers) if peers else ry
-        ry=max(ry,desired);place(n,core+155,ry,'region',280,112);ry+=155
+        ry=max(ry,desired);place(n,core+155+regional_gutter,ry,'region',280,112);ry+=155
     bottom=max(y,ry)+20
     shared=[n for n in spec.nodes if n.scope in {'regional','managed'} and n.id in support]
     if shared:
-        btop=bottom;bottom=row(shared,105,bottom+50,'regional_controls',max(1,int((width-140)/245)),step=245,h=80)+15
+        btop=bottom;bottom=row(shared,105,bottom+50,'regional_controls',max(1,int((width-190)/245)),step=245,h=80)+15
         box('regional_controls',(90,btop,width-180,bottom-btop),'region','Shared security and operations','functional')
     x,yy,w,_=boxes['region'];boxes['region']=(x,yy,w,bottom-yy+20)
     for k,extra in [('account',40),('cloud',60)]:
@@ -185,6 +208,9 @@ def geometry(spec, ordering=None):
             entry_targets=[t for t in targets if t.placement_role=='entry']
             if helpers or transfers:
                 side='left' if helpers else 'right'; target=(helpers or transfers)[0]
+                if spec.architecture_plan.get('story_overview') and target.id in migration_ids:
+                    target_zones=zones.get(target.vpc or 'VPC',[])
+                    side='right' if target_zones and target.availability_zone==target_zones[-1] else 'left'
                 yy=pos[target.id][1]
                 while any(abs(yy-other)<130 for other in side_slots[side]):yy+=130
                 side_slots[side].append(yy)
@@ -195,7 +221,10 @@ def geometry(spec, ordering=None):
         # slots rather than letting them displace the primary request path.
         gateways=[n for n in globals_ if n.id not in support and any(
             e.source==n.id and node_map[e.target].placement_role=='entry' for e in spec.edges)]
-        occupied=[]
+        # Keep the ingress column clear through account-wide controls. Otherwise
+        # an unrelated IAM/Budgets icon forces a needless dogleg above the ALB.
+        occupied=[(pos[n.id][0],230,250,88) for n in scoped
+                  if n.placement_role=='entry'] if spec.architecture_plan.get('story_overview') else []
         for n in gateways:
             target=next(node_map[e.target] for e in spec.edges if e.source==n.id and node_map[e.target].placement_role=='entry')
             x,yy,w,h=pos[n.id];pos[n.id]=(pos[target.id][0],yy,w,h);occupied.append(pos[n.id])
@@ -204,6 +233,16 @@ def geometry(spec, ordering=None):
             for trial in range(165+shift,int(boxes['account'][0]+boxes['account'][2]-w-20),280):
                 if all(abs(trial-r[0])>=270 or yy!=r[1] for r in occupied):
                     pos[n.id]=(trial,yy,w,h);occupied.append(pos[n.id]);break
+        # Aligning the test client above ingress can collide with another actor
+        # left in its old slot. Repack the remaining input cards afterwards.
+        anchored = {n.id for n in inputs if any(e.source==n.id and
+                    node_map[e.target].placement_role=='entry' for e in spec.edges)}
+        occupied = [pos[k] for k in anchored]
+        for n in (n for n in inputs if n.id not in anchored and pos[n.id][1]==15):
+            x,yy,w,h=pos[n.id]
+            while any(x < ox+ow+25 and x+w+25 > ox for ox,oy,ow,oh in occupied):
+                x=max(ox+ow+25 for ox,oy,ow,oh in occupied if x < ox+ow+25 and x+w+25 > ox)
+            pos[n.id]=(x,yy,w,h);occupied.append(pos[n.id])
         width=max(width,max(x+w for x,yy,w,h in pos.values())+35)
         height=max(height,max(yy+h for x,yy,w,h in pos.values())+35)
     if set(pos)!={n.id for n in spec.nodes}:raise ValueError('Tier layout omitted resources')

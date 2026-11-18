@@ -81,8 +81,8 @@ def test_architecture_review_cannot_create_paragraphs(after):
                           {'corrections': [{'section': 'arch', 'after': after}]}, {'arch': 'architecture_diagram'}, {})
 
 
-def test_architecture_review_accepts_concise_bullets():
-    after = '- Route requests through the API and store session state.'
+def test_architecture_review_accepts_service_table():
+    after = '| Service name | Role in the project |\n| --- | --- |\n| Amazon API Gateway | Routes project requests |'
     assert apply_corrections({'arch': 'A long paragraph.'}, {'corrections': [{'section': 'arch', 'after': after}]},
                              {'arch': 'architecture_diagram'}, {})['arch'] == after
 

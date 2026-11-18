@@ -117,6 +117,10 @@ const safeLink = (href: string): string | null => {
 };
 
 const renderInline = (text: string, keyPrefix: string): React.ReactNode[] => {
+  // Decode table-safe literals after splitting columns; React still renders text safely.
+  text = text.replace(/&#124;|&lt;|&gt;|&amp;/g, entity => ({
+    '&#124;': '|', '&lt;': '<', '&gt;': '>', '&amp;': '&',
+  }[entity] || entity));
   const tokenPattern = /(\*\*[^*\n]+\*\*|__[^_\n]+__|`[^`\n]+`|\[[^\]\n]+\]\([^)\n]+\)|\*[^*\n]+\*|_[^_\n]+_)/g;
   const nodes: React.ReactNode[] = [];
   let cursor = 0;

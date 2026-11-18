@@ -153,7 +153,7 @@
 .role-pill,
 .user-status { display: inline-flex; align-items: center; padding: 4px 9px; border-radius: var(--radius-full); font-size: 10px; font-weight: 800; white-space: nowrap; }
 .role-pill { color: var(--accent-dark); background: var(--accent-light); }
-.role-admin { color: #7c3aed; background: #f3e8ff; }
+.role-admin { color: var(--accent); background: var(--accent-light); }
 .role-user { color: #475467; background: #f2f4f7; }
 .status-active { color: #067647; background: #ecfdf3; }
 .status-inactive { color: #b42318; background: #fef3f2; }

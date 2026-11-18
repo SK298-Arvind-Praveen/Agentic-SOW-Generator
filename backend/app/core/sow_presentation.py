@@ -48,10 +48,14 @@ def presentation_issues(text, category):
     if category == 'architecture_diagram' and strip_text_diagrams(text) != text.strip():
         issues.append('ASCII diagram must not appear in architecture prose')
     if category == 'architecture_diagram':
-        if not any(re.match(r'^\s*[-*+]\s+', line) for line in text.splitlines()):
-            issues.append('Solution Architecture must use concise bullet points')
-        if any(line.strip() and not re.match(r'^\s*[-*+]\s+', line) for line in text.splitlines()):
-            issues.append('Solution Architecture must not contain prose paragraphs or catalogue tables')
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        cells = [line.strip('|').split('|') for line in lines]
+        if (len(lines) < 3 or any(not line.startswith('|') or not line.endswith('|') for line in lines)
+                or any(len(row) != 2 for row in cells)
+                or [c.strip().casefold() for c in cells[0]] != ['service name', 'role in the project']
+                or not all(re.fullmatch(r'\s*:?-{3,}:?\s*', c) for c in cells[1])
+                or any(not all(c.strip() for c in row) for row in cells[2:])):
+            issues.append('Solution Architecture must be one Service name | Role in the project table with brief roles and no bullets')
     if category == 'scope_of_work':
         headings = list(re.finditer(r'(?m)^(#{2,6}) .+$', text))
         depth = max((len(h.group(1)) for h in headings), default=0)

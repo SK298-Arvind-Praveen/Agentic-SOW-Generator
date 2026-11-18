@@ -169,7 +169,15 @@ function validateFieldValue(field, value, opts = {}) {
     // some numericInput fields hold non-numeric strings (e.g. EC2 instanceType)
     const num = Number(strVal);
     if (Number.isFinite(num)) {
-      if (field.minValue != null && num < field.minValue) {
+      // The NAT product requires both mutually exclusive field sets. Zero
+      // explicitly disables the unused set even where the manifest says min=1.
+      const scalar = v => Number(v && typeof v === 'object' ? v.value : v);
+      const config = opts.config || {};
+      const inactiveNat = opts.serviceCode === 'networkAddressTranslationNatGatewayVpc' && num === 0 && (
+        (['regionalNatGatewayCount', 'regionalNatGatewayAzCount'].includes(field.id) && scalar(config.numberOfGateways) > 0) ||
+        (field.id === 'numberOfGateways' && scalar(config.regionalNatGatewayCount) > 0)
+      );
+      if (field.minValue != null && num < field.minValue && !inactiveNat) {
         return { ok: false, error: `Field "${field.id}": value ${num} is below minimum ${field.minValue}.` };
       }
       if (field.maxValue != null && num > field.maxValue) {
@@ -324,7 +332,7 @@ async function validateConfigKeys(serviceKey, config, partition, catalog) {
     for (const key of configKeys) {
       const field = fieldsById.get(key);
       if (!field) continue;
-      const r = validateFieldValue(field, config[key], { serviceCode: svc.key });
+      const r = validateFieldValue(field, config[key], { serviceCode: svc.key, config });
       if (r.ok === true) continue;
       if (r.ok === 'corrected') {
         correctedConfig[key] = r.correctedValue;

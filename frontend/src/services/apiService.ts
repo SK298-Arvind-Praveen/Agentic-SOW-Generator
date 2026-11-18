@@ -139,7 +139,21 @@ class APIService {
     const token = localStorage.getItem('authToken');
     const headers = new Headers(init.headers || {});
     if (token) headers.set('Authorization', `Bearer ${token}`);
-    const response = await globalThis.fetch(input, { ...init, headers });
+    let response = await globalThis.fetch(input, { ...init, headers });
+    // This exact response is emitted before a protected route executes. One
+    // replay is safe even for finalize: it cannot create a duplicate document.
+    // Never replay arbitrary 503s or a consumed Request body.
+    if (response.status === 503 && !(input instanceof Request)) {
+      const outage = await response.clone().json().catch(() => null);
+      if (outage?.code === 'AUTH_SERVICE_UNAVAILABLE' && outage.retryable !== false
+          && token === localStorage.getItem('authToken') && !init.signal?.aborted) {
+        const seconds = Number(response.headers.get('Retry-After') || '5');
+        await this.delay(Number.isFinite(seconds) ? Math.min(10000, Math.max(1000, seconds * 1000)) : 5000);
+        if (token === localStorage.getItem('authToken') && !init.signal?.aborted) {
+          response = await globalThis.fetch(input, { ...init, headers });
+        }
+      }
+    }
     // A late response from an older session must not log out a new login.
     // Network failures and service outages (503) never invalidate credentials.
     if (response.status === 401 && token && token === localStorage.getItem('authToken')
@@ -1076,7 +1090,8 @@ class APIService {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to download: ${response.statusText}`);
+        const detail = await response.json().catch(() => null);
+        throw new Error(detail?.error || `Failed to download: ${response.statusText}`);
       }
 
       const blob = await response.blob();
