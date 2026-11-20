@@ -14,7 +14,9 @@ from app.diagram.aws_icons import AwsIconRegistry
 
 
 @pytest.fixture
-def service():
+def service(monkeypatch):
+    monkeypatch.setattr('app.diagram.process_flow.decorate',
+        lambda png, xml, *args: (png, xml, {'decoration_warnings': []}))
     result = DiagramService.__new__(DiagramService)
     result.config = SimpleNamespace(ASSETS_DIR=Path(__file__).parents[1] / 'assets')
     result.icon_registry = AwsIconRegistry(result.config.ASSETS_DIR)
@@ -214,7 +216,10 @@ def test_iconic_export_keeps_font_geometry_and_visible_icon_connections(service)
     ), (Edge('app', 'model', 'Invoke'),))
     data = elk.layout(spec, service.config, _optimize=False, _compound=True, _iconic=True)
     x,y,w,h = data['geometry'][0]['model']
-    assert data['paths'][0][-1] in [(x+w/2-32,y+37), (x+w/2+32,y+37), (x+w/2,y+5)]
+    end_x, end_y = data['paths'][0][-1]
+    # The port is on the visible 52px icon, never its label/card whitespace.
+    assert (end_x - (x+w/2))**2 + (end_y - (y+32))**2 == pytest.approx(26**2)
+    assert end_y <= y+32
     xml = ET.fromstring(drawio_xml(spec, service.icon_registry, data))
     assert 'fontSize=22;' in xml.find(".//mxCell[@id='model']").get('style')
 

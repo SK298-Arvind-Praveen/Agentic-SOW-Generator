@@ -81,17 +81,23 @@ def routes(spec, positions):
     return result
 
 
-def geometry_report(spec, positions, paths):
+def geometry_report(spec, positions, paths, iconic=False):
     overlaps = sum(
         max(a[0],b[0]) < min(a[0]+a[2],b[0]+b[2]) and max(a[1],b[1]) < min(a[1]+a[3],b[1]+b[3])
         for a,b in combinations(positions.values(),2)
     )
     crossings = sum(crosses(a,b,c,d) for p,q in combinations(paths,2) for a,b in zip(p,p[1:]) for c,d in zip(q,q[1:]))
+    icon_nodes = {n.id for n in spec.nodes if n.icon_key} if iconic else set()
+    hard_positions = {k:(x+w/2-32,y,64,64) if k in icon_nodes else (x,y,w,h)
+                      for k,(x,y,w,h) in positions.items()}
     collisions = sum(hits_box(a,b,box) for edge,path in zip(spec.edges,paths)
-                     for a,b in zip(path,path[1:]) for key,box in positions.items()
+                     for a,b in zip(path,path[1:]) for key,box in hard_positions.items()
                      if key not in {edge.source,edge.target})
+    caption_contacts = sum(hits_box(a,b,(x,y+64,w,max(0,h-64))) for edge,path in zip(spec.edges,paths)
+                     for a,b in zip(path,path[1:]) for key,(x,y,w,h) in positions.items() if key in icon_nodes)
     ambiguous = sum(_ambiguous_contact(p, q) for p, q in combinations(paths, 2))
     return {"node_overlaps": overlaps, "connector_node_intersections": collisions,
+            "connector_caption_intersections": caption_contacts,
             "ambiguous_connector_pairs": ambiguous,
             "connector_crossings": crossings, "nodes": len(spec.nodes), "edges": len(spec.edges),
             **connector_report(positions, paths)}
@@ -152,7 +158,7 @@ def layout_quality(metrics):
 
 
 
-def local_routes(spec, positions, boxes, parents, width, height, deadline=None, captions=None, iconic=False, icon_bottom=False, max_terminal_gap=None, boundary_transit=False, terminal_sides=None, edge_obstacles=None, crossing_penalty=180):
+def local_routes(spec, positions, boxes, parents, width, height, deadline=None, captions=None, iconic=False, icon_bottom=False, max_terminal_gap=None, boundary_transit=False, terminal_sides=None, edge_obstacles=None, crossing_penalty=180, header_sizes=None):
     """Shortest orthogonal visibility-grid routes, with ports chosen by proximity.
 
     Keep every edge and real boundary. Unrelated containers and all boundary
@@ -160,17 +166,22 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
     A bend penalty prevents gratuitous zigzags. No generated executable code.
     """
     icon_nodes = {n.id for n in spec.nodes if getattr(n, 'icon_key', '')} if iconic else set()
+    # Ports always attach to the visible glyph, including its bottom. Captions
+    # are a soft preference; using their bottom edge as a terminal detaches wires.
+    if iconic:
+        icon_bottom = True
     def ports(rect, icon=False, offset=0, gap=16):
         x, y, w, h = rect
         if icon:
+            radius=(26**2-offset**2)**.5
             # Route outside the whole label footprint, then join the visible icon.
-            result = { (x-gap,y+37+offset): (x+w/2-32,y+37+offset),
-                     (x+w+gap,y+37+offset): (x+w/2+32,y+37+offset),
-                     (x+w/2+offset,y-gap): (x+w/2+offset,y+5) }
+            result = { (x-gap,y+32+offset): (x+w/2-radius,y+32+offset),
+                     (x+w+gap,y+32+offset): (x+w/2+radius,y+32+offset),
+                     (x+w/2+offset,y-gap): (x+w/2+offset,y+32-radius) }
             if icon_bottom:
-                # A downward story exits below the service's own caption. Never
-                # draw through that caption to reach the icon above it.
-                result[(x+w/2+offset,y+h+gap)] = (x+w/2+offset,y+h)
+                # The approach can cross readable caption text, but its terminal
+                # belongs to the visible glyph rather than the caption footprint.
+                result[(x+w/2+offset,y+h+gap)] = (x+w/2+offset,y+32+radius)
             return result
         return { (x-gap,y+h/2+offset): (x,y+h/2+offset),
                  (x+w+gap,y+h/2+offset): (x+w,y+h/2+offset),
@@ -292,27 +303,42 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
         allowed = ancestors(edge.source) | ancestors(edge.target)
         # Border-following paths are invisible after the cards are painted and
         # look like connections to unrelated boxes. Keep an explicit clearance.
-        obstacles = [(x-8,y-8,w+16,h+16) for x,y,w,h in positions.values()]
+        hard_positions = {k:(x+w/2-32,y,64,64) if k in icon_nodes else (x,y,w,h)
+                          for k,(x,y,w,h) in positions.items()}
+        obstacles = [(x-8,y-8,w+16,h+16) for x,y,w,h in hard_positions.values()]
         # Physical boundaries describe ownership, not impenetrable routing walls.
         # A connector may cross an empty sibling subnet corridor without moving
-        # either endpoint into that subnet. Its header and every card stay protected.
-        obstacles += [rect if key not in allowed and not boundary_transit else (rect[0], rect[1],
-                      min(rect[2], len((captions or {}).get(key, key))*9+54), 39)
-                      for key, rect in boxes.items()]
+        # either endpoint into that subnet. Text is a soft preference: small
+        # overlaps must not force long detours. Actual icons stay protected.
+        soft_headers = [(x,y+64,w,max(0,h-64)) for k,(x,y,w,h) in positions.items() if k in icon_nodes]
+        for key, rect in boxes.items():
+            if key not in allowed and not boundary_transit and not key.endswith('heading'):
+                obstacles.append(rect)
+            else:
+                soft_headers.append((*rect[:2], *((header_sizes or {}).get(key)
+                    or (min(rect[2], len((captions or {}).get(key,key))*9+54), min(rect[3],39)))))
+        def heading_cost(a,b):
+            penalty=0
+            for x,y,w,h in soft_headers:
+                if a[0]==b[0] and x<a[0]<x+w:
+                    penalty+=max(0,min(max(a[1],b[1]),y+h)-max(min(a[1],b[1]),y))*.15
+                elif a[1]==b[1] and y<a[1]<y+h:
+                    penalty+=max(0,min(max(a[0],b[0]),x+w)-max(min(a[0],b[0]),x))*.15
+            return penalty
         obstacles += (edge_obstacles or {}).get((edge.source, edge.target), [])
         # Prefer a single horizontal segment between visible faces. Independent
         # fan-out port offsets can otherwise introduce a tiny two-bend jog even
         # when adjacent icons have a completely clear, aligned corridor.
         def visible(key, rect):
             x,y,w,h = rect
-            return (x+w/2-32,y+5,64,64) if key in icon_nodes else rect
+            return (x+w/2-32,y,64,64) if key in icon_nodes else rect
         ax,ay,aw,ah = visible(edge.source,positions[edge.source])
         bx,by,bw,bh = visible(edge.target,positions[edge.target])
         low,high = max(ay,by)+8,min(ay+ah,by+bh)-8
         if low <= high and (ax+aw < bx or bx+bw < ax):
             centre = (low+high)/2
             tracks = [centre,centre-12,centre+12,centre-24,centre+24]
-            clear_obstacles = [(x-8,y-8,w+16,h+16) for key,(x,y,w,h) in positions.items()
+            clear_obstacles = [(x-8,y-8,w+16,h+16) for key,(x,y,w,h) in hard_positions.items()
                                if key not in {edge.source,edge.target}]
             clear_obstacles += obstacles[len(positions):]
             straight = None
@@ -320,6 +346,12 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
                 if not low <= y <= high:
                     continue
                 a,b = ((ax+aw,y),(bx,y)) if ax < bx else ((ax,y),(bx+bw,y))
+                if edge.source in icon_nodes:
+                    radius=max(0,26**2-(y-ay-32)**2)**.5
+                    a=(ax+32+(radius if ax<bx else -radius),y)
+                if edge.target in icon_nodes:
+                    radius=max(0,26**2-(y-by-32)**2)**.5
+                    b=(bx+32+(-radius if ax<bx else radius),y)
                 if any(hits_box(a,b,box) for box in clear_obstacles):
                     continue
                 if any(_ambiguous_contact([a,b],path) or any(crosses(a,b,c,d)
@@ -338,7 +370,7 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
         # not add a dogleg between a top actor and an unobstructed group/card.
         def vertical_face(key):
             x,y,w,h=positions[key]
-            return (x+w/2-32,y+5,64,h-5) if key in icon_nodes else (x,y,w,h)
+            return (x+w/2-26,y+6,52,52) if key in icon_nodes else (x,y,w,h)
         ax,ay,aw,ah=vertical_face(edge.source)
         bx,by,bw,bh=vertical_face(edge.target)
         low,high=max(ax,bx)+8,min(ax+aw,bx+bw)-8
@@ -347,12 +379,20 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
         can_exit=(edge.source not in icon_nodes or icon_bottom) if downward else (edge.target not in icon_nodes or icon_bottom)
         if low<=high and (downward or upward) and can_exit:
             centre=(low+high)/2
-            clear_obstacles=[(x-8,y-8,w+16,h+16) for key,(x,y,w,h) in positions.items()
+            clear_obstacles=[(x-8,y-8,w+16,h+16) for key,(x,y,w,h) in hard_positions.items()
                              if key not in {edge.source,edge.target}]+obstacles[len(positions):]
             straight=None
             for x in (centre,centre-12,centre+12,centre-24,centre+24):
                 if not low<=x<=high:continue
                 a,b=((x,ay+ah),(x,by)) if downward else ((x,ay),(x,by+bh))
+                if edge.source in icon_nodes:
+                    px,py,pw,_=positions[edge.source]
+                    radius=max(0,26**2-(x-px-pw/2)**2)**.5
+                    a=(x,py+32+(radius if downward else -radius))
+                if edge.target in icon_nodes:
+                    px,py,pw,_=positions[edge.target]
+                    radius=max(0,26**2-(x-px-pw/2)**2)**.5
+                    b=(x,py+32+(-radius if downward else radius))
                 if any(hits_box(a,b,box) for box in clear_obstacles):continue
                 if any(_ambiguous_contact([a,b],path) or any(crosses(a,b,c,d)
                        for c,d in zip(path,path[1:])) for path in result):continue
@@ -363,7 +403,7 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
                 result.append(straight)
                 continue
         xs, ys = {8, width-8}, {8, height-8}
-        for x, y, w, h in obstacles:
+        for x, y, w, h in obstacles + soft_headers:
             xs.update((max(8, x-12), min(width-8, x+w+12)))
             ys.update((max(8, y-12), min(height-8, y+h+12)))
         for x, y in starts+ends:
@@ -406,7 +446,7 @@ def local_routes(spec, positions, boxes, parents, width, height, deadline=None, 
                 key = tuple(sorted((a,b)))
                 if key not in segment_costs:
                     segment_costs[key] = (None if any(hits_box(a,b,box) for box in obstacles) else
-                        abs(a[0]-b[0])+abs(a[1]-b[1]) + crossing_cost(a,b) + boundary_parallel_cost(a,b))
+                        abs(a[0]-b[0])+abs(a[1]-b[1]) + crossing_cost(a,b) + boundary_parallel_cost(a,b) + heading_cost(a,b))
                 step = segment_costs[key]
                 if step is None:
                     continue

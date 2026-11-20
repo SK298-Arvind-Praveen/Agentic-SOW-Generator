@@ -73,7 +73,9 @@ def test_renderer_failure_retry_preserves_planned_architecture():
     service._generate_assets_once=attempt
     result=service._generate_assets_bounded({}, {}, '')
     assert len(calls)==2
-    assert calls[1]['_architecture_retry_spec']==spec.as_dict()
+    retried=calls[1]['_architecture_retry_spec']
+    assert retried['nodes']==spec.as_dict()['nodes'] and retried['edges']==spec.as_dict()['edges']
+    assert retried['architecture_plan']['repair_stage']=='layout'
     assert not result[0]['used_fallback']
 
 
@@ -90,15 +92,17 @@ def test_recovery_picture_is_embedded_in_download():
 
 def test_exhausted_model_budget_keeps_valid_composition(monkeypatch):
     from app.diagram import narrative
-    from app.diagram.reliability import model_attempts
+    from app.diagram.reliability import model_attempts, pipeline_attempt
     raw = json.loads((Path(__file__).parent/'fixtures/busy_narrative_interfaces.json').read_text(encoding='utf-8-sig'))
     spec = DiagramSpec(raw['title'], tuple(Node(layer=0, **n) for n in raw['nodes']),
         tuple(Edge(**e) for e in raw['edges']), architecture_plan={**raw['architecture_plan'],'retry_feedback':'Improve crossings'})
     monkeypatch.setattr(narrative, 'improve_rows', lambda s,r:s)
-    token = model_attempts.set({'Architecture Narrative Composition':2})
+    run_token = pipeline_attempt.set(1)
+    token = model_attempts.set({'Architecture Narrative Composition/candidate-1':2})
     try:
         actual = narrative.prepare(SimpleNamespace(icon_registry=AwsIconRegistry(ASSETS)), spec)
         assert actual.architecture_plan['narrative_view'] == spec.architecture_plan['narrative_view']
         assert not actual.architecture_plan.get('narrative_diagnostic')
     finally:
         model_attempts.reset(token)
+        pipeline_attempt.reset(run_token)

@@ -267,6 +267,6 @@ def test_plan_repair_is_bounded_and_only_runs_for_invalid_graph(monkeypatch, rep
     monkeypatch.setattr(service, '_eligible_types', lambda *args: ['architecture_overview'])
     monkeypatch.setattr(service, '_fallback_for_type', lambda *args: validate_spec(logical_plan(), 'CRM'))
     result, fallback = service._generate_specs({}, {}, 'Existing CRM with migration and AI adapters')
-    assert calls == ['Architecture Diagram', 'Architecture Plan Correction']
+    assert calls == ['Architecture Diagram'] + ['Architecture Plan Correction'] * (1 if repair_succeeds else 2)
     assert fallback is not repair_succeeds
     assert result[0][2].architecture_plan['view'] == 'logical'

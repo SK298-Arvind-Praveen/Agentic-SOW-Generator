@@ -89,7 +89,9 @@ def test_draft_save_persists_reopenable_snapshot_before_cleanup(tmp_path, automa
     file = tmp_path / "draft.docx"
     file.write_bytes(b"test")
     preview = {"status": "ready", "mode": "POC", "metadata": {"project_title": "Test"},
-               "content": {"scope_of_work": "Build the agreed workflow."}}
+               "content": {"scope_of_work": "Build the agreed workflow."},
+               "architecture_revision_candidate": {"status": "review_required", "reason": "Image review timed out", "assets": []},
+               "architecture_job": {"id": "retained", "status": "review_required", "error": "Image review timed out"}}
     with (patch.object(server, "preview_storage", {"p1": preview}),
           patch.object(server, "DynamoDBHandler") as handler,
           patch('app.core.nodes.pdf_build_node', return_value={"output_path": str(file)}),
@@ -108,6 +110,8 @@ def test_draft_save_persists_reopenable_snapshot_before_cleanup(tmp_path, automa
     assert save.call_args.kwargs["metadata"]["draft_preview_s3_url"].startswith("s3://files/draft-previews/p1-")
     snapshot = json.loads(s3.return_value.put_object.call_args.kwargs["Body"])
     assert snapshot["content"] == preview["content"]
+    assert snapshot['architecture_revision_candidate'] == preview['architecture_revision_candidate']
+    assert snapshot['architecture_job'] == preview['architecture_job']
     if automatic:
         cleanup.assert_not_called()
         assert preview['status'] == 'ready'

@@ -355,10 +355,10 @@ def test_capability_bucket_deliverables_trigger_consolidation():
         "modules": [{"name": name, "capability_ids": [f"CAP-{index:03d}"]}],
     } for index, name in enumerate(names, 1)]}
     issues = ScopeArchitectAgent._deliverable_fragmentation_issues(plan)
-    assert any("checklist rows" in issue for issue in issues)
+    assert any("promoted to deliverables" in issue for issue in issues)
 
 
-def test_two_source_backed_phases_are_not_treated_as_fragmented():
+def test_two_sequenced_phases_require_distinct_customer_output_evidence():
     plan = {"deliverables": [
         {
             "name": "Core Fashion and Luxury Platform",
@@ -373,7 +373,7 @@ def test_two_source_backed_phases_are_not_treated_as_fragmented():
             "modules": [{"name": "Extensions", "capability_ids": ["CAP-002"]}],
         },
     ]}
-    assert ScopeArchitectAgent._deliverable_fragmentation_issues(plan) == []
+    assert ScopeArchitectAgent._deliverable_fragmentation_issues(plan)
 
 
 def test_lifecycle_rows_cannot_be_extra_deliverables_beside_two_phases():
@@ -540,6 +540,7 @@ def test_all_graphs_include_scope_architecture_before_pricing():
     for graph in (create_graph(), create_preview_graph(), create_fast_preview_graph()):
         edges = {(edge.source, edge.target) for edge in graph.get_graph().edges}
         assert ("validate", "solution_design") in edges
-        assert ("solution_design", "scope_architecture") in edges
+        assert ("solution_design", "architecture") in edges
+        assert ("architecture", "scope_architecture") in edges
         assert ("scope_architecture", "pricing") in edges
         assert ("validate", "pricing") not in edges

@@ -6,6 +6,7 @@ const { synthesizeAgentFields } = require('../aws/agent-fields');
 const { validatePricingStrategy } = require('../aws/ec2');
 const { findRequiredComponentIds, findTemplate } = require('./can-rehydrate');
 const { getEntry } = require('./catalog');
+const { selectTemplate } = require('../aws/template-selection');
 
 const META_KEYS = new Set(['region', 'description']);
 
@@ -417,8 +418,14 @@ async function validateConfigKeys(serviceKey, config, partition, catalog) {
     // instead of waiting for validate_estimate / export_estimate to refuse.
     const catalogEntry = catalog && typeof catalog.get === 'function'
       ? getEntry(catalog, svc.key) : undefined;
-    const templateId = catalogEntry?.templateId
-      || (typeof def.templates?.[0] === 'object' ? def.templates[0]?.id : null);
+    const { templateId, incompatible } = selectTemplate(def, correctedConfig, catalogEntry?.templateId);
+    if (incompatible) {
+      return {
+        error: `Inputs for ${svc.key} mix incompatible templates. Use get_service_fields and supply fields from one template only.`,
+        correctedConfig: config,
+        corrections: [],
+      };
+    }
     const template = templateId ? findTemplate(def, templateId) : null;
     const missingRequired = computeMissingRequiredFields({
       template,
@@ -430,6 +437,7 @@ async function validateConfigKeys(serviceKey, config, partition, catalog) {
       error: null,
       correctedConfig,
       corrections,
+      templateId,
       ...(truncatedCorrections ? { truncated: true } : {}),
       ...(missingRequired.length > 0 ? { missingRequired } : {}),
     };

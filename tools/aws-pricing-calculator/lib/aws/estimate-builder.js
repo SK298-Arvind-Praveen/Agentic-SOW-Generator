@@ -1,8 +1,9 @@
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: MIT-0
 const crypto = require('crypto');
-const { PARTITIONS, resolvePartition, loadManifest, findService, fetchServiceDefinition, saveEstimate, extractInputFields } = require('./aws-client');
+const { PARTITIONS, resolvePartition, loadManifest, findService, fetchServiceDefinition, saveEstimate } = require('./aws-client');
 const ec2 = require('./ec2');
+const { selectTemplate } = require('./template-selection');
 
 const REGIONS = {
   'us-east-1': 'US East (N. Virginia)',
@@ -126,9 +127,7 @@ class EstimateBuilder {
     this.services = {};
     this.groups = {};
     this.usedKeys = new Set();
-    // compositeKey → templateId override from a verified/partial catalog
-    // entry. Used by _inferTemplateId to bypass field-membership scoring
-    // when a human-curated catalog has a known-good template choice.
+    // compositeKey → preferred template for ambiguous field memberships.
     // Stored separately so config keys remain pure field IDs and the
     // existing wrapValues/configSummary logic doesn't need to filter
     // out a reserved hint key.
@@ -351,64 +350,10 @@ class EstimateBuilder {
     return this._hasTransform(service) ? 'ec2Enhancement' : service.key;
   }
 
-  // Pick the template whose field IDs best match the config the agent
-  // supplied. This solves the multi-template case (e.g. Amazon MQ has
-  // both singleInstanceBroker and rabbitMQBroker and the right one
-  // depends entirely on which field IDs are in use). When nothing
-  // disambiguates, fall back to templates[0] for back-compat.
-  //
-  // `hint` (optional) is a templateId from a verified/partial catalog
-  // entry. When set and present in the PCT's templates list, it wins
-  // over field-membership scoring — verified catalog entries are
-  // human-confirmed against a real saved estimate, so their template
-  // choice is more reliable than scoring (especially for services like
-  // Cognito where shared-but-tier-specific fields produce ties that
-  // fall back to templates[0], silently routing through the wrong
-  // pricing engine).
+  // Use the same template selection as entry validation so a catalog's
+  // provisioned example cannot override explicit serverless inputs.
   _inferTemplateId(def, config, hint) {
-    const templates = def.templates;
-    if (!Array.isArray(templates) || templates.length === 0) return 'template';
-    if (hint) {
-      const hintMatches = templates.some(
-        t => (typeof t === 'string' ? t : t && t.id) === hint,
-      );
-      if (hintMatches) return hint;
-    }
-    if (templates.length === 1) return templates[0].id;
-
-    const configFieldIds = Object.keys(config)
-      .filter(k => k !== 'region' && k !== 'description');
-    if (configFieldIds.length === 0) return templates[0].id;
-
-    // Count how many of the config's field IDs each template declares.
-    const fields = extractInputFields(def);
-    const fieldToTemplate = new Map();
-    for (const f of fields) {
-      if (f.templateId) fieldToTemplate.set(f.id, f.templateId);
-    }
-
-    const scores = new Map();
-    for (const id of configFieldIds) {
-      const tpl = fieldToTemplate.get(id);
-      if (tpl) scores.set(tpl, (scores.get(tpl) || 0) + 1);
-    }
-
-    if (scores.size === 0) return templates[0].id;
-
-    // Pick the template with the highest score; break ties in favour
-    // of the template that appears first in the definition so the
-    // behaviour remains deterministic and back-compat for ambiguous
-    // configs.
-    let best = templates[0].id;
-    let bestScore = -1;
-    for (const tpl of templates) {
-      const s = scores.get(tpl.id) || 0;
-      if (s > bestScore) {
-        bestScore = s;
-        best = tpl.id;
-      }
-    }
-    return best;
+    return selectTemplate(def, config, hint).templateId;
   }
 
   async _buildServiceConfig(manifest, service, config, partition, hint) {

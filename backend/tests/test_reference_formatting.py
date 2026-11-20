@@ -34,16 +34,17 @@ def test_compact_pricing_with_clickable_estimate_and_no_duplicate_totals():
         'currency': 'USD', 'estimate_url': 'https://calculator.aws/#/estimate?id=abc',
         'volume_metrics': [{'metric': 'Monthly audio minutes', 'value': '10000000'}]})
     assert '| Item | Monthly (USD) | Estimate |' in text
-    assert '[AWS Pricing Calculator](https://calculator.aws/#/estimate?id=abc)' in text
+    assert 'AWS Pricing Calculator: [Open Link](https://calculator.aws/#/estimate?id=abc)' in text
     assert text.count('2,978.27') == 1
     assert '| Monthly audio minutes | 10000000 |' in text
     assert 'ARR' not in text and 'MRR' not in text and '| Metric |' not in text
 
 
 def test_blank_stale_partial_and_fallback_are_honest():
-    assert '| AWS infrastructure |  |  |' in render_aws_pricing_section({'status': 'stale', 'monthly_cost': 99})
+    stale = render_aws_pricing_section({'status': 'stale', 'monthly_cost': 99})
+    assert '| AWS infrastructure | Pending |' in stale and '99.00' not in stale
     partial = render_aws_pricing_section({'status': 'partial_priced', 'calculator_monthly_cost': 1})
-    assert 'components only | 1.00' in partial and 'total |  |' in partial
+    assert 'components only | 1.00' in partial and 'total | Unavailable |' in partial
     fallback = render_aws_pricing_section({'status': 'fallback_priced', 'fallback_estimate': {'monthly_base': 150}})
     assert 'Workload planning estimate' in fallback and 'not an AWS quote' in fallback
     assert '[AWS Pricing Calculator]' not in fallback
@@ -52,7 +53,9 @@ def test_blank_stale_partial_and_fallback_are_honest():
 def test_template_contracts_use_new_table():
     for file in ('poc_template.md', 'production_template.md'):
         text = (Path(__file__).resolve().parents[1] / 'templates' / file).read_text(encoding='utf-8')
-        assert '| Item | Monthly (<actual currency>) | Estimate |' in text
+        assert 'AWS Pricing Calculator: [Open Link](<saved estimate URL>)' in text
+        assert 'concise sizing table using the existing SOW table style' in text
+        assert 'Do not invent dollar rates or replace calculator totals' in text
 
 
 def test_calculator_markdown_link_renders_as_named_word_hyperlink():

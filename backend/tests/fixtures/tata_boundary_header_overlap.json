@@ -1,0 +1,2040 @@
+{
+  "title": "Tata CLiQ Agentic Support Platform",
+  "nodes": [
+    {
+      "id": "customers",
+      "label": "Customers",
+      "kind": "actor",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "aws.resource.general-icons.users",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names Users",
+      "group": "application_processing",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "agents",
+      "label": "Agents and Admins",
+      "kind": "actor",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "aws.resource.general-icons.users",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names Users",
+      "group": "application_processing",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "whatsapp_bsp",
+      "label": "WhatsApp BSP",
+      "kind": "external",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "event_source",
+      "label": "Business Event Source",
+      "kind": "external",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "notifications"
+    },
+    {
+      "id": "corporate_idp",
+      "label": "TUL Corporate IdP",
+      "kind": "external",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "access"
+    },
+    {
+      "id": "cs_platform",
+      "label": "Customer-Service Platform",
+      "kind": "external",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "enterprise_api",
+      "label": "TUL Enterprise API Gateway",
+      "kind": "external",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.networking-content-delivery.amazon-api-gateway",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names api gateway",
+      "group": "network_delivery",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "integration"
+    },
+    {
+      "id": "sap_hybris",
+      "label": "SAP Hybris",
+      "kind": "external",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "integration"
+    },
+    {
+      "id": "otp_service",
+      "label": "Existing OTP Service",
+      "kind": "external",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "integration"
+    },
+    {
+      "id": "notify_providers",
+      "label": "Notification Providers",
+      "kind": "external",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "notifications"
+    },
+    {
+      "id": "mixpanel",
+      "label": "Mixpanel",
+      "kind": "external",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "analytics"
+    },
+    {
+      "id": "redshift",
+      "label": "Amazon Redshift",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.analytics.amazon-redshift",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. aws_services: Amazon Redshift (existing data warehouse)",
+      "group": "processing_ai",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "TUL Existing AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "analytics"
+    },
+    {
+      "id": "cloudfront",
+      "label": "Amazon CloudFront",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.service.networking-content-delivery.amazon-cloudfront",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "network_delivery",
+      "placement_role": "entry",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "waf",
+      "label": "AWS WAF",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-waf",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names waf",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "iam",
+      "label": "AWS Identity and Access Management",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-identity-and-access-management",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names iam",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "api_gateway",
+      "label": "Amazon API Gateway",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.networking-content-delivery.amazon-api-gateway",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names api gateway",
+      "group": "network_delivery",
+      "placement_role": "entry",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "cognito",
+      "label": "Amazon Cognito",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.amazon-cognito",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "access"
+    },
+    {
+      "id": "s3_web",
+      "label": "Amazon S3 Web Assets",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names s3",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "web_chat"
+    },
+    {
+      "id": "sqs",
+      "label": "Amazon SQS",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.application-integration.amazon-simple-queue-service",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "application_processing",
+      "placement_role": "integration",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "step_functions",
+      "label": "AWS Step Functions",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.application-integration.aws-step-functions",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "application_processing",
+      "placement_role": "integration",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "handover"
+    },
+    {
+      "id": "eventbridge",
+      "label": "Amazon EventBridge",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.application-integration.amazon-eventbridge",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "application_processing",
+      "placement_role": "integration",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "kb_sync"
+    },
+    {
+      "id": "igw",
+      "label": "Internet Gateway",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-internet-gateway",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. Optional supporting infrastructure; select only for a justified deployment need",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "Platform VPC",
+      "flow_id": "network"
+    },
+    {
+      "id": "nat_a",
+      "label": "NAT Gateway",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-nat-gateway",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. Optional supporting infrastructure; select only for a justified deployment need",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "az",
+      "availability_zone": "az_a",
+      "subnet": "public",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "Platform VPC",
+      "flow_id": "network"
+    },
+    {
+      "id": "nat_b",
+      "label": "NAT Gateway",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-nat-gateway",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. Optional supporting infrastructure; select only for a justified deployment need",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "az",
+      "availability_zone": "az_b",
+      "subnet": "public",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "Platform VPC",
+      "flow_id": "network"
+    },
+    {
+      "id": "lambda",
+      "label": "AWS Lambda",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.compute.aws-lambda",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names lambda",
+      "group": "application_processing",
+      "placement_role": "compute",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "Platform VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "opensearch",
+      "label": "Amazon OpenSearch Service",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.analytics.amazon-opensearch-service",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. aws_services: Amazon OpenSearch Service (searchable conversation history) - proposed",
+      "group": "processing_ai",
+      "placement_role": "data",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "Platform VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "gw_endpoint",
+      "label": "Gateway Endpoints",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-endpoints",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. Optional supporting infrastructure; select only for a justified deployment need",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "Platform VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "if_endpoint",
+      "label": "Interface Endpoints",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-endpoints",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. Optional supporting infrastructure; select only for a justified deployment need",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "Platform VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "dynamodb",
+      "label": "Amazon DynamoDB",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.databases.amazon-dynamodb",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names dynamodb",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "s3_kb",
+      "label": "Amazon S3 Knowledge",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names s3",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "kb_sync"
+    },
+    {
+      "id": "s3_audit",
+      "label": "Amazon S3 Audit",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names s3",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "analytics"
+    },
+    {
+      "id": "bedrock",
+      "label": "Amazon Bedrock",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.artificial-intelligence.amazon-bedrock",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. aws_services: Amazon Bedrock Guardrails (hallucination/safety controls) - proposed",
+      "group": "processing_ai",
+      "placement_role": "compute",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "guardrails",
+      "label": "Bedrock Guardrails",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.artificial-intelligence.amazon-bedrock",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. aws_services: Amazon Bedrock Guardrails (hallucination/safety controls) - proposed",
+      "group": "processing_ai",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "bedrock_kb",
+      "label": "Bedrock Knowledge Bases",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.artificial-intelligence.amazon-bedrock",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. aws_services: Amazon Bedrock Guardrails (hallucination/safety controls) - proposed",
+      "group": "processing_ai",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "firehose",
+      "label": "Amazon Data Firehose",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.analytics.amazon-data-firehose",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. aws_services: Amazon Data Firehose (event streaming to data lake/Redshift) - proposed",
+      "group": "processing_ai",
+      "placement_role": "integration",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "analytics"
+    },
+    {
+      "id": "s3_lake",
+      "label": "Amazon S3 Data Lake",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names s3",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "analytics"
+    },
+    {
+      "id": "quicksight",
+      "label": "Amazon QuickSight",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.business-applications.amazon-quick",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names quicksight",
+      "group": "customer_engagement",
+      "placement_role": "operations",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "analytics"
+    },
+    {
+      "id": "cloudwatch",
+      "label": "Amazon CloudWatch",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.amazon-cloudwatch",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. aws_services: Amazon CloudWatch (monitoring and alerting) - proposed",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "controls"
+    },
+    {
+      "id": "sns",
+      "label": "Amazon SNS",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.application-integration.amazon-simple-notification-service",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. capability: notification",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "controls"
+    },
+    {
+      "id": "cloudtrail",
+      "label": "AWS CloudTrail",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.aws-cloudtrail",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "application_processing",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "controls"
+    },
+    {
+      "id": "budgets",
+      "label": "AWS Budgets",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.cloud-financial-management.aws-budgets",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "",
+      "vpc": "",
+      "flow_id": "controls"
+    },
+    {
+      "id": "kms",
+      "label": "AWS Key Management Service",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-key-management-service",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names kms",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "controls"
+    },
+    {
+      "id": "secrets",
+      "label": "AWS Secrets Manager",
+      "kind": "service",
+      "layer": 5,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-secrets-manager",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. Optional supporting infrastructure; select only for a justified deployment need",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "AWS Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "controls"
+    }
+  ],
+  "edges": [
+    {
+      "source": "customers",
+      "target": "cloudfront",
+      "label": "Chat widget",
+      "operation_type": "request",
+      "initiator": "customers",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c1"
+      ]
+    },
+    {
+      "source": "cloudfront",
+      "target": "s3_web",
+      "label": "Fetch assets",
+      "operation_type": "read",
+      "initiator": "cloudfront",
+      "data_direction": "target_to_source",
+      "evidence_refs": [
+        "c1",
+        "c10"
+      ]
+    },
+    {
+      "source": "cloudfront",
+      "target": "api_gateway",
+      "label": "API requests",
+      "operation_type": "request",
+      "initiator": "customers",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c1",
+        "c9",
+        "c10"
+      ]
+    },
+    {
+      "source": "customers",
+      "target": "whatsapp_bsp",
+      "label": "WhatsApp chat",
+      "operation_type": "request",
+      "initiator": "customers",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c1"
+      ]
+    },
+    {
+      "source": "whatsapp_bsp",
+      "target": "api_gateway",
+      "label": "Signed webhooks",
+      "operation_type": "event",
+      "initiator": "whatsapp_bsp",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c1",
+        "c18"
+      ]
+    },
+    {
+      "source": "event_source",
+      "target": "api_gateway",
+      "label": "Business events",
+      "operation_type": "event",
+      "initiator": "event_source",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c12"
+      ]
+    },
+    {
+      "source": "cs_platform",
+      "target": "api_gateway",
+      "label": "Agent callbacks",
+      "operation_type": "event",
+      "initiator": "cs_platform",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c8",
+        "c13",
+        "c17"
+      ]
+    },
+    {
+      "source": "api_gateway",
+      "target": "lambda",
+      "label": "Invoke handlers",
+      "operation_type": "request",
+      "initiator": "api_gateway",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c1",
+        "c9",
+        "c10",
+        "c12"
+      ]
+    },
+    {
+      "source": "api_gateway",
+      "target": "cognito",
+      "label": "Validate tokens",
+      "operation_type": "control",
+      "initiator": "api_gateway",
+      "data_direction": "control",
+      "evidence_refs": [
+        "c9",
+        "c10",
+        "c11"
+      ]
+    },
+    {
+      "source": "agents",
+      "target": "cloudfront",
+      "label": "Console access",
+      "operation_type": "request",
+      "initiator": "agents",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c9",
+        "c10"
+      ]
+    },
+    {
+      "source": "agents",
+      "target": "cognito",
+      "label": "Sign in",
+      "operation_type": "request",
+      "initiator": "agents",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c11"
+      ]
+    },
+    {
+      "source": "cognito",
+      "target": "corporate_idp",
+      "label": "Federate SSO",
+      "operation_type": "request",
+      "initiator": "cognito",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c11"
+      ]
+    },
+    {
+      "source": "agents",
+      "target": "cs_platform",
+      "label": "Handle chats",
+      "operation_type": "request",
+      "initiator": "agents",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c8"
+      ]
+    },
+    {
+      "source": "agents",
+      "target": "quicksight",
+      "label": "View dashboards",
+      "operation_type": "request",
+      "initiator": "agents",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c16"
+      ]
+    },
+    {
+      "source": "lambda",
+      "target": "sqs",
+      "label": "Enqueue messages",
+      "operation_type": "write",
+      "initiator": "lambda",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c1",
+        "c12"
+      ]
+    },
+    {
+      "source": "sqs",
+      "target": "lambda",
+      "label": "Trigger worker",
+      "operation_type": "event",
+      "initiator": "lambda",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c1",
+        "c12"
+      ]
+    },
+    {
+      "source": "lambda",
+      "target": "gw_endpoint",
+      "label": "Private route",
+      "operation_type": "request",
+      "initiator": "lambda",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c20"
+      ]
+    },
+    {
+      "source": "gw_endpoint",
+      "target": "dynamodb",
+      "label": "Session state",
+      "operation_type": "write",
+      "initiator": "lambda",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c4",
+        "c10"
+      ]
+    },
+    {
+      "source": "gw_endpoint",
+      "target": "s3_audit",
+      "label": "Write audit",
+      "operation_type": "write",
+      "initiator": "lambda",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c17"
+      ]
+    },
+    {
+      "source": "gw_endpoint",
+      "target": "s3_kb",
+      "label": "Stage articles",
+      "operation_type": "write",
+      "initiator": "lambda",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c6"
+      ]
+    },
+    {
+      "source": "dynamodb",
+      "target": "lambda",
+      "label": "Stream changes",
+      "operation_type": "event",
+      "initiator": "lambda",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c14",
+        "c15",
+        "c17"
+      ]
+    },
+    {
+      "source": "lambda",
+      "target": "if_endpoint",
+      "label": "Private route",
+      "operation_type": "request",
+      "initiator": "lambda",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c20"
+      ]
+    },
+    {
+      "source": "if_endpoint",
+      "target": "bedrock",
+      "label": "Invoke model",
+      "operation_type": "request",
+      "initiator": "lambda",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c2",
+        "c8",
+        "c9"
+      ]
+    },
+    {
+      "source": "if_endpoint",
+      "target": "bedrock_kb",
+      "label": "Retrieve passages",
+      "operation_type": "read",
+      "initiator": "lambda",
+      "data_direction": "target_to_source",
+      "evidence_refs": [
+        "c6",
+        "c9"
+      ]
+    },
+    {
+      "source": "if_endpoint",
+      "target": "firehose",
+      "label": "Put events",
+      "operation_type": "write",
+      "initiator": "lambda",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c15"
+      ]
+    },
+    {
+      "source": "bedrock",
+      "target": "guardrails",
+      "label": "Apply guardrails",
+      "operation_type": "control",
+      "initiator": "bedrock",
+      "data_direction": "control",
+      "evidence_refs": [
+        "c7"
+      ]
+    },
+    {
+      "source": "bedrock_kb",
+      "target": "s3_kb",
+      "label": "Ingest articles",
+      "operation_type": "ingestion",
+      "initiator": "bedrock_kb",
+      "data_direction": "target_to_source",
+      "evidence_refs": [
+        "c6"
+      ]
+    },
+    {
+      "source": "bedrock_kb",
+      "target": "opensearch",
+      "label": "Vector index",
+      "operation_type": "write",
+      "initiator": "bedrock_kb",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c6"
+      ]
+    },
+    {
+      "source": "lambda",
+      "target": "opensearch",
+      "label": "Index transcripts",
+      "operation_type": "write",
+      "initiator": "lambda",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c14"
+      ]
+    },
+    {
+      "source": "firehose",
+      "target": "s3_lake",
+      "label": "Deliver events",
+      "operation_type": "write",
+      "initiator": "firehose",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c15"
+      ]
+    },
+    {
+      "source": "redshift",
+      "target": "s3_lake",
+      "label": "COPY load",
+      "operation_type": "read",
+      "initiator": "redshift",
+      "data_direction": "target_to_source",
+      "evidence_refs": [
+        "c15"
+      ]
+    },
+    {
+      "source": "quicksight",
+      "target": "redshift",
+      "label": "Query views",
+      "operation_type": "read",
+      "initiator": "quicksight",
+      "data_direction": "target_to_source",
+      "evidence_refs": [
+        "c16"
+      ]
+    },
+    {
+      "source": "lambda",
+      "target": "step_functions",
+      "label": "Start workflow",
+      "operation_type": "request",
+      "initiator": "lambda",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c8",
+        "c13"
+      ]
+    },
+    {
+      "source": "step_functions",
+      "target": "lambda",
+      "label": "Run tasks",
+      "operation_type": "request",
+      "initiator": "step_functions",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c8",
+        "c13"
+      ]
+    },
+    {
+      "source": "eventbridge",
+      "target": "lambda",
+      "label": "Scheduled sync",
+      "operation_type": "event",
+      "initiator": "eventbridge",
+      "data_direction": "control",
+      "evidence_refs": [
+        "c6"
+      ]
+    },
+    {
+      "source": "lambda",
+      "target": "cs_platform",
+      "label": "Export articles",
+      "operation_type": "read",
+      "initiator": "lambda",
+      "data_direction": "target_to_source",
+      "evidence_refs": [
+        "c6"
+      ]
+    },
+    {
+      "source": "lambda",
+      "target": "cs_platform",
+      "label": "Create cases",
+      "operation_type": "request",
+      "initiator": "lambda",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c8",
+        "c13"
+      ]
+    },
+    {
+      "source": "lambda",
+      "target": "whatsapp_bsp",
+      "label": "Send replies",
+      "operation_type": "request",
+      "initiator": "lambda",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c1",
+        "c12"
+      ]
+    },
+    {
+      "source": "lambda",
+      "target": "notify_providers",
+      "label": "Send messages",
+      "operation_type": "request",
+      "initiator": "lambda",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c12",
+        "c13"
+      ]
+    },
+    {
+      "source": "lambda",
+      "target": "otp_service",
+      "label": "Verify OTP",
+      "operation_type": "request",
+      "initiator": "lambda",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c3"
+      ]
+    },
+    {
+      "source": "lambda",
+      "target": "enterprise_api",
+      "label": "Call APIs",
+      "operation_type": "request",
+      "initiator": "lambda",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c5"
+      ]
+    },
+    {
+      "source": "enterprise_api",
+      "target": "sap_hybris",
+      "label": "Route request",
+      "operation_type": "request",
+      "initiator": "lambda",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c5"
+      ]
+    },
+    {
+      "source": "lambda",
+      "target": "mixpanel",
+      "label": "Import events",
+      "operation_type": "write",
+      "initiator": "lambda",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c15"
+      ]
+    },
+    {
+      "source": "lambda",
+      "target": "nat_a",
+      "label": "AZ A egress",
+      "operation_type": "egress",
+      "initiator": "lambda",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c18",
+        "c20"
+      ]
+    },
+    {
+      "source": "lambda",
+      "target": "nat_b",
+      "label": "AZ B egress",
+      "operation_type": "egress",
+      "initiator": "lambda",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c18",
+        "c20"
+      ]
+    },
+    {
+      "source": "nat_a",
+      "target": "igw",
+      "label": "",
+      "operation_type": "egress",
+      "initiator": "lambda",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c20"
+      ]
+    },
+    {
+      "source": "nat_b",
+      "target": "igw",
+      "label": "",
+      "operation_type": "egress",
+      "initiator": "lambda",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c20"
+      ]
+    },
+    {
+      "source": "cloudwatch",
+      "target": "sns",
+      "label": "Alarm alerts",
+      "operation_type": "event",
+      "initiator": "cloudwatch",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c19"
+      ]
+    },
+    {
+      "source": "budgets",
+      "target": "sns",
+      "label": "Budget alerts",
+      "operation_type": "event",
+      "initiator": "budgets",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c25"
+      ]
+    }
+  ],
+  "note": "Proposed logical architecture; validate during discovery.",
+  "groups": [
+    {
+      "id": "application_processing",
+      "label": "Application & Processing",
+      "kind": "functional"
+    },
+    {
+      "id": "network_delivery",
+      "label": "Networking & Delivery",
+      "kind": "network"
+    },
+    {
+      "id": "processing_ai",
+      "label": "Processing, Analytics & AI",
+      "kind": "functional"
+    },
+    {
+      "id": "security_identity",
+      "label": "Security & Identity",
+      "kind": "security"
+    },
+    {
+      "id": "data_storage",
+      "label": "Data & Storage",
+      "kind": "data"
+    },
+    {
+      "id": "customer_engagement",
+      "label": "Customer Engagement",
+      "kind": "functional"
+    }
+  ],
+  "description": "Serverless multi-brand conversational platform in ap-south-1 serving App, Web and WhatsApp customers, integrating TUL's existing enterprise systems and customer-service platform with Bedrock-powered AI.",
+  "spacing_scale": 1.0,
+  "architecture_plan": {
+    "view": "deployment",
+    "flows": [
+      {
+        "id": "web_chat",
+        "label": "App and Web conversation",
+        "kind": "runtime",
+        "paths": [
+          [
+            "customers",
+            "cloudfront",
+            "api_gateway",
+            "lambda",
+            "sqs"
+          ],
+          [
+            "sqs",
+            "lambda",
+            "gw_endpoint",
+            "dynamodb"
+          ],
+          [
+            "lambda",
+            "if_endpoint",
+            "bedrock",
+            "guardrails"
+          ],
+          [
+            "lambda",
+            "if_endpoint",
+            "bedrock_kb",
+            "opensearch"
+          ],
+          [
+            "cloudfront",
+            "s3_web"
+          ]
+        ]
+      },
+      {
+        "id": "whatsapp",
+        "label": "WhatsApp conversation",
+        "kind": "runtime",
+        "paths": [
+          [
+            "customers",
+            "whatsapp_bsp",
+            "api_gateway",
+            "lambda"
+          ],
+          [
+            "lambda",
+            "whatsapp_bsp"
+          ]
+        ]
+      },
+      {
+        "id": "integration",
+        "label": "Verification and self-service",
+        "kind": "runtime",
+        "paths": [
+          [
+            "lambda",
+            "enterprise_api",
+            "sap_hybris"
+          ],
+          [
+            "lambda",
+            "otp_service"
+          ]
+        ]
+      },
+      {
+        "id": "handover",
+        "label": "Agent handover and survey",
+        "kind": "runtime",
+        "paths": [
+          [
+            "lambda",
+            "step_functions"
+          ],
+          [
+            "step_functions",
+            "lambda"
+          ],
+          [
+            "lambda",
+            "cs_platform"
+          ],
+          [
+            "cs_platform",
+            "api_gateway"
+          ],
+          [
+            "agents",
+            "cs_platform"
+          ]
+        ]
+      },
+      {
+        "id": "access",
+        "label": "Agent and admin access",
+        "kind": "runtime",
+        "paths": [
+          [
+            "agents",
+            "cloudfront"
+          ],
+          [
+            "agents",
+            "cognito",
+            "corporate_idp"
+          ],
+          [
+            "api_gateway",
+            "cognito"
+          ]
+        ]
+      },
+      {
+        "id": "notifications",
+        "label": "Proactive notifications",
+        "kind": "runtime",
+        "paths": [
+          [
+            "event_source",
+            "api_gateway"
+          ],
+          [
+            "lambda",
+            "notify_providers"
+          ]
+        ]
+      },
+      {
+        "id": "kb_sync",
+        "label": "Knowledge sync",
+        "kind": "lifecycle",
+        "paths": [
+          [
+            "eventbridge",
+            "lambda",
+            "cs_platform"
+          ],
+          [
+            "lambda",
+            "gw_endpoint",
+            "s3_kb"
+          ],
+          [
+            "bedrock_kb",
+            "s3_kb"
+          ]
+        ]
+      },
+      {
+        "id": "analytics",
+        "label": "Search, audit and analytics",
+        "kind": "analytics",
+        "paths": [
+          [
+            "dynamodb",
+            "lambda",
+            "opensearch"
+          ],
+          [
+            "lambda",
+            "if_endpoint",
+            "firehose",
+            "s3_lake"
+          ],
+          [
+            "redshift",
+            "s3_lake"
+          ],
+          [
+            "agents",
+            "quicksight",
+            "redshift"
+          ],
+          [
+            "lambda",
+            "mixpanel"
+          ],
+          [
+            "gw_endpoint",
+            "s3_audit"
+          ]
+        ]
+      },
+      {
+        "id": "network",
+        "label": "Internet egress",
+        "kind": "control",
+        "paths": [
+          [
+            "lambda",
+            "nat_a",
+            "igw"
+          ],
+          [
+            "lambda",
+            "nat_b",
+            "igw"
+          ]
+        ]
+      },
+      {
+        "id": "controls",
+        "label": "Shared controls",
+        "kind": "control",
+        "paths": [
+          [
+            "cloudwatch",
+            "sns"
+          ],
+          [
+            "budgets",
+            "sns"
+          ]
+        ]
+      }
+    ],
+    "story_overview": true,
+    "functional_deployment_view": true,
+    "process_story": {
+      "steps": [
+        {
+          "id": "s1",
+          "title": "Customers start conversations",
+          "description": "Customers open the chat widget through CloudFront or message on WhatsApp, and the WhatsApp provider forwards signed webhooks to API Gateway.",
+          "node_ids": [
+            "customers",
+            "cloudfront",
+            "s3_web",
+            "api_gateway",
+            "whatsapp_bsp"
+          ],
+          "edge_ids": [
+            "e0",
+            "e3",
+            "e4"
+          ],
+          "flow_kind": "ingress"
+        },
+        {
+          "id": "s2",
+          "title": "Messages queued in order",
+          "description": "API Gateway passes each message to Lambda handlers, which queue it in SQS so a worker can process every conversation in order with retries.",
+          "node_ids": [
+            "api_gateway",
+            "lambda",
+            "sqs"
+          ],
+          "edge_ids": [
+            "e7",
+            "e14",
+            "e15"
+          ],
+          "flow_kind": "runtime"
+        },
+        {
+          "id": "s3",
+          "title": "Bot reasons with knowledge",
+          "description": "The conversation worker calls Bedrock for chat handling under Guardrails and retrieves FAQ and policy passages from Knowledge Bases to ground its answer.",
+          "node_ids": [
+            "lambda",
+            "if_endpoint",
+            "bedrock",
+            "guardrails",
+            "bedrock_kb"
+          ],
+          "edge_ids": [
+            "e22",
+            "e23",
+            "e25"
+          ],
+          "flow_kind": "retrieval"
+        },
+        {
+          "id": "s4",
+          "title": "Verify and act on orders",
+          "description": "When account data is needed, Lambda sends outbound calls through the NAT gateways to verify the customer with the OTP service and reach SAP Hybris via the enterprise API gateway.",
+          "node_ids": [
+            "lambda",
+            "nat_a",
+            "nat_b",
+            "igw",
+            "otp_service",
+            "enterprise_api",
+            "sap_hybris"
+          ],
+          "edge_ids": [
+            "e43",
+            "e39",
+            "e40",
+            "e41"
+          ],
+          "flow_kind": "egress"
+        },
+        {
+          "id": "s5",
+          "title": "Replies and proactive notifications",
+          "description": "Lambda sends bot replies back through the WhatsApp provider and turns incoming business events into messages sent through the notification providers.",
+          "node_ids": [
+            "lambda",
+            "whatsapp_bsp",
+            "event_source",
+            "api_gateway",
+            "notify_providers"
+          ],
+          "edge_ids": [
+            "e37",
+            "e5",
+            "e38"
+          ],
+          "flow_kind": "egress"
+        },
+        {
+          "id": "s6",
+          "title": "Handover to live agents",
+          "description": "When escalation rules match, Step Functions runs the handover workflow, Lambda creates the case in the customer-service platform, and agents continue the chat there.",
+          "node_ids": [
+            "lambda",
+            "step_functions",
+            "cs_platform",
+            "agents"
+          ],
+          "edge_ids": [
+            "e32",
+            "e36",
+            "e12"
+          ],
+          "flow_kind": "runtime"
+        },
+        {
+          "id": "s7",
+          "title": "Agents and admins sign in",
+          "description": "Agents and admins sign in through Cognito, which federates to the TUL corporate IdP for single sign-on.",
+          "node_ids": [
+            "agents",
+            "cognito",
+            "corporate_idp"
+          ],
+          "edge_ids": [
+            "e10",
+            "e11"
+          ],
+          "flow_kind": "authentication"
+        },
+        {
+          "id": "s8",
+          "title": "Knowledge articles synced",
+          "description": "On an EventBridge schedule, Lambda exports articles from the customer-service platform and stages them in S3, and Knowledge Bases then ingests them into its index.",
+          "node_ids": [
+            "eventbridge",
+            "lambda",
+            "cs_platform",
+            "gw_endpoint",
+            "s3_kb",
+            "bedrock_kb"
+          ],
+          "edge_ids": [
+            "e34",
+            "e35",
+            "e19",
+            "e26"
+          ],
+          "flow_kind": "ingestion"
+        },
+        {
+          "id": "s9",
+          "title": "Conversation analytics and dashboards",
+          "description": "DynamoDB stream changes trigger Lambda to report conversation events through Firehose to the data lake, Redshift then loads them for analytics, and QuickSight dashboards query the results.",
+          "node_ids": [
+            "dynamodb",
+            "lambda",
+            "if_endpoint",
+            "firehose",
+            "s3_lake",
+            "redshift",
+            "quicksight",
+            "agents"
+          ],
+          "edge_ids": [
+            "e20",
+            "e24",
+            "e29",
+            "e30",
+            "e31"
+          ],
+          "flow_kind": "reporting"
+        }
+      ]
+    },
+    "narrative_view": {
+      "groups": [
+        {
+          "id": "g1",
+          "label": "Channel Access & Sign-in",
+          "rows": [
+            [
+              "api_gateway",
+              "cognito"
+            ],
+            [
+              "s3_web"
+            ]
+          ]
+        },
+        {
+          "id": "g2",
+          "label": "Conversation Engine",
+          "rows": [
+            [
+              "lambda",
+              "sqs"
+            ],
+            [
+              "step_functions",
+              "eventbridge"
+            ],
+            [
+              "dynamodb",
+              "s3_audit"
+            ],
+            [
+              "gw_endpoint",
+              "if_endpoint"
+            ],
+            [
+              "nat_a",
+              "nat_b"
+            ],
+            [
+              "igw"
+            ]
+          ]
+        },
+        {
+          "id": "g3",
+          "label": "AI Answers & Knowledge",
+          "rows": [
+            [
+              "bedrock",
+              "guardrails"
+            ],
+            [
+              "bedrock_kb",
+              "s3_kb"
+            ],
+            [
+              "opensearch"
+            ]
+          ]
+        },
+        {
+          "id": "g4",
+          "label": "Analytics & Reporting",
+          "rows": [
+            [
+              "firehose",
+              "s3_lake"
+            ],
+            [
+              "redshift",
+              "quicksight"
+            ]
+          ]
+        }
+      ],
+      "support": [
+        "budgets",
+        "cloudtrail",
+        "cloudwatch",
+        "iam",
+        "kms",
+        "secrets",
+        "sns"
+      ],
+      "roles": {
+        "api_gateway": "Chat & webhook APIs",
+        "cognito": "Admin/agent SSO",
+        "s3_web": "Widget & console assets",
+        "lambda": "Bot & integration workers",
+        "sqs": "Ordered message queue",
+        "step_functions": "Handover & survey flows",
+        "eventbridge": "Sync scheduler",
+        "dynamodb": "Sessions & config",
+        "s3_audit": "Audit trail",
+        "gw_endpoint": "S3/DynamoDB private route",
+        "if_endpoint": "Bedrock private route",
+        "nat_a": "AZ A egress",
+        "nat_b": "AZ B egress",
+        "igw": "Internet egress",
+        "bedrock": "NLU & reasoning",
+        "guardrails": "Safety filters",
+        "bedrock_kb": "FAQ retrieval",
+        "s3_kb": "Knowledge articles",
+        "opensearch": "Vector & transcript search",
+        "firehose": "Event delivery",
+        "s3_lake": "Data lake",
+        "redshift": "Data warehouse",
+        "quicksight": "Dashboards & reports"
+      },
+      "links": [
+        {
+          "source": "customers",
+          "target": "cloudfront",
+          "label": "Chat widget"
+        },
+        {
+          "source": "agents",
+          "target": "cloudfront",
+          "label": "Console access"
+        },
+        {
+          "source": "cloudfront",
+          "target": "g1",
+          "label": "Assets / API"
+        },
+        {
+          "source": "customers",
+          "target": "whatsapp_bsp",
+          "label": "WhatsApp chat"
+        },
+        {
+          "source": "whatsapp_bsp",
+          "target": "g1",
+          "label": "Signed webhooks"
+        },
+        {
+          "source": "event_source",
+          "target": "g1",
+          "label": "Business events"
+        },
+        {
+          "source": "cs_platform",
+          "target": "g1",
+          "label": "Agent callbacks"
+        },
+        {
+          "source": "agents",
+          "target": "g1",
+          "label": "Sign in"
+        },
+        {
+          "source": "g1",
+          "target": "corporate_idp",
+          "label": "Federate SSO"
+        },
+        {
+          "source": "g1",
+          "target": "g2",
+          "label": "Invoke handlers"
+        },
+        {
+          "source": "g2",
+          "target": "g3",
+          "label": "Infer / retrieve"
+        },
+        {
+          "source": "g2",
+          "target": "g4",
+          "label": "Put events"
+        },
+        {
+          "source": "agents",
+          "target": "cs_platform",
+          "label": "Handle chats"
+        },
+        {
+          "source": "g2",
+          "target": "cs_platform",
+          "label": "Cases / articles"
+        },
+        {
+          "source": "g2",
+          "target": "whatsapp_bsp",
+          "label": "Send replies"
+        },
+        {
+          "source": "g2",
+          "target": "notify_providers",
+          "label": "Send messages"
+        },
+        {
+          "source": "g2",
+          "target": "otp_service",
+          "label": "Verify OTP"
+        },
+        {
+          "source": "g2",
+          "target": "enterprise_api",
+          "label": "Call APIs"
+        },
+        {
+          "source": "enterprise_api",
+          "target": "sap_hybris",
+          "label": "Route request"
+        },
+        {
+          "source": "g2",
+          "target": "mixpanel",
+          "label": "Import events"
+        },
+        {
+          "source": "agents",
+          "target": "g4",
+          "label": "View dashboards"
+        }
+      ]
+    },
+    "routing_repair": 1
+  }
+}

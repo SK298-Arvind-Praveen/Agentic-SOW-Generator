@@ -36,8 +36,8 @@ def test_explicit_account_vpc_and_subnet_membership():
         Node('external', 'Customer CRM', 'external', 0, scope='external'),
     ), (Edge('a', 'b'), Edge('a', 's3')))
     chain = paths(elk.build_graph(spec, CONFIG))
-    assert chain['a'] == ['AWS Cloud', 'AWS Account', 'Region', 'Application VPC',
-                          'Availability Zone az_a', 'Private subnet']
+    assert chain['a'] == ['AWS Cloud', 'AWS Account', 'Region', 'VPC',
+                          'Availability Zone', 'Private subnet']
     assert chain['b'][1] == 'AWS Account'
     assert chain['b'][-1] == 'Isolated subnet'
     assert chain['s3'] == ['AWS Cloud', 'AWS Account', 'Region']
@@ -50,9 +50,17 @@ def test_named_vpcs_do_not_merge_within_one_account():
     spec = DiagramSpec('Two VPCs', tuple(Node(key, 'EC2', 'service', 1,
         scope='vpc', vpc=label, subnet='private') for key, label in [('a', 'App VPC'), ('b', 'Data VPC')]),
         (Edge('a', 'b'),))
-    chain = paths(elk.build_graph(spec, CONFIG))
-    assert chain['a'][-2] == 'App VPC'
-    assert chain['b'][-2] == 'Data VPC'
+    graph = elk.build_graph(spec, CONFIG)
+    chain = paths(graph)
+    assert chain['a'][-2] == chain['b'][-2] == 'VPC'
+    # Visible boundary names are fixed; their ownership identities stay distinct.
+    def owner_ids(item, parents=()):
+        found = {item['id']: parents}
+        for child in item.get('children', []):
+            found.update(owner_ids(child, parents + (item['id'],)))
+        return found
+    owners = owner_ids(graph)
+    assert owners['a'][-2] != owners['b'][-2]
 
 
 def test_schema_round_trip_and_prompt_exposes_boundaries():

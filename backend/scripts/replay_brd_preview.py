@@ -1,4 +1,6 @@
-"""Live production preview graph from the same title/company/BRD/section inputs.
+"""Architecture-only diagnostic, NOT a full website request acceptance test.
+
+Use verify_full_sow_request.py with a complete manifest for release evidence.
 
 No preselected services or saved graphs. Only cloud draft persistence and HTTP UI
 transport are omitted; document extraction and every preview graph node run normally.
@@ -40,6 +42,8 @@ def main():
     (out/'audit.json').write_text(json.dumps(result,indent=2,default=str),encoding='utf8')
     print('LIVE RESULT',json.dumps({'errors':result['errors'],'assets':[
         {k:x.get(k) for k in ('status','layout_engine','layout_metrics','vision_review')} for x in assets]}),flush=True)
-    if final.get('errors') or not any(x.get('image_base64') for x in assets):raise SystemExit(1)
+    from app.diagram.run_manifest import assert_diagram_acceptance
+    if final.get('errors') or not assets:raise SystemExit(1)
+    for asset in assets:assert_diagram_acceptance(asset)
 
 if __name__=='__main__':main()

@@ -6,6 +6,8 @@ from decimal import Decimal, InvalidOperation
 import re
 from typing import Any, Dict, Iterable, List, Tuple
 
+from .ec2_inventory import EC2_NAME
+
 
 def _safe(value: Any) -> str:
     return str('' if value is None else value).replace("|", "/").replace("\n", " ").strip()
@@ -104,7 +106,8 @@ def _calculator_item(result: Dict[str, Any], qualifier: str = "") -> str:
 def render_aws_pricing_section(result: Dict[str, Any]) -> str:
     """Reference-style monthly summary; no invented environment split or costs."""
     status = str(result.get("status") or "needs_input")
-    currency = _safe(result.get("currency") or "USD")
+    presentation = result.get('presentation') or {}
+    currency = _safe(presentation.get('currency') or result.get("currency") or "USD")
     region = _safe(result.get("region"))
     url = str(result.get("estimate_url") or "").strip()
     # Do not label the calculator homepage as a saved estimate.
@@ -112,11 +115,15 @@ def render_aws_pricing_section(result: Dict[str, Any]) -> str:
     link = f"[AWS Pricing Calculator]({url})" if valid_url else ""
     # Keep business sizing concise and workload-specific, never ten generic empty rows.
     metrics = []
+    ec2_coverage = (result.get('resource_coverage') or {}).get(EC2_NAME) or {}
+    ec2_configs = ec2_coverage.get('configurations') or []
     for item in result.get("volume_metrics") or []:
         if not isinstance(item, dict) or not item.get("metric") or item.get("value") in (None, ""):
             continue
         label, value = _safe(item["metric"]), _safe(item["value"])
         label = re.sub(r"[_\s]+", " ", label).strip()
+        if ec2_configs and re.search(r'\bEC2\b', label, re.I):
+            continue
         if any(term in label.casefold() for term in _CALCULATOR_FIELD_TERMS) or _is_workflow_setting(label):
             continue
         if re.search(r'cost.*ceiling|rollback|database tables',label,re.I):
@@ -132,6 +139,8 @@ def render_aws_pricing_section(result: Dict[str, Any]) -> str:
     # workload quantities, never the complete calculator field inventory.
     if not metrics:
         for row in result.get('sizing_details') or []:
+            if row.get('instance') and row.get('service') == EC2_NAME:
+                continue
             label=_safe(row.get('input'));value=_safe(row.get('value'))
             if value and re.search(r'invocations|monthly requests|database size|storage volume|node count|document volume',label,re.I):
                 metrics.append(f"{label}: {value} ({_safe(row.get('status') or 'Approximated')})")
@@ -139,40 +148,58 @@ def render_aws_pricing_section(result: Dict[str, Any]) -> str:
     item = "AWS infrastructure" + (f" ({environment})" if environment else "")
     rows = []
     fallback = result.get("fallback_estimate") or {}
-    if status in {"fallback_priced", "hybrid_priced"}:
-        amount = _money(fallback.get("monthly_base"))
+    supplements = result.get('official_rate_components') or []
+    if status == 'hybrid_priced' and supplements:
+        rows.append((item, _money(presentation.get('monthly_cost', result.get('monthly_cost'))), 'Estimated monthly total'))
+    elif status in {"fallback_priced", "hybrid_priced"}:
+        amount = _money(presentation.get('monthly_cost', fallback.get("monthly_base")))
         low, high = _money(fallback.get("monthly_low")), _money(fallback.get("monthly_high"))
         qualifier = "Workload planning estimate"
         if status == "hybrid_priced" and link:
             qualifier += f"; calculator-priced components: {link}"
         rows.append((item, amount, qualifier))
     elif status == "partial_priced":
-        # A partial calculator subtotal must never masquerade as the whole workload.
+        # Coverage stays explicit below the one client-facing total. Internal
+        # status/monthly_cost still distinguish a subtotal from full coverage.
         subtotal = result.get('calculator_monthly_cost')
-        rows.append(("Calculator-priced components only", _money(subtotal) if subtotal and Decimal(str(subtotal)) > 0 else '', link))
-        rows.append((item + " total", "Unavailable", "Incomplete calculator coverage; see pricing diagnostics"))
+        amount = presentation.get('monthly_cost', subtotal)
+        rows.append((item, _money(amount) if amount and Decimal(str(amount)) > 0 else '', 'Estimated monthly total*'))
     elif status in {"priced", "url_only"}:
-        rows.append((item, _money(result.get("monthly_cost")), "Approximate monthly estimate" if result.get("sizing_details") else "AWS Pricing Calculator"))
+        rows.append((item, _money(presentation.get('monthly_cost', result.get("monthly_cost"))), "Estimated monthly total"))
     else:
         rows.append((item, "Pending", _safe(result.get('error') or result.get('cost_read_warning') or 'Sizing inputs require confirmation')))
     lines = [f"| Item | Monthly ({currency}) | Estimate |", "|---|---:|---|"]
     lines.extend(f"| {label} | {amount} | {estimate} |" for label, amount, estimate in rows)
     lines.extend(['', '| Pricing basis | Details |', '|---|---|'])
+    fx = presentation.get('fx') or {}
+    if fx:
+        lines.append(f"| Currency conversion | USD 1 = INR {_safe(fx['rate'])}; rate dated {_safe(fx['date'])} ([source]({fx['source']})) |")
     if region:
         lines.append(f'| AWS region | {region} |')
     if result.get('region_warning'):
         lines.append(f"| Region confirmation | {_safe(result['region_warning'])} |")
-    for metric in metrics[:6]:
-        label, _, value = metric.partition(': ')
-        lines.append(f'| {label} | {value} |')
-    if status in {'fallback_priced', 'hybrid_priced'}:
-        if low and high:
-            lines.append(f'| Monthly planning range | {currency} {low}–{high} |')
+    from .volumes import selected_volumes
+    volumes = selected_volumes(result)
+    if status == 'hybrid_priced' and supplements:
+        for component in supplements:
+            source = f"[AWS public price list]({component['pricebook_url']})"
+            lines.append(f"| {_safe(component['service'])} rate source | {source} version {_safe(component['pricebook_version'])} |")
+    elif status in {'fallback_priced', 'hybrid_priced'}:
+        if low and high and not presentation:
+            lines.append(f'| Monthly planning range | {currency} {low}â€“{high} |')
         lines.append('| Estimate basis | Non-binding planning estimate, not an AWS quote. |')
     if not region and not metrics and status not in {'fallback_priced', 'hybrid_priced'}:
         lines.append('| AWS region | Not selected |')
     if result.get('sizing_details'):
         lines.extend(['', 'Amounts are approximate monthly estimates based on the stated sizing; actual usage and AWS charges may vary.'])
+    if status == 'partial_priced':
+        exclusions = list(dict.fromkeys(_safe(row.get('field')) for row in result.get('missing_inputs') or [] if row.get('field')))
+        detail = '; excluded: ' + ', '.join(exclusions) if exclusions else '; additional services are excluded pending cost validation'
+        lines.extend(['', '*Estimate covers supported, calculated services' + detail + '. Excluded services are not assumed to be free.'])
     if valid_url:
         lines = [f'AWS Pricing Calculator: [Open Link]({url})', ''] + lines
+    if volumes:
+        lines.extend(['', '| Workload volume | Value |', '|---|---|'])
+        for label, value, estimated in volumes:
+            lines.append(f'| {_safe(label)} | {_safe(value)}' + (' (Approx.)' if estimated else '') + ' |')
     return "\n".join(lines).strip()

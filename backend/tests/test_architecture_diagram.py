@@ -3,6 +3,8 @@ import io
 import json
 import tempfile
 import unittest
+import os
+from unittest.mock import patch
 from pathlib import Path
 
 from docx import Document
@@ -47,6 +49,22 @@ class _Config:
         self.OUTPUT_DIR = Path(output_dir or tempfile.gettempdir())
 
 
+def render_declared_specs(service, response, requirements, metadata, narrative):
+    """Renderer unit fixture. Full model stages are covered by live request tests."""
+    eligible = service._eligible_types(requirements, narrative)
+    supplied = response.get('diagrams', [response])
+    by_type = {item.get('diagram_type', 'architecture_overview'): item for item in supplied}
+    assets = []
+    with patch.dict(os.environ, {'ARCHITECTURE_DIAGRAM_ENGINE': 'legacy'}), \
+         patch('app.diagram.process_flow.decorate',
+               side_effect=lambda png, xml, *a: (png, xml, {'decoration_warnings': []})):
+        for kind in eligible:
+            if kind not in by_type: continue
+            spec = validate_spec(service._enrich_diagram(by_type[kind], kind, {}), 'Test architecture')
+            assets.append(service._asset(kind, service._placement(kind, by_type[kind]), spec, metadata, False))
+    return assets
+
+
 class ArchitectureDiagramTests(unittest.TestCase):
     def test_validated_spec_compiles_to_editable_xml_and_png(self):
         response = {
@@ -62,11 +80,11 @@ class ArchitectureDiagramTests(unittest.TestCase):
             ],
         }
         service = DiagramService(_Config(), bedrock=_Bedrock(json.dumps(response)))
-        asset = service.generate_asset(
+        asset = render_declared_specs(service, response,
             {"aws_services": ["AWS Lambda"]},
             {"company_name": "Axis Securities", "project_title": "CRM Integration"},
             "The portal invokes AWS Lambda through an API.",
-        )
+        )[0]
         self.assertFalse(asset["used_fallback"])
         self.assertEqual(asset["type"], "drawio_architecture")
         self.assertIn("<mxfile", asset["drawio_xml"])
@@ -79,7 +97,7 @@ class ArchitectureDiagramTests(unittest.TestCase):
         self.assertIn("&create=", url)
         self.assertNotIn("#create=", url)
 
-    def test_evidence_gate_plans_multiple_distinct_diagrams_without_exceeding_cap(self):
+    def test_only_solution_view_is_rendered_despite_extra_model_views(self):
         diagrams = []
         for diagram_type, title in (
             ("architecture_overview", "CRM Architecture Overview"),
@@ -102,7 +120,7 @@ class ArchitectureDiagramTests(unittest.TestCase):
                 ],
             })
         service = DiagramService(_Config(), bedrock=_Bedrock(json.dumps({"diagrams": diagrams})))
-        assets = service.generate_assets(
+        assets = render_declared_specs(service, {'diagrams': diagrams},
             {
                 "aws_services": ["Amazon Bedrock"],
                 "integrations": ["Cisco", "Netcore", "Active Directory", "Core API"],
@@ -110,13 +128,12 @@ class ArchitectureDiagramTests(unittest.TestCase):
             {"company_name": "Axis Securities", "project_title": "CRM Integration"},
             "The request workflow includes ingestion, data flow, and a response to the agent.",
         )
-        self.assertEqual(len(assets), 3)
+        self.assertEqual(len(assets), 1)
         self.assertEqual(
             [asset["diagram_type"] for asset in assets],
-            ["architecture_overview", "integration_context", "data_flow"],
+            ["architecture_overview"],
         )
-        self.assertTrue(all(asset["caption"] == asset["title"] for asset in assets))
-        self.assertTrue(all(asset["description"] for asset in assets))
+        self.assertTrue(all(asset["caption"] == '' and asset['description'] == '' for asset in assets))
 
     def test_flow_semantics_render_with_horizontal_ranks_and_standard_shapes(self):
         raw = {
@@ -226,7 +243,7 @@ class ArchitectureDiagramTests(unittest.TestCase):
         self.assertTrue(asset["used_fallback"])
         self.assertTrue(base64.b64decode(asset["image_base64"]).startswith(b"\x89PNG"))
 
-    def test_network_role_and_following_flow_both_render(self):
+    def test_network_role_renders_without_manufacturing_an_extra_flow_view(self):
         response = {"diagrams": [
             {
                 "diagram_type": "architecture_overview",
@@ -262,12 +279,12 @@ class ArchitectureDiagramTests(unittest.TestCase):
             },
         ]}
         service = DiagramService(_Config(), bedrock=_Bedrock(json.dumps(response)))
-        assets = service.generate_assets(
+        assets = render_declared_specs(service, response,
             {"aws_services": ["AWS Site-to-Site VPN"], "workflow_steps": ["Transfer data"]},
             {"company_name": "Example", "project_title": "Cloud Migration"},
             "The migration workflow transfers workloads through a firewall and validates the data flow.",
         )
-        self.assertEqual([asset["diagram_type"] for asset in assets], ["architecture_overview", "data_flow"])
+        self.assertEqual([asset["diagram_type"] for asset in assets], ["architecture_overview"])
         self.assertTrue(all(base64.b64decode(asset["image_base64"]).startswith(b"\x89PNG") for asset in assets))
 
     def test_drawio_edit_round_trip_validates_png_and_xml(self):
@@ -291,7 +308,7 @@ class ArchitectureDiagramTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             update_asset("<mxfile><broken></mxfile>", png)
 
-    def test_document_section_embeds_image_and_external_edit_link(self):
+    def test_document_section_embeds_image_without_editor_metadata(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             config = _Config(temp_dir)
             service = DiagramService(config, bedrock=_Bedrock("invalid"))
@@ -320,8 +337,8 @@ class ArchitectureDiagramTests(unittest.TestCase):
                 for paragraph in builder.doc.paragraphs
             ))
             relationship_targets = [rel.target_ref for rel in builder.doc.part.rels.values()]
-            self.assertIn(asset["edit_url"], relationship_targets)
-            self.assertTrue(any(
+            self.assertNotIn(asset["edit_url"], relationship_targets)
+            self.assertFalse(any(
                 "This diagram depicts" in paragraph.text
                 for paragraph in builder.doc.paragraphs
             ))

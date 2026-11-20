@@ -212,14 +212,14 @@ class BedrockLLM:
             if ledger is not None:
                 # A transport retry of initial planning must not spend the
                 # separate semantic correction stage's allowance.
-                stage = call_name
+                from app.diagram.repair_controller import call_budget
+                stage, stage_limit = call_budget(call_name, architecture_attempt)
                 stage_attempt = ledger.get(stage, 0) + 1
-                # Two image candidates may each need an initial review and one
+                # Each image candidate may need an initial review and one
                 # transport retry. A failed socket must not consume the revised
                 # image's entire review allowance.
-                stage_limit = 6 if image_bytes and any(k in call_name.lower() for k in ('review','check')) else 3
                 if stage_attempt > stage_limit:
-                    raise RuntimeError(f'{call_name} already used its two corrective retries')
+                    raise RuntimeError(f'{stage} exhausted its {stage_limit} calls')
                 ledger[stage] = stage_attempt
             if stage_attempt == 2:
                 max_tokens *= 2

@@ -72,7 +72,8 @@ def test_source_volume_shorthand_is_equivalent_not_missing():
     plan = {'volume_metrics': [{'metric': 'monthly_conversations', 'value': '50000', 'evidence_quote': quote}]}
     assert AwsPricingService._validated_volume_metrics(plan, quote)[0]['value'] == '50000'
     plan['volume_metrics'][0]['value'] = '500000'
-    assert AwsPricingService._validated_volume_metrics(plan, quote) == []
+    assert AwsPricingService._validated_volume_metrics(plan, quote) == [
+        {'metric': 'Monthly conversation volume', 'value': '50k conversations/month', 'status': 'Source-backed'}]
     plan['volume_metrics'][0].update(value='500000', evidence_quote='5 lakh conversations')
     assert AwsPricingService._validated_volume_metrics(plan, '5 lakh conversations')[0]['value'] == '500000'
 

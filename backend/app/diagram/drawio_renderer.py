@@ -75,26 +75,55 @@ def _cells(xml):
 
 def validate_processed_xml(original, processed):
     before, after = _cells(original), _cells(processed)
+    def models(xml):
+        root = ET.fromstring(xml)
+        return [root] if root.tag == 'mxGraphModel' else root.findall('./diagram/mxGraphModel')
+
+    def json_metadata(element, name):
+        raw = element.get(name)
+        return None if raw is None else json.dumps(json.loads(raw), sort_keys=True)
+
     pages = lambda xml: [(p.get('id'), p.get('name')) for p in ET.fromstring(xml).findall('diagram')]
     if pages(original) != pages(processed):
         raise ValueError('Draw.io MCP changed diagram pages')
     if before.keys() != after.keys():
         raise ValueError('Draw.io MCP changed diagram membership')
+    original_models, processed_models = models(original), models(processed)
+    if len(original_models) != len(processed_models):
+        raise ValueError('Draw.io MCP changed graph models')
+    for model, other in zip(original_models, processed_models):
+        for attr in ('renderedMembership', 'edgeCoverage', 'audienceGroups', 'interfaceGroups', 'overviewPlan'):
+            if json_metadata(model, attr) != json_metadata(other, attr):
+                raise ValueError(f'Draw.io MCP changed fixed graph metadata ({attr})')
+
+    route_styles = ('noEdgeStyle', 'rounded', 'orthogonalLoop', 'jettySize', 'sourcePort', 'targetPort',
+                    'labelPerimeter', 'startFill', 'endFill') + tuple(
+        prefix + suffix for prefix in ('entry', 'exit') for suffix in ('X', 'Y', 'Dx', 'Dy', 'Perimeter'))
+    fixed_styles = ('image', 'startArrow', 'endArrow', 'edgeStyle', 'shape',
+                    'opacity', 'textOpacity', 'noLabel')
+    def geometry(element):
+        node = element.find('mxGeometry')
+        return None if node is None else ET.canonicalize(ET.tostring(node, encoding='unicode'), strip_text=True)
+
     for key, cell in before.items():
         other = after[key]
-        for attr in ('source', 'target', 'parent', 'vertex', 'edge', 'value', 'overviewSource', 'overviewTarget'):
+        for attr in ('source', 'target', 'parent', 'vertex', 'edge', 'value', 'visible', 'collapsed',
+                     'overviewSource', 'overviewTarget', 'sourceNode', 'targetNode', 'nodeId',
+                     'processFlowStep', 'processFlowConnector'):
             if cell.get(attr) != other.get(attr):
                 raise ValueError(f'Draw.io MCP changed the fixed architecture or labels ({key}, {attr})')
+        if json_metadata(cell, 'originalEdgePaths') != json_metadata(other, 'originalEdgePaths'):
+            raise ValueError(f'Draw.io MCP changed original edge paths ({key})')
         # MCP may normalise style ordering / add label background defaults.
         # Service images, direction and routing semantics must remain identical.
         style = lambda c: dict(part.split('=',1) for part in c.get('style','').split(';') if '=' in part)
         a_style, b_style = style(cell), style(other)
-        for attr in ('image', 'startArrow', 'endArrow', 'edgeStyle', 'shape'):
+        routing = route_styles if cell.get('edge') == '1' else ()
+        for attr in fixed_styles + routing:
             if a_style.get(attr) != b_style.get(attr):
                 raise ValueError(f'Draw.io MCP changed fixed diagram style ({key}, {attr})')
         # No optional routing/layout pass: preserve the checked hybrid geometry.
-        a, b = cell.find('mxGeometry'), other.find('mxGeometry')
-        if a is not None and (b is None or ET.tostring(a) != ET.tostring(b)):
+        if geometry(cell) != geometry(other):
             raise ValueError('Draw.io MCP changed checked layout geometry')
 
 
@@ -130,7 +159,9 @@ def render_drawio(xml, timeout_seconds=None):
     response = json.loads(raw)
     processed = response['xml']
     validate_processed_xml(xml, processed)
-    with tempfile.TemporaryDirectory(prefix='sow-drawio-') as directory:
+    # Chromium can retain a profile handle briefly after exporter termination.
+    # Cleanup must neither discard valid PNG bytes nor mask the export error.
+    with tempfile.TemporaryDirectory(prefix='sow-drawio-', ignore_cleanup_errors=True) as directory:
         folder = Path(directory)
         source, target = folder / 'architecture.drawio', folder / 'architecture.png'
         source.write_text(processed, encoding='utf-8')
@@ -149,4 +180,4 @@ def render_drawio(xml, timeout_seconds=None):
             image.verify()
     print(f'[DIAGRAM][DRAWIO] MCP={response.get("mcp_version")}; png_bytes={len(png)}; '
           f'elapsed={budget-(deadline-time.monotonic()):.1f}s', flush=True)
-    return png, processed, {'mcp_version': response.get('mcp_version'), 'renderer': 'draw.io Desktop'}
+    return png, processed, {'mcp_version': response.get('mcp_version'), 'renderer': 'draw.io Desktop', 'export_scale': 1.5}

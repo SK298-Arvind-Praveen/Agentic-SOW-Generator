@@ -18,6 +18,10 @@ import boto3
 
 from app.core.bedrock_llm import BedrockLLM
 from app.core.document_context import select_section_evidence
+from .bedrock import bedrock_workload
+from .currency import pricing_presentation
+from .ec2_inventory import EC2_CODE, EC2_HOST_NAME, EC2_NAME, ec2_resource_coverage, selected_ec2_resources
+from .evidence import complete_estimate
 from .mcp_client import CalculatorMcpClient, PricingCalculatorError
 from .renderer import _is_workflow_setting
 
@@ -90,7 +94,16 @@ def _field_contracts(fields: Any) -> Dict[str, Dict[str, Any]]:
     }
 
 
+def unverified_zero_services(result):
+    """A zero row with no rendered configuration is not evidence of free usage."""
+    summaries = result.get('calculator_config_summaries') or {}
+    return [name for name, amount in (result.get('monthly_by_service') or {}).items()
+            if float(amount) == 0 and name in summaries and not summaries[name]]
+
+
 CALCULATOR_SERVICE_CODES = {
+    'eventbridge scheduler': ('amazonEventBridge', 'Amazon EventBridge'),
+    'eventbridge': ('amazonEventBridge', 'Amazon EventBridge'),
     'waf': ('awsWebApplicationFirewall', 'AWS Web Application Firewall'),
     'inspector': ('amazonInspector', 'Amazon Inspector'),
     'sqs': ('amazonSimpleQueueService', 'Amazon Simple Queue Service'),
@@ -98,6 +111,7 @@ CALCULATOR_SERVICE_CODES = {
 
     'fargate': ('awsFargate', 'AWS Fargate'),
     'nat gateway': ('networkAddressTranslationNatGatewayVpc', 'NAT Gateway'),
+    'site to site vpn': ('vpnConnectionVpc', 'VPN Connection'),
     'privatelink': ('awsPrivateLinkVpc', 'AWS PrivateLink'),
     'interface endpoint': ('awsPrivateLinkVpc', 'AWS PrivateLink'),
     'kms': ('awsKeyManagementService', 'AWS Key Management Service'),
@@ -200,6 +214,9 @@ class AwsPricingService:
                 result.update(status='needs_input', monthly_cost=None,
                               error='Pricing returned a non-positive or invalid total; a valid estimate is unavailable.')
             result['audit_id'] = audit_id
+            presentation = pricing_presentation(result, self.config)
+            if presentation:
+                result['presentation'] = presentation
             return result
         except Exception as exc:
             result = {'status': 'failed', 'error': str(exc)}
@@ -221,8 +238,9 @@ class AwsPricingService:
                     'result': {k: (result or {}).get(k) for k in ('status', 'monthly_cost', 'calculator_monthly_cost', 'rejected_monthly_cost',
                         'cost_read_attempts', 'cost_read_warning', 'missing_inputs', 'error', 'fallback_estimate',
                         'calculator_priced_services', 'calculator_planned_services', 'volume_metrics',
-                        'sizing_details', 'estimate_url', 'calculator_entries', 'calculator_build_attempts',
-                        'zero_cost_services', 'calculator_config_summaries')}}, default=str))
+                        'sizing_details', 'estimate_url', 'calculator_entries', 'calculator_config_count',
+                        'resource_coverage', 'calculator_build_attempts', 'official_rate_components',
+                        'zero_cost_services', 'calculator_config_summaries', 'presentation')}}, default=str))
             except OSError:
                 logger.exception('Could not write pricing audit %s', audit_id)
 
@@ -257,6 +275,9 @@ class AwsPricingService:
         ]))
         try:
             candidates = self._candidate_services(requirements, metadata, source_text)
+            ec2_resources = selected_ec2_resources(requirements)
+            if ec2_resources:
+                base['resource_coverage'] = {EC2_NAME: ec2_resource_coverage(ec2_resources)}
             print(
                 f"[PRICING] Planning region={base['region'] or 'not supplied'}; "
                 f"candidate_services={len(candidates)}; source_chars={len(source_text)}",
@@ -283,7 +304,12 @@ class AwsPricingService:
                 })
 
             planned_services = self._validated_plan_services(plan, candidates, source_text)
-            base["volume_metrics"] = self._validated_volume_metrics(plan, source_text)
+            base["volume_metrics"] = self._validated_volume_metrics(
+                plan, source_text, include_voice=any(re.search(r'\bamazon connect\b', name, re.I) for name in candidates),
+            )
+            required_official_rates = [name for name in candidates if bedrock_workload(name) == 'guardrails']
+            if required_official_rates:
+                base['required_official_rate_services'] = required_official_rates
             estimating = getattr(self.config, 'AWS_PRICING_ESTIMATE_MISSING', True)
             if estimating:
                 by_name = {_normalise_evidence(s['service_name']): s for s in planned_services}
@@ -291,14 +317,33 @@ class AwsPricingService:
                     'service_name':name, 'environment':'POC' if 'poc' in source_text.lower() else 'Shared',
                     'usage_facts':{}, 'evidence_quote':'Proposed architecture service'
                 }) for name in candidates]
+                separate_bedrock_kb = any(bedrock_workload(s['service_name']) == 'knowledge_base' for s in planned_services)
                 for service in planned_services:
                     service['_estimate_missing'] = True
                     service['_sizing_context'] = select_section_evidence(source_text,
                         'AWS architecture sizing traffic users documents capacity volume retention duration',
                         requirements=requirements,max_chars=16000)
                     design = requirements.get('service_design') or {}
-                    relevant = [s for s in design.get('services',[]) if s['name'] in {service['service_name'], 'Amazon VPC'}]
+                    relevant = [s for s in design.get('services',[]) if s['name'] in {service['service_name'], 'Amazon VPC'}
+                                or service['service_name'] in {'AWS PrivateLink', 'Amazon VPC Gateway Endpoint'}
+                                and re.search(r'\bvpc endpoints?\b', s['name'], re.I)]
+                    service['_pricing_selected_design'] = ' '.join(str(s.get('purpose') or '') for s in relevant
+                        if s['name'] == service['service_name'])
                     service['_sizing_context'] += '\nSELECTED ARCHITECTURE (proposed, not BRD facts):\n' + json.dumps({'summary':design.get('summary'), 'services':relevant},default=str)
+                    if bedrock_workload(service['service_name']):
+                        service['_separate_bedrock_kb'] = separate_bedrock_kb
+                        service['_pricing_volume_metrics'] = base['volume_metrics']
+                        service['_bedrock_selected_design'] = ' '.join(str(row.get('purpose') or '') for row in relevant
+                                                                      if row['name'] == service['service_name'])
+            elif ec2_resources and not any(service['service_name'] == EC2_NAME for service in planned_services):
+                planned_services.append({'service_name': EC2_NAME})
+            if not estimating:
+                existing = {service['service_name'] for service in planned_services}
+                planned_services.extend({'service_name': name} for name in required_official_rates if name not in existing)
+            for service in planned_services:
+                if ec2_resources and service['service_name'] == EC2_NAME:
+                    service['_ec2_resources'] = ec2_resources
+                    service['_ec2_runtime_source'] = source_text
 
             print(
                 f"[PRICING] Extracted source-backed services={len(planned_services)}/{len(candidates)}; "
@@ -325,7 +370,6 @@ class AwsPricingService:
                 )
 
             with self.client_factory() as client:
-                entries = []
                 for service_index, service in enumerate(planned_services):
                     service = self._enrich_service_with_volumetrics(
                         service, base["volume_metrics"]
@@ -341,41 +385,31 @@ class AwsPricingService:
                             else:
                                 print(f'[PRICING][CONNECTION-RETRY] {service["service_name"]}: {exc}',flush=True)
                     base["missing_inputs"].extend(missing)
-                    base.setdefault('sizing_details', []).extend(service.get('_sizing_details') or [])
-                    if service.get('_no_direct_charge'):
-                        base.setdefault('no_direct_charge_services', []).append(service['service_name'])
                     if entry:
+                        service['_calculator_entries'] = entry if isinstance(entry, list) else [entry]
                         for assumption in service.get("planning_assumptions") or []:
                             base["assumptions"].append({
                                 "input": f"{service['service_name']} – planning basis",
                                 "basis": str(assumption),
                                 "status": "Proposed for calculator sizing",
                             })
-                        entries.append(entry)
-                        base["services"].append({
-                            "service": service["service_name"],
-                            "service_code": entry["service"],
-                            "environment": service.get("environment") or "Shared",
-                            "source": service.get("evidence_quote") or "Source requirements",
-                        })
                         print(f"[PRICING] Mapped {service['service_name']} to calculator fields", flush=True)
-                    else:
+                    elif not service.get('_official_rate_component'):
                         print(
                             f"[PRICING] Skipped {service['service_name']}: "
                             f"{len(missing)} required input(s) unresolved",
                             flush=True,
                         )
-                if not entries:
+                self._collect_calculator_state(base, planned_services)
+                if not base['calculator_entries']:
                     print("[PRICING] No calculator-ready service configurations", flush=True)
                     return self._pricing_fallback(
                         base, candidates, "no service had a complete calculator field configuration"
                     )
-                print(f"[PRICING] Building estimate with {len(entries)} service configuration(s)", flush=True)
-                base["calculator_priced_services"] = len(entries)
-                base["calculator_planned_services"] = len(planned_services)
                 base["calculator_candidate_services"] = len(candidates)
-                base['calculator_entries'] = entries
                 for build_attempt in range(2):
+                    entries = base['calculator_entries']
+                    print(f"[PRICING] Building estimate with {len(entries)} service configuration(s)", flush=True)
                     try:
                         result = client.call("build_estimate", {
                             "services": json.dumps(entries, separators=(",", ":")),
@@ -391,24 +425,31 @@ class AwsPricingService:
                         break
                     if build_attempt == 0 and estimating:
                         print('[PRICING][BUILD-RETRY] Repairing calculator inputs: '+str(result)[:1200],flush=True)
-                        inspect = result.get('services_to_inspect',[]) if isinstance(result,dict) else []
-                        inspect = inspect or [str(row.get('service','')).split(':')[0] for row in incomplete]
+                        inspect = set(result.get('services_to_inspect') or []) if isinstance(result,dict) else set()
+                        inspect.update(row['service'] for row in incomplete if row.get('service'))
                         if not inspect:
                             # Export lint can arrive as JSON inside an MCP error
                             # string. Match exact known service codes in it.
                             error_text=json.dumps(result,default=str)
-                            inspect=[e['service'] for e in entries if re.search(
-                                r'(?<![A-Za-z0-9])'+re.escape(e['service'])+r'(?![A-Za-z0-9])',error_text)]
+                            inspect = {e['service'] for e in entries if re.search(
+                                r'(?<![A-Za-z0-9])'+re.escape(e['service'])+r'(?![A-Za-z0-9])',error_text)}
                         for service in planned_services:
-                            previous=service.get('_calculator_entry')
-                            if not previous or (inspect and previous['service'] not in inspect):
+                            previous = service.get('_calculator_entries', [])
+                            if not previous or (inspect and not self._entry_keys(previous).intersection(inspect)):
                                 continue
-                            service['_calculator_feedback']=json.dumps(result,default=str)
-                            repaired, missing = self._prepare_service(client,service,region)
+                            service['_calculator_feedback'] = json.dumps({'result': result, 'previous_entries': previous}, default=str)
+                            repaired, missing = self._prepare_service(client, service, region)
                             if repaired:
-                                entries=[repaired if e is previous else e for e in entries]
-                        base['sizing_details']=[row for service in planned_services for row in service.get('_sizing_details',[])]
-                        base['calculator_entries'] = entries
+                                service['_calculator_entries'] = repaired if isinstance(repaired, list) else [repaired]
+                            elif service.get('_ec2_resources'):
+                                # Never reuse an EC2 configuration set rejected by the calculator.
+                                for key in ('_calculator_entries', '_sizing_details', '_resource_coverage'):
+                                    service.pop(key, None)
+                                base['missing_inputs'].extend(missing)
+                        self._collect_calculator_state(base, planned_services)
+                        if not base['calculator_entries']:
+                            result = {'error': 'No valid configurations remained after calculator repair'}
+                            break
                 if not isinstance(result, dict) or not result.get("sharable_url"):
                     failed = {
                         **base,
@@ -418,10 +459,15 @@ class AwsPricingService:
                     return self._pricing_fallback(
                         failed, candidates, "the AWS calculator did not return a saved estimate"
                     )
-                base['calculator_entries'] = entries
                 for row in incomplete:
                     base['missing_inputs'].append({'field':row.get('service'), 'basis':'Calculator validation',
                         'reason':row.get('next_step') or 'Service configuration remained incomplete after retry'})
+                if incomplete and ec2_resources:
+                    coverage = base['resource_coverage'][EC2_NAME]
+                    rejected = {row.get('service') for row in incomplete}
+                    accepted_configs = [config for config in coverage['configurations']
+                                        if not {EC2_CODE, f"{EC2_CODE}:{config['instance']}"}.intersection(rejected)]
+                    base['resource_coverage'][EC2_NAME] = ec2_resource_coverage(ec2_resources, accepted_configs)
                 base.update({
                     "status": "url_only",
                     "estimate_url": result.get("sharable_url"),
@@ -446,6 +492,21 @@ class AwsPricingService:
                     base["monthly_by_service"] = cost.get("monthlyByService") or {}
                     base['calculator_config_summaries'] = cost.get('configByService') or {}
                     base['zero_cost_services'] = [name for name,amount in base['monthly_by_service'].items() if float(amount)==0]
+                    unverified = unverified_zero_services(base)
+                    if unverified:
+                        base['zero_cost_services'] = [name for name in base['zero_cost_services'] if name not in unverified]
+                        base['calculator_priced_services'] = max(0, base['calculator_priced_services'] - len(unverified))
+                        base['missing_inputs'].extend({'field': name, 'basis': 'Calculator cost read',
+                            'reason': 'Zero subtotal has no active configuration summary; submitted usage was not verified'}
+                            for name in unverified)
+                        return {**base, 'status': 'partial_priced', 'monthly_cost': None}
+                    if any(entry['service'] == 'amazon' for entry in base['calculator_entries']) and not any(
+                        'amazon bedrock' in str(name).casefold() and float(amount) > 0
+                        for name, amount in base['monthly_by_service'].items()
+                    ):
+                        base['missing_inputs'].append({'field': 'Amazon Bedrock', 'basis': 'Calculator cost read',
+                            'reason': 'A positive Bedrock subtotal is required for the submitted model usage'})
+                        return {**base, 'status': 'partial_priced', 'monthly_cost': None}
                     base["status"] = "priced"
                     print(f"[PRICING] Monthly calculator total read successfully: {base['monthly_cost']}", flush=True)
                 elif cost.get("error"):
@@ -455,15 +516,24 @@ class AwsPricingService:
                 return self._pricing_fallback(
                     base, candidates, "the saved calculator estimate total could not be read"
                 )
+            if base['status'] == 'priced' and base.get('official_rate_components') and not incomplete:
+                component_costs = sum(Decimal(str(row['monthly_cost'])) for row in base['official_rate_components'])
+                combined = (Decimal(str(base['calculator_monthly_cost'])) + component_costs).quantize(Decimal('0.01'))
+                hybrid = {**base, 'status': 'hybrid_priced', 'monthly_cost': float(combined)}
+                if complete_estimate(hybrid):
+                    return hybrid
+                base['missing_inputs'].append({'field': 'AWS price list supplement', 'basis': 'Pricing evidence',
+                    'reason': 'The official-rate components could not establish complete cost coverage'})
+                return self._pricing_fallback(base, candidates, 'the AWS price list supplement could not be verified')
             if (
                 base["status"] == "priced"
-                and (incomplete or len(entries) + len(base.get("no_direct_charge_services", [])) < len(planned_services))
+                and (incomplete or base['calculator_priced_services'] + len(base.get("no_direct_charge_services", [])) < len(planned_services))
                 and base.get("missing_inputs")
             ):
                 return self._pricing_fallback(
                     base,
                     candidates,
-                    f"the calculator priced {len(entries)} of {len(planned_services)} source-backed services",
+                    f"the calculator configured {base['calculator_priced_services']} of {len(planned_services)} planned services",
                 )
             return base
         except (PricingCalculatorError, OSError, subprocess.SubprocessError) as exc:
@@ -476,6 +546,33 @@ class AwsPricingService:
         except Exception as exc:
             print(f"[PRICING] Pricing workflow failed; generation halted: {exc}", flush=True)
             raise
+
+    @staticmethod
+    def _entry_keys(entries):
+        return {key for entry in entries for key in (entry['service'], f"{entry['service']}:{entry['instance']}")}
+
+    @staticmethod
+    def _collect_calculator_state(base, planned_services):
+        configured = [service for service in planned_services if service.get('_calculator_entries')]
+        entries = [entry for service in configured for entry in service['_calculator_entries']]
+        base.update(
+            calculator_entries=entries,
+            calculator_config_count=len(entries),
+            calculator_priced_services=len(configured),
+            calculator_planned_services=len(planned_services),
+            no_direct_charge_services=[s['service_name'] for s in planned_services if s.get('_no_direct_charge')],
+            sizing_details=[row for s in planned_services for row in s.get('_sizing_details', [])],
+            official_rate_components=[s['_official_rate_component'] for s in planned_services if s.get('_official_rate_component')],
+            services=[{
+                'service': service['service_name'],
+                'service_code': service['_calculator_entries'][0]['service'],
+                'environment': service.get('environment') or 'Shared',
+                'source': service.get('evidence_quote') or 'Source requirements',
+            } for service in configured],
+        )
+        for service in planned_services:
+            if service.get('_ec2_resources'):
+                base['resource_coverage'][EC2_NAME] = service.get('_resource_coverage') or ec2_resource_coverage(service['_ec2_resources'])
 
     @staticmethod
     def _with_volumetric_fallback(
@@ -601,6 +698,12 @@ class AwsPricingService:
         volume exists. It cannot create traffic volumes from page sizes, time limits,
         workflow counts, or other unrelated numeric facts.
         """
+        coverage = (result.get('resource_coverage') or {}).get(EC2_NAME)
+        if (coverage and not coverage['complete']) or result.get('required_official_rate_services'):
+            # A business-volume approximation cannot replace selected EC2 host coverage.
+            if result.get('estimate_url'):
+                return {**result, 'status': 'partial_priced', 'monthly_cost': None}
+            return result
         deterministic = self._with_volumetric_fallback(result, candidate_services, reason)
         metrics = [item for item in result.get("volume_metrics") or [] if isinstance(item, dict)]
         workload_rows = []
@@ -710,8 +813,8 @@ Return:
 
 Rules:
 - Extract only numeric or categorical usage facts explicitly present in the source text.
-- Capture cross-service business sizing facts such as annual/monthly interactions, turns per interaction, AI-routing percentages, handover percentage, API calls, users, concurrency and retention in volume_metrics.
-- Exclude regulatory TAT, escalation/reminder deadlines, ticket reopen windows and inbox pagination sizes: these are workflow/UI rules, not workload volumes or pricing inputs.
+- Capture core business volumes first, including exact monthly conversation/interaction volumes even when the source describes the current workload. Include turns, routing proportions, handover, API calls, concurrency, and retention when supplied.
+- Exclude regulatory TAT, escalation/reminder deadlines, RTO/RPO, licence pricing options, staffing for channels outside the selected deployment, ticket reopen windows, and inbox pagination sizes.
 - evidence_quote must be a short verbatim excerpt from the source text. Never fabricate a quote.
 - A service's usage facts may combine values from separate source passages; each numeric value must still occur somewhere in the authoritative source.
 - A proposed AWS service may be listed, but it needs source-backed usage facts before pricing.
@@ -740,9 +843,21 @@ Rules:
         source_text: str = "",
     ) -> List[str]:
         design = requirements.get('service_design') or {}
-        if design.get('status') == 'ready' and not (requirements.get('architecture_design') or {}).get('nodes'):
+        accepted = requirements.get('approved_architecture') or requirements.get('architecture_design') or {}
+        if design.get('status') == 'ready' and not accepted.get('nodes'):
             chosen = [s for s in design['services'] if s['status'] == 'confirmed' or metadata.get('pricing_include_proposed', True)]
             names = ['Amazon CloudWatch' if s['name'] == 'Amazon CloudWatch Logs' else s['name'] for s in chosen]
+            for service in chosen:
+                if not re.search(r'\bvpc endpoints?\b', service['name'], re.I):
+                    continue
+                purpose = service.get('purpose') or ''
+                replacements = []
+                if re.search(r'interface endpoints?|PrivateLink', purpose, re.I):
+                    replacements.append('AWS PrivateLink')
+                if re.search(r'gateway endpoints?', purpose, re.I):
+                    replacements.append('Amazon VPC Gateway Endpoint')
+                if replacements:
+                    names = [name for name in names if name != service['name']] + replacements
             # VPC is free, but its selected egress/endpoints are not. Price the
             # components explicitly described in the shared architecture plan.
             network = ' '.join(str(s.get('purpose') or '') for s in chosen if s['name'] == 'Amazon VPC')
@@ -759,9 +874,28 @@ Rules:
             services.extend(requirements.get("aws_services") or [])
         elif metadata.get("pricing_include_proposed", True):
             services.extend(proposed)
-        if (requirements.get('architecture_design') or {}).get('nodes') and services:
+        if selected_ec2_resources(requirements):
+            # Instance icons and service icons describe the same calculator product.
+            services = [EC2_NAME if EC2_HOST_NAME.fullmatch(_normalise_evidence(name)) else name for name in services]
+            if EC2_NAME not in services:
+                services.append(EC2_NAME)
+        if accepted.get('nodes') and services:
             # Regeneration already selected the current deployment. Do not add
             # retired products back merely because the original brief named them.
+            # The icon registry groups both endpoint kinds into one service.
+            # Billing needs their actual selected deployment type, not that
+            # umbrella name (gateway endpoints and interface endpoints differ).
+            if any(re.search(r'\bvpc endpoints?\b', s, re.I) for s in services):
+                endpoint_names = []
+                for node in accepted['nodes']:
+                    if node.get('scope') == 'external': continue
+                    label = ' '.join(str(node.get(k) or '') for k in ('label', 'subtitle', 'description'))
+                    if re.search(r'interface endpoint|privatelink', label, re.I):
+                        endpoint_names.append('AWS PrivateLink')
+                    elif re.search(r'gateway endpoint', label, re.I):
+                        endpoint_names.append('Amazon VPC Gateway Endpoint')
+                if endpoint_names:
+                    services = [s for s in services if not re.search(r'\bvpc endpoints?\b', s, re.I)] + endpoint_names
             return list(dict.fromkeys(services))
         source = str(source_text or "").casefold()
         explicit_aliases = {
@@ -869,7 +1003,7 @@ Rules:
         return valid
 
     @staticmethod
-    def _validated_volume_metrics(plan: Dict[str, Any], source_text: str) -> List[Dict[str, str]]:
+    def _validated_volume_metrics(plan: Dict[str, Any], source_text: str, *, include_voice: bool = False) -> List[Dict[str, str]]:
         source = _normalise_evidence(source_text)
         rows: List[Dict[str, str]] = []
         seen = set()
@@ -878,7 +1012,11 @@ Rules:
                 continue
             metric = str(item.get("metric") or "").strip()
             value = str(item.get("value") or "").strip()
-            if _is_workflow_setting(re.sub(r'[_\s]+', ' ', metric)):
+            label = re.sub(r'[_\s]+', ' ', metric).strip().casefold()
+            if (_is_workflow_setting(label)
+                    or re.search(r'\brto\b|\brpo\b|recovery (?:time|point) objective|pricing (?:slabs?|tiers?)|licen[cs]e (?:pricing|tiers?)', label)
+                    or (not include_voice and re.search(r'\b(?:voice|telephony)\b', label)
+                        and re.search(r'\b(?:agents?|seats?|staff)\b', label))):
                 continue
             quote = _normalise_evidence(item.get("evidence_quote"))
             if not metric or not value or not quote or quote not in source:
@@ -889,13 +1027,34 @@ Rules:
             if key not in seen:
                 rows.append({"metric": metric, "value": value, "status": "Source-backed"})
                 seen.add(key)
-        return rows[:16]
+        monthly = [row for row in rows if re.search(r'\b(?:conversations?|interactions?)\b', re.sub('_', ' ', row['metric']), re.I)
+                   and re.search(r'\bmonth(?:ly)?\b', (row['metric'] + ' ' + row['value']).replace('_', ' '), re.I)]
+        if not monthly:
+            # Recover an unambiguous source rate when the planner omitted it.
+            matches = re.finditer(r'(?<![\d.,])(\d[\d,]*(?:\.\d+)?(?:\s*(?:k|thousand|lakhs?|million|crores?))?)'
+                                  r'\s+(conversations|interactions)\s*(?:/\s*|per\s+)month\b', source_text, flags=re.I)
+            volumes = {}
+            for match in matches:
+                count, unit = match.group(1), match.group(2).casefold()
+                values = _volume_numbers(count)
+                if len(values) == 1 and Decimal(next(iter(values))) > 0:
+                    volumes.setdefault((unit, next(iter(values))), count)
+            if len(volumes) == 1:
+                (unit, _), count = next(iter(volumes.items()))
+                monthly = [{'metric': f'Monthly {unit[:-1]} volume', 'value': f'{count} {unit}/month', 'status': 'Source-backed'}]
+        return (monthly + [row for row in rows if row not in monthly])[:16]
 
     def _prepare_service(self, client: Any, service: Dict[str, Any], region: str):
         if service.get('_estimate_missing'):
             from .sizing import prepare_estimated_service
             return prepare_estimated_service(self, client, service, region)
         name = str(service["service_name"])
+        if bedrock_workload(name) == 'guardrails':
+            return None, [{'field': name, 'basis': 'AWS public price list',
+                           'reason': 'Guardrails requires verified per-policy text-unit inputs'}]
+        if service.get('_ec2_resources'):
+            return None, [{'field': name, 'basis': 'Selected architecture',
+                           'reason': 'Sizing each selected EC2 resource requires estimated sizing to be enabled'}]
         alias = self._calculator_service_code(name)
         evidence = _normalise_evidence(str(service.get('evidence_quote') or '') + ' ' +
                                        json.dumps(service.get('usage_facts') or {}))
@@ -997,6 +1156,8 @@ Rules:
 
     @staticmethod
     def _calculator_service_code(name: str) -> Optional[tuple[str, str]]:
+        if bedrock_workload(name) == 'guardrails':
+            return None
         key = _normalise_evidence(name)
         for marker, value in sorted(
             CALCULATOR_SERVICE_CODES.items(), key=lambda item: len(item[0]), reverse=True

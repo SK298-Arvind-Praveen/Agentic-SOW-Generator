@@ -59,7 +59,10 @@ def main():
                 {'image_base64','drawio_xml','edit_url'}},indent=2),encoding='utf-8')
             assert asset.get('text_alignment',{}).get('status')=='aligned', asset.get('text_alignment')
             assert not presentation_issues(table,'architecture_diagram')
-            assert len(service_nodes(asset['spec']))==asset['text_alignment']['row_count']
+            alignment = asset['text_alignment']
+            covered = [node_id for group in alignment['row_component_ids'] for node_id in group]
+            assert sorted(covered)==sorted(n['id'] for n in service_nodes(asset['spec']))
+            assert len(alignment['row_component_ids'])==alignment['row_count']
             assert asset['spec']['nodes']==baseline['nodes'], 'Node semantics changed'
             assert asset['spec']['edges']==baseline['edges'], 'Connections changed'
             config.OUTPUT_DIR=folder
@@ -67,7 +70,7 @@ def main():
             path=DocumentBuilder(config).build_document(content,metadata,'POC')
             document=Document(path)
             tables=[t for t in document.tables if t.cell(0,0).text=='Service name']
-            assert len(tables)==1 and len(tables[0].rows)==len(service_nodes(asset['spec']))+1
+            assert len(tables)==1 and len(tables[0].rows)==alignment['row_count']+1
             expected=[[unescape(c.strip()) for c in line.strip('|').split('|')]
                       for line in table.splitlines()[2:]]
             assert [[c.text for c in row.cells] for row in tables[0].rows[1:]] == expected

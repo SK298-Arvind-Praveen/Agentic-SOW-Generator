@@ -884,9 +884,12 @@ def research_node(state: AgentState) -> AgentState:
     _report_progress(state, 15, "Researching company and project context")
     print(f"\n--- Step: Researching Companies ---")
     metadata = state['metadata']
-    
-    if metadata.get('author_org_description') and metadata.get('company_description'):
-        print("✓ Using existing company research from enhanced extraction")
+    from app.agents.company_sources import verified_company_audit
+
+    if (metadata.get('author_org_description') and metadata.get('company_description')
+            and verified_company_audit(metadata.get('company_research_audit'), metadata.get('company_name'))
+            and not CompanyResearchAgent._company_profile_issues(metadata['company_description'])):
+        print("✓ Using existing source-verified company research")
         _report_progress(state, 25, "Company and project context ready")
         return {"current_step": "research"}
     
@@ -894,11 +897,12 @@ def research_node(state: AgentState) -> AgentState:
     companies = [metadata['author_org'], metadata['company_name']]
     print(f"   Researching: {companies}")
     
-    results = research_agent.research_multiple_companies(companies)
+    results = research_agent.research_multiple_companies(companies, state.get('supporting_context') or '')
     
     metadata['author_org_description'] = results.get(metadata['author_org'], 
         "Shellkode specializes in developing advanced data and AI solutions for businesses.")
     metadata['company_description'] = results.get(metadata['company_name'], "")
+    metadata['company_research_audit'] = getattr(research_agent, 'company_source_audit', {}).get(metadata['company_name'], {})
     
     print(f"✅ Company research completed")
     print(f"   Vendor: {metadata['author_org']}")
@@ -1059,6 +1063,41 @@ def solution_design_node(state: AgentState) -> AgentState:
     return {'validated_requirements': requirements, 'current_step': 'solution_design'}
 
 
+def architecture_node(state: AgentState) -> AgentState:
+    """Finish semantic corrections before any architecture-dependent authoring."""
+    selected = state.get('selected_sow_sections')
+    if selected is not None and 'architecture_diagram' not in selected:
+        return {'current_step': 'architecture'}
+    from app.diagram.contracts import freeze
+    from app.diagram.service import local_fallback_asset
+    requirements = dict(state.get('validated_requirements') or {})
+    requirements['architecture_source_context'] = state.get('supporting_context') or state.get('objective') or ''
+    metadata = state.get('metadata') or {}
+    _report_progress(state, 58, 'Planning, rendering and reviewing the shared architecture')
+    service = DiagramService(config)
+    try:
+        assets = service.generate_assets(requirements, metadata, '')
+    except Exception as exc:
+        assets = [local_fallback_asset(config, requirements, metadata, str(exc))]
+    finally:
+        service.bedrock.close()
+    from app.diagram.reliability import semantic_acceptance
+    spec = next((a['spec'] for a in assets if semantic_acceptance(a)), None)
+    version = None
+    if spec:
+        from app.diagram.contracts import bind_requirements
+        requirements = bind_requirements(requirements, spec, service.icon_registry)
+        frozen = freeze(spec)
+        version = frozen['version']
+        requirements['approved_architecture'] = frozen
+        design = spec.get('architecture_plan', {}).get('service_design')
+        if design: requirements['service_design'] = design
+        for asset in assets: asset['architecture_version'] = version
+    return {'architecture_assets': assets, 'architecture_version': version,
+            'artifact_architecture_versions': {'architecture_diagram': version} if version else {},
+            'validated_requirements': requirements, 'current_step': 'architecture'}
+
+
 def aws_pricing_node(state: AgentState) -> AgentState:
     """Build a source-grounded AWS Calculator estimate when pricing is selected."""
     selected = state.get("selected_sow_sections")
@@ -1090,7 +1129,9 @@ def aws_pricing_node(state: AgentState) -> AgentState:
     print(f"[PRICING] Calculator link: {calculator_link}", flush=True)
     print(f"[PRICING] status={status}; services={len(result.get('services') or [])}; missing={len(result.get('missing_inputs') or [])}", flush=True)
     _report_progress(state, 70, message)
-    return {"pricing_result": result, "current_step": "pricing"}
+    from app.diagram.contracts import stamp
+    return {"pricing_result": result, "current_step": "pricing",
+            "artifact_architecture_versions": stamp(state, 'aws_pricing')}
 
 
 def scope_architecture_node(state: AgentState) -> AgentState:
@@ -1115,6 +1156,8 @@ def scope_architecture_node(state: AgentState) -> AgentState:
     analyzed = state.get("analyzed_requirements") or {}
     for field in ("duration_weeks", "timeline", "aws_services", "confirmed_aws_services",
                   "proposed_aws_services", "document_volume", "ui_required"):
+        if requirements.get('approved_architecture') and field.endswith('aws_services'):
+            continue
         if field in analyzed:
             requirements[field] = analyzed[field]
     supporting = state.get("supporting_context") or requirements.get("_original_objective") or ""
@@ -1147,7 +1190,9 @@ def scope_architecture_node(state: AgentState) -> AgentState:
     else:
         scope_status = "Scope architecture approved"
     _report_progress(state, 63, scope_status)
+    from app.diagram.contracts import stamp
     return {
+        "artifact_architecture_versions": stamp(state, 'scope_of_work'),
         "scope_architecture_plan": plan,
         "scope_architecture_issues": issues,
         "scope_generation_seconds": time.perf_counter() - scope_started_at,
@@ -1185,6 +1230,8 @@ def content_generation_node(state: AgentState) -> AgentState:
     # Preserve user-specified fields from analyzed_requirements
     user_fields = ['duration_weeks', 'timeline', 'aws_services', 'document_volume', 'ui_required']
     for field in user_fields:
+        if final_requirements.get('approved_architecture') and field == 'aws_services':
+            continue
         if field in analyzed_requirements:
             final_requirements[field] = analyzed_requirements[field]
             print(f"   ✅ Preserved user-specified {field}: {analyzed_requirements[field]}")
@@ -1245,6 +1292,10 @@ def content_generation_node(state: AgentState) -> AgentState:
     selected_sections = state.get('selected_sow_sections')
     if selected_sections is None or "aws_pricing" in selected_sections:
         poc_content["aws_pricing"] = render_aws_pricing_section(pricing_result)
+        from app.pricing.volumes import append_volume_assumptions
+        for key in list(poc_content):
+            if 'assumptions' in key and isinstance(poc_content[key], str):
+                poc_content[key] = append_volume_assumptions(poc_content[key], pricing_result)
 
     architecture_selected = selected_sections is None or 'architecture_diagram' in selected_sections
     if architecture_selected:
@@ -1262,7 +1313,7 @@ def content_generation_node(state: AgentState) -> AgentState:
             diagram_requirements['scope_boundaries'] = boundary_summary(state.get('scope_architecture_plan') or {})
             diagram_service = DiagramService(config)
             try:
-                diagram_assets = diagram_service.generate_assets(
+                diagram_assets = state.get('architecture_assets') or diagram_service.generate_assets(
                     diagram_requirements, metadata, str(architecture_narrative))
                 from app.diagram.architecture_text import synchronize
                 synchronize(diagram_service.llm, poc_content, diagram_assets, final_requirements)
@@ -1270,7 +1321,12 @@ def content_generation_node(state: AgentState) -> AgentState:
                 diagram_service.bedrock.close()
             poc_content[ARCHITECTURE_ASSETS_KEY] = diagram_assets
             ready_count = sum(bool(asset.get('image_base64')) for asset in diagram_assets)
-            print(f"   [DIAGRAM] {ready_count} quality-checked rendered image(s)")
+            from app.diagram.reliability import retry_issues
+            reviewed_count = sum(bool(asset.get('image_base64')) and not retry_issues(asset)
+                                 and bool((asset.get('vision_review') or {}).get('image_reviewed'))
+                                 for asset in diagram_assets)
+            print(f"   [DIAGRAM] {ready_count} rendered image(s); "
+                  f"{reviewed_count} passed checks; {ready_count - reviewed_count} require review")
         except Exception as exc:
             # Keep the SOW usable even when the model or external renderer fails.
             print(f"   ⚠ Architecture diagram unavailable; preserving SOW: {exc}")
@@ -1285,6 +1341,9 @@ def content_generation_node(state: AgentState) -> AgentState:
         try:
             from app.diagram.conceptual_safe import generate_optional
             conceptual_requirements = dict(final_requirements)
+            conceptual_requirements['_document_identity'] = {
+                'company_name': metadata.get('company_name', ''),
+                'project_title': metadata.get('project_title', '')}
             for architecture_asset in poc_content.get(ARCHITECTURE_ASSETS_KEY, []):
                 if architecture_asset.get('image_base64') and architecture_asset.get('spec'):
                     selected_spec = architecture_asset['spec']
@@ -1305,7 +1364,10 @@ def content_generation_node(state: AgentState) -> AgentState:
                 'warning':'Conceptual diagram unavailable. SOW content was preserved.', 'errors':[str(exc)]}
     print(f"✅ Content generation completed")
     
-    return {"poc_content": poc_content, "current_step": "generate"}
+    from app.diagram.contracts import stamp
+    versions = stamp(state, *(selected_sections or []), 'service_table')
+    return {"poc_content": poc_content, "current_step": "generate",
+            "artifact_architecture_versions": versions}
 
 
 def pdf_build_node(state: AgentState) -> AgentState:

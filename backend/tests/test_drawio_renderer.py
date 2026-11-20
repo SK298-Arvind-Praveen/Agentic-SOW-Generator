@@ -32,6 +32,64 @@ def test_mcp_must_preserve_graph_labels_and_geometry():
             renderer.validate_processed_xml(source, changed)
 
 
+@pytest.fixture
+def physical_xml():
+    return '''<mxfile><diagram id="overview" name="Solution overview">
+    <mxGraphModel renderedMembership='{"a":"root","b":"root"}' edgeCoverage="[0,1]"
+                 audienceGroups='{"audience":["a"]}' interfaceGroups='{"external":["b"]}'>
+    <root><mxCell id="0"/><mxCell id="1" parent="0"/>
+    <mxCell id="a" vertex="1" parent="1"/><mxCell id="b" vertex="1" parent="1"/>
+    <mxCell id="flow_0" edge="1" parent="1" sourceNode="a" targetNode="b" originalEdgePaths="[[0],[1]]"
+            style="noEdgeStyle=1;exitX=0.5;entryX=0.5;entryPerimeter=0;">
+    <mxGeometry relative="1" as="geometry"><mxPoint x="40" y="70" as="sourcePoint"/>
+    <mxPoint x="44" y="78" as="targetPoint"/></mxGeometry></mxCell></root></mxGraphModel></diagram></mxfile>'''
+
+
+@pytest.mark.parametrize(('selector', 'attr', 'replacement'), [
+    ('.//mxCell[@edge]', 'sourceNode', 'b'), ('.//mxCell[@edge]', 'targetNode', 'a'),
+    ('.//mxCell[@edge]', 'originalEdgePaths', '[[1]]'),
+    ('.//mxGraphModel', 'renderedMembership', '{"a":"b"}'),
+    ('.//mxGraphModel', 'edgeCoverage', '[0]'),
+    ('.//mxGraphModel', 'audienceGroups', '{}'),
+    ('.//mxGraphModel', 'interfaceGroups', '{}'),
+])
+@pytest.mark.parametrize('drop', [True, False])
+def test_mcp_cannot_change_or_drop_path_provenance(physical_xml, selector, attr, replacement, drop):
+    from xml.etree import ElementTree as ET
+
+    modified = ET.fromstring(physical_xml)
+    node = modified.find(selector)
+    if drop:
+        node.attrib.pop(attr)
+    else:
+        node.set(attr, replacement)
+    with pytest.raises(ValueError):
+        renderer.validate_processed_xml(physical_xml, ET.tostring(modified, encoding='unicode'))
+
+
+@pytest.mark.parametrize(('old', 'new'), [
+    ('exitX=0.5;', 'exitX=0;'), ('entryPerimeter=0;', ''), ('noEdgeStyle=1;', ''),
+])
+def test_mcp_cannot_change_router_ports(physical_xml, old, new):
+    with pytest.raises(ValueError):
+        renderer.validate_processed_xml(physical_xml, physical_xml.replace(old, new))
+
+
+def test_mcp_can_reformat_xml_styles_and_json_metadata(physical_xml):
+    from xml.etree import ElementTree as ET
+
+    formatted = ET.fromstring(physical_xml)
+    model = formatted.find('.//mxGraphModel')
+    model.set('renderedMembership', '{ "b": "root", "a": "root" }')
+    edge = model.find('.//mxCell[@edge]')
+    edge.set('originalEdgePaths', '[[0], [1]]')
+    edge.set('style', 'entryX=0.5;entryPerimeter=0;noEdgeStyle=1;exitX=0.5;labelBackgroundColor=default;')
+    for node in formatted.iter():
+        node.attrib = dict(reversed(list(node.attrib.items())))
+    ET.indent(formatted)
+    renderer.validate_processed_xml(physical_xml, ET.tostring(formatted, encoding='unicode'))
+
+
 def test_page_scoped_ids_and_page_order_are_preserved():
     from xml.etree import ElementTree as ET
     root = ET.fromstring(xml())
@@ -140,3 +198,26 @@ def test_local_mcp_transient_failure_retries_same_xml_once(monkeypatch,failures)
     else:
         with pytest.raises(TimeoutError):renderer.render_drawio(xml())
     assert inputs==[xml(),xml()]
+@pytest.mark.parametrize('export_error', [False, True])
+def test_locked_profile_cleanup_does_not_discard_png_or_hide_export_error(monkeypatch, tmp_path, export_error):
+    monkeypatch.setattr(renderer, 'desktop_binary', lambda: 'drawio.exe')
+    monkeypatch.setenv('DRAWIO_NODE_BINARY', 'node')
+    exists = Path.is_file
+    monkeypatch.setattr(Path, 'is_file', lambda p: True if str(p).endswith('src/index.js') else exists(p))
+    class LockedProfile:
+        def __init__(self, **kwargs): self.ignore = kwargs.get('ignore_cleanup_errors', False)
+        def __enter__(self): return str(tmp_path)
+        def __exit__(self, *args):
+            if not self.ignore: raise PermissionError('Chromium profile is still closing')
+    monkeypatch.setattr(renderer.tempfile, 'TemporaryDirectory', LockedProfile)
+    def run(command, **kwargs):
+        if kwargs.get('input_text'):
+            return json.dumps({'xml': json.loads(kwargs['input_text'])['xml']})
+        if export_error: raise TimeoutError('Original export timeout')
+        Image.new('RGB', (100, 100), 'white').save(Path(command[command.index('--output') + 1]))
+        return ''
+    monkeypatch.setattr(renderer, '_run', run)
+    if export_error:
+        with pytest.raises(TimeoutError, match='Original export'): renderer.render_drawio(xml())
+    else:
+        assert renderer.render_drawio(xml())[0].startswith(b'\x89PNG')

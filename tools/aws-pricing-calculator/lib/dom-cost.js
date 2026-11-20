@@ -113,48 +113,27 @@ async function fetchCostFromDOM(url) {
       // USD cell rather than column index so an upstream column-order
       // change won't silently drop the wrong values — the row layout
       // hasn't changed since 2026-05 but we don't trust it.
-      const monthlyByService = new Map();
-      const configByService = new Map();
-      for (let pageNumber=0; pageNumber<100; pageNumber++) {
-      const rows = await page.locator('tr, [role="row"]').all();
-      for (const row of rows) {
-        const cells = await row.locator('td, [role="cell"]').all().catch(() => []);
-        if (cells.length < 6) continue;
-        const cellTexts = await Promise.all(
-          cells.map(c => c.innerText().catch(() => '')),
-        );
-        // Need ≥2 USD-like cells in this row to be a data row (header
-        // and any non-data rows have no USD content).
-        const usdCellCount = cellTexts.filter(t => /USD/.test(t)).length;
-        if (usdCellCount < 2) continue;
-        const firstUsdIdx = cellTexts.findIndex(t => /USD/.test(t));
-        if (firstUsdIdx < 1) continue;
-        // Editable tables insert an empty support column before Upfront.
-        const service = cellTexts.slice(0,firstUsdIdx).map(t=>t.trim()).find(t=>t && t !== '-');
-        const monthly = parseUsd(cellTexts[firstUsdIdx + 1] || '');
-        // Config summary lives 4 cells after the Monthly cell:
-        //   firstUsdIdx+1 = Monthly, +2 = Description, +3 = Region,
-        //   +4 = Config Summary. Empty/unused config renders as "-"
-        //   which we normalize to null.
-        const rawConfig = (cellTexts[firstUsdIdx + 4] || '').trim();
-        const config = rawConfig && rawConfig !== '-' ? rawConfig : null;
-        if (service && Number.isFinite(monthly)) {
-          monthlyByService.set(service, (monthlyByService.get(service) || 0) + monthly);
-          configByService.set(service, config);
+      const detailedRows = [];
+      for (let pageNumber = 0; pageNumber < 100; pageNumber++) {
+        const rows = await page.locator('tr, [role="row"]').all();
+        for (const row of rows) {
+          const cells = await row.locator('td, [role="cell"]').all().catch(() => []);
+          if (cells.length < 6) continue;
+          detailedRows.push(await Promise.all(cells.map(c => c.innerText().catch(() => ''))));
         }
-      }
-      const next = page.getByRole('button',{name:'Next page',exact:true});
-      if (!await next.isVisible().catch(()=>false) || await next.isDisabled()) break;
-      const before = await page.locator('table').innerText();
-      await next.click();
-      await page.waitForFunction(old => document.querySelector('table')?.innerText !== old, before);
+        const next = page.getByRole('button', { name: 'Next page', exact: true });
+        if (!await next.isVisible().catch(() => false) || await next.isDisabled()) break;
+        const before = await page.locator('table').innerText();
+        await next.click();
+        await page.waitForFunction(old => document.querySelector('table')?.innerText !== old, before);
       }
 
+      const { monthlyByService, configByService, configurationCount } = summarizeDetailedRows(detailedRows);
       const subtotal = [...monthlyByService.values()].reduce((sum, cost) => sum + cost, 0);
       // Never publish a zero summary while priced service rows show a positive total.
       // Treat disagreement as an extraction failure, rather than guessing which DOM
       // number represents the full estimate.
-      if (monthlyCost === null || monthlyCost <= 0 || Math.abs(subtotal - monthlyCost) > Math.max(0.02,monthlyByService.size*0.005)) {
+      if (monthlyCost === null || monthlyCost <= 0 || Math.abs(subtotal - monthlyCost) > Math.max(0.02, configurationCount * 0.005)) {
         return { monthlyCost: null, monthlyByService, configByService,
           error: 'Calculator total was zero, missing, or inconsistent with service rows',
           diagnostics: { summaryMonthlyCost: monthlyCost, serviceSubtotal: subtotal, serviceCount: monthlyByService.size } };
@@ -166,6 +145,38 @@ async function fetchCostFromDOM(url) {
   } finally {
     await browser.close();
   }
+}
+
+function summarizeDetailedRows(rows) {
+  const monthlyByService = new Map();
+  const summaries = new Map();
+  let configurationCount = 0;
+  for (const cells of rows) {
+    // Editable tables can insert an empty support column before Upfront.
+    const firstUsdIdx = cells.findIndex(text => /USD/.test(text));
+    if (firstUsdIdx < 1 || !/USD/.test(cells[firstUsdIdx + 1] || '')) continue;
+    const service = cells.slice(0, firstUsdIdx).map(text => text.trim()).find(text => text && text !== '-');
+    const monthly = parseUsd(cells[firstUsdIdx + 1]);
+    if (!service || !Number.isFinite(monthly)) continue;
+    const description = (cells[firstUsdIdx + 2] || '').trim();
+    const rawConfig = (cells[firstUsdIdx + 4] || '').trim();
+    const summary = rawConfig && rawConfig !== '-' ? rawConfig : null;
+    monthlyByService.set(service, (monthlyByService.get(service) || 0) + monthly);
+    if (!summaries.has(service)) summaries.set(service, []);
+    summaries.get(service).push({ description, summary });
+    configurationCount++;
+  }
+  // Preserve the original single-row string/null contract. Repeated rows
+  // carry the calculator description so identical summaries remain distinct.
+  const configByService = new Map();
+  for (const [service, configs] of summaries) {
+    const summary = configs.length === 1 ? configs[0].summary : configs.map((config, index) => {
+      const label = config.description && config.description !== '-' ? config.description : `Configuration ${index + 1}`;
+      return `${label}: ${config.summary || '-'}`;
+    }).join('\n');
+    configByService.set(service, summary);
+  }
+  return { monthlyByService, configByService, configurationCount };
 }
 
 async function firstVisible(page, selectors, timeoutMs) {
@@ -198,4 +209,4 @@ function parseUsd(text) {
   return Number.isFinite(n) ? n : null;
 }
 
-module.exports = { fetchCostFromDOM, parseUsd };
+module.exports = { fetchCostFromDOM, parseUsd, summarizeDetailedRows };

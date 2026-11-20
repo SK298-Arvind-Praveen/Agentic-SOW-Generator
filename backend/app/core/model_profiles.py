@@ -4,7 +4,7 @@ _PREFIX = 'arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/
 
 MODEL_PROFILES = {
     'sonnet-5': {'label': 'Claude Sonnet 5', 'id': _PREFIX + '20kstbja9ona', 'family': 'claude'},
-    'haiku': {'label': 'Claude Haiku 4.5', 'id': _PREFIX + 'hbq88skix7wt', 'family': 'claude'},
+    'haiku': {'label': 'Claude Haiku 4.5', 'id': _PREFIX + 'oj2y908xxkkf', 'family': 'claude'},
     'sonnet-5.5': {'label': 'Claude Sonnet 5.5', 'id': _PREFIX + 'hlc2w29214np', 'family': 'claude'},
     'opus-5.5': {'label': 'Claude Opus 5.5', 'id': _PREFIX + 'lwjwoyltuicz', 'family': 'claude-opus'},
     'gpt-6-astra': {'label': 'GPT-6 Astra', 'id': _PREFIX + 'o8dwriwugus2', 'family': 'openai'},

@@ -207,6 +207,80 @@ def test_architecture_changes_automatically_refresh_existing_pricing():
     assert pricing_service.return_value.generate.call_args.args[1]['pricing_region'] == 'us-east-1'
 
 
+@pytest.mark.parametrize('verified', [True, False])
+def test_architecture_refresh_promotes_only_verified_hybrid_pricing(verified):
+    from app.pricing.bedrock import GUARDRAIL_RATE_METHOD, guardrail_offer_url
+
+    original = snapshot()
+    url = 'https://calculator.aws/#/estimate?id=saved123'
+    original['final_state']['pricing_result'] = {'status': 'priced', 'monthly_cost': 100, 'estimate_url': url}
+    baseline = copy.deepcopy(original)
+    refreshed = {
+        'status': 'hybrid_priced', 'estimate_url': url, 'currency': 'USD', 'region': 'ap-south-1',
+        'monthly_cost': 122.5, 'calculator_monthly_cost': 100, 'calculator_priced_services': 1,
+        'calculator_planned_services': 2, 'services': [{'service': 'Amazon Bedrock'}],
+        'official_rate_components': [{
+            'service': 'Amazon Bedrock Guardrails', 'region': 'ap-south-1', 'method': GUARDRAIL_RATE_METHOD,
+            'pricebook_url': guardrail_offer_url('ap-south-1'), 'pricebook_version': '20261111013037',
+            'pricebook_publication_date': '2026-11-11T01:30:37Z', 'monthly_cost': 22.5,
+            'dimensions': [{'policy': 'Content', 'sku': 'RD4WDA4ZEEVP8KYH',
+                            'rate_code': 'RD4WDA4ZEEVP8KYH.JRTCKXETXF.6YS6EN2CT7',
+                            'monthly_text_units': 150000, 'usd_per_text_unit': '0.00015',
+                            'monthly_cost': '22.5' if verified else '20'}],
+        }],
+    }
+    service = mock_service([revision(), {'consistent': True, 'problems': []}])
+    with patch('app.preview.architecture_regeneration.DiagramService', return_value=service), \
+         patch('app.pricing.AwsPricingService') as pricing_service:
+        pricing_service.return_value.generate.return_value = refreshed
+        if verified:
+            result = regenerate(original, '', object())
+            assert result['final_state']['pricing_result']['monthly_cost'] == 122.5
+            assert 'AWS public price list' in result['content']['aws_pricing']
+        else:
+            with pytest.raises(ValueError, match='Required pricing refresh failed'):
+                regenerate(original, '', object())
+    assert original == baseline
+
+
+def test_failed_required_conceptual_refresh_preserves_complete_preview():
+    original = snapshot()
+    original['content']['conceptual_flow_asset'] = {'status':'ready','image_base64':'old conceptual'}
+    baseline = copy.deepcopy(original)
+    service = mock_service([revision(), {'consistent':True, 'problems':[]}])
+    with patch('app.preview.architecture_regeneration.DiagramService', return_value=service), \
+         patch('app.diagram.conceptual_safe.generate_optional', return_value={
+             'status':'unavailable','image_base64':'','warning':'provider failure'}), \
+         pytest.raises(ValueError, match='conceptual'):
+        regenerate(original, 'Change the deployment', object())
+    assert original == baseline
+
+
+def test_semantic_refresh_preserves_conceptual_section_position():
+    original=snapshot()
+    original['content']['conceptual_flow_asset']={'status':'ready','image_base64':'old conceptual'}
+    original['final_state']['selected_sow_sections']=['scope_of_work','conceptual_flow_diagram','architecture_diagram']
+    service=mock_service([revision(),{'consistent':True,'problems':[]}])
+    with patch('app.preview.architecture_regeneration.DiagramService',return_value=service), \
+         patch('app.diagram.conceptual_safe.generate_optional',return_value={
+             'status':'ready','image_base64':'new conceptual'}) as generate:
+        regenerate(original,'Change the deployment',object())
+    assert generate.call_args.args[4]==['architecture_diagram']
+
+
+def test_failed_required_scope_refresh_does_not_stamp_current():
+    original = snapshot()
+    original['final_state']['scope_architecture_plan'] = {'deliverables':[{'name':'Existing'}]}
+    baseline = copy.deepcopy(original)
+    service = mock_service([revision(), {'consistent':True, 'problems':[]}])
+    with patch('app.preview.architecture_regeneration.DiagramService', return_value=service), \
+         patch('app.agents.scope_architect_agent.ScopeArchitectAgent') as scope, \
+         pytest.raises(ValueError, match='scope'):
+        scope.return_value.architect.return_value = {}
+        regenerate(original, 'Change the deployment', object())
+    assert original == baseline
+
+
 def test_regeneration_endpoint_is_idempotent_while_running():
     from app.core import server
     live = snapshot()
@@ -251,6 +325,33 @@ def test_worker_failure_restores_ready_without_changing_content():
         server._run_architecture_revision('p1', 'j', copy.deepcopy(live), '')
     assert live['content'] == baseline and live['status'] == 'ready'
     assert live['architecture_job']['status'] == 'failed'
+
+
+def test_worker_unreviewed_candidate_is_not_saved_or_reported_as_success():
+    from app.core import server
+    live = {**snapshot(), 'status': 'architecture_regenerating', 'architecture_job': {'id': 'j', 'status': 'running'}}
+    live['metadata']['draft_document_id'] = 'saved-complete-draft'
+    baseline = copy.deepcopy(live)
+    candidate = copy.deepcopy(live)
+    diagnostic = {'status': 'review_required', 'instructions': 'Change deployment',
+                  'assets': [{'image_base64': 'candidate-image', 'vision_review': {'status': 'unavailable', 'image_reviewed': False}}]}
+    candidate['architecture_revision_candidate'] = diagnostic
+    with patch.object(server, 'preview_storage', {'p1': live}), \
+         patch('app.preview.architecture_regeneration.regenerate', return_value=candidate), \
+         patch.object(server, '_save_preview_as_draft', return_value={'success': True}) as save, \
+         patch.object(server, '_preview_denied', return_value=None):
+        server._run_architecture_revision('p1', 'j', copy.deepcopy(live), 'Change deployment')
+        save.assert_not_called()
+        assert live['content'] == baseline['content'] and live['final_state'] == baseline['final_state']
+        assert live['metadata'] == baseline['metadata'] and live['edit_count'] == 0
+        assert live['status'] == 'ready'
+        assert live['architecture_job']['status'] == 'review_required'
+        assert 'retained' in live['architecture_job']['message'].lower()
+        with server.app.test_request_context('/api/preview/p1/architecture-regeneration'):
+            response, code = server.regenerate_preview_architecture('p1')
+            payload = response.get_json()
+        assert code == 200 and payload['architecture_revision_candidate'] == diagnostic
+        assert 'content' not in payload
 
 
 @pytest.mark.parametrize('persist_success', [True, False])

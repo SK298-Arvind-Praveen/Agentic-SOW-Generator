@@ -17,6 +17,10 @@ from app.diagram.aws_icons import AwsIconRegistry
 def scene(monkeypatch):
     monkeypatch.setenv('ARCHITECTURE_DIAGRAM_ENGINE', 'builtin')
     monkeypatch.setenv('ARCHITECTURE_VISION_REVIEW_ENABLED', 'true')
+    # These tests exercise review decisions on a real built-in raster. Native
+    # Desktop decoration has its own renderer tests and live export checks.
+    monkeypatch.setattr('app.diagram.process_flow.decorate',
+        lambda png, xml, *args: (png, xml, {'decoration_warnings': []}))
     service = DiagramService.__new__(DiagramService)
     service.config = SimpleNamespace(ASSETS_DIR=Path(__file__).parents[1] / 'assets')
     service.icon_registry = AwsIconRegistry(service.config.ASSETS_DIR)

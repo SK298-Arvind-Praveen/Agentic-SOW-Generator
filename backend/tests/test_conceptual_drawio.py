@@ -166,3 +166,14 @@ def test_selected_design_is_passed_separately_from_source_without_mutation():
     assert 'Original client BRD' in calls[0] and 'Selected EC2 design' in calls[0]
     assert requirements==before
     assert design_context({})['az_counts_by_vpc']=={}
+
+
+def test_document_identity_owns_conceptual_title():
+    value = plan()
+    value['title'] = 'TVS Motor: inspection'
+    llm = SimpleNamespace(generate=lambda *args, **kwargs: SimpleNamespace(text=json.dumps(value)))
+    requirements = {'_document_identity': {'company_name': 'Bajaj Motors', 'project_title': 'Voice inspection'}}
+    with patch('app.diagram.conceptual_drawio.render_drawio', side_effect=lambda xml: (b'png', xml, {})):
+        result = generate(llm, None, requirements, 'Source mentions another company', {})
+    assert result['plan']['title'] == 'Bajaj Motors: Voice inspection'
+    assert 'TVS Motor' not in result['drawio_xml']

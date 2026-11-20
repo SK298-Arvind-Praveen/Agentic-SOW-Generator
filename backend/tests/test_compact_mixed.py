@@ -42,7 +42,10 @@ def test_compact_grid_keeps_all_scopes_and_parallel_azs():
     assert geometry_report(replace(spec,edges=()),p,[])['node_overlaps']==0
     azs=[r for k,r in b.items() if kinds[k]=='az']
     assert len(azs)==2 and azs[0][1]==azs[1][1] and azs[0][0]!=azs[1][0]
-    assert len({b[g['id']][1] for g in spec.architecture_plan['narrative_view']['groups']})==2
+    group_boxes=[b[g['id']] for g in spec.architecture_plan['narrative_view']['groups']]
+    for i,(x,y,gw,gh) in enumerate(group_boxes):
+        for xx,yy,ww,hh in group_boxes[i+1:]:
+            assert x+gw<=xx or xx+ww<=x or y+gh<=yy or yy+hh<=y
     for n in spec.nodes:
         chain=[];key=n.id
         while key in parents:key=parents[key];chain.append(key)

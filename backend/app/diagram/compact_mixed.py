@@ -8,12 +8,15 @@ def enabled(spec):
 
 
 def geometry(spec, ordering=None):
-    from app.diagram.mixed_deployment import ownership
+    from app.diagram.mixed_deployment import ownership, interface_groups
     from app.diagram.narrative_boundaries import controls
     from app.diagram.tiered_deployment import subnet_order
     nodes = {n.id:n for n in spec.nodes}
     support = controls(spec)
     owner, vpcs, vpc_owner = ownership(spec)
+    from app.diagram.projection import selected_edge_indices
+    selected=selected_edge_indices(spec)
+    story_edges=[e for i,e in enumerate(spec.edges) if selected is None or i in selected]
     groups = list(spec.architecture_plan['narrative_view']['groups'])
     # Follow the application's functional order; the planner's order breaks
     # ties between dependent subsystems. No deployment is inferred from position.
@@ -47,6 +50,11 @@ def geometry(spec, ordering=None):
             vk=f'vpc_{list(vpcs).index(v)}';vtop=y
             box(vk,(15,y,gw-30,100),gid,v,'vpc');y+=52
             common=[n for n in members if not n.availability_zone and not n.subnet]
+            common_ids={n.id for n in common}
+            # Place connected runtime peers together before unconnected plumbing.
+            # Stable sorting retains planner order for equally connected cards.
+            common.sort(key=lambda n:-sum(n.id in (e.source,e.target)
+                and e.source in common_ids and e.target in common_ids for e in story_edges))
             common_cols=max(1,int((gw-80)/270))
             for i,n in enumerate(common):put(n.id,40+(i%common_cols)*270,y+(i//common_cols)*140,vk,235)
             if common:y+=math.ceil(len(common)/common_cols)*140+25
@@ -96,10 +104,28 @@ def geometry(spec, ordering=None):
                           for e in spec.edges) for k in keys}
             anchor=max(keys,key=lambda k:degree[k])
             keys=[anchor]+[k for k in keys if k!=anchor]
-        cols=2*span;cw=(gw-60-(cols-1)*25)/cols
-        for i,key in enumerate(keys):put(key,30+(i%cols)*(cw+25),y+(i//cols)*150,gid,cw)
+        # Keep real side ports outside neighbouring icon/label obstacles after
+        # iconic rendering scales this layout. Caption-bottom ports are not exits.
+        cols=2*span;gap=48;cw=(gw-80-(cols-1)*gap)/cols
+        for i,key in enumerate(keys):put(key,40+(i%cols)*(cw+gap),y+(i//cols)*150,gid,cw)
         y+=math.ceil(len(keys)/cols)*150
         boxes[gid]=(0,0,gw,y+18)
+        physical=[k for k in boxes if parents.get(k)==gid and kinds[k]=='vpc']
+        managed=[k for k in pos if parents.get(k)==gid]
+        if physical and managed:
+            # Regional peers stay immediately above the VPC, rather than below
+            # its complete subnet stack. Ownership is unchanged.
+            first=min(boxes[k][1] for k in physical)
+            mtop=min(pos[k][1] for k in managed)
+            delta=max(pos[k][1]+150 for k in managed)-mtop
+            def physical_child(key):
+                while key in parents and key not in physical:key=parents[key]
+                return key in physical
+            for collection in (pos,boxes):
+                for key,(x,yy,w,h) in list(collection.items()):
+                    if physical_child(key):collection[key]=(x,yy+delta,w,h)
+            for key in managed:
+                x,yy,w,h=pos[key];pos[key]=(x,first+yy-mtop,w,h)
     def actor(node):
         return node.scope=='external' and (node.kind=='actor' or '.general-icons.user' in node.icon_key)
     channel_ids={e.target for e in spec.edges if actor(nodes[e.source]) and nodes[e.target].scope=='external' and not actor(nodes[e.target])}
@@ -112,10 +138,11 @@ def geometry(spec, ordering=None):
     cloud_top=285 if channel_ids else 155
     global_top=cloud_top+85
     region_top=global_top+140
-    row_top=region_top+60;col=0;row_bottom=row_top
+    column_bottom=[region_top+60]*columns
     for group in groups:
         gid=group['id'];span=spans[gid]
-        if col+span>columns:row_top=row_bottom+100;col=0
+        col=min(range(columns-span+1),key=lambda c:(max(column_bottom[c:c+span]),c))
+        row_top=max(column_bottom[col:col+span])
         dx=85+col*(tile+gutter);dy=row_top
         def belongs(key):
             while key in parents and key!=gid:key=parents[key]
@@ -123,7 +150,8 @@ def geometry(spec, ordering=None):
         for collection in (boxes,pos):
             for key,(x,y,w,h) in list(collection.items()):
                 if belongs(key):collection[key]=(x+dx,y+dy,w,h)
-        row_bottom=max(row_bottom,dy+boxes[gid][3]);col+=span
+        for c in range(col,col+span):column_bottom[c]=dy+boxes[gid][3]+100
+    row_bottom=max(column_bottom)-100
     regional_controls=[n for n in spec.nodes if n.scope in {'managed','regional'} and n.id in support]
     bottom=row_bottom+65;control_cols=max(1,int((width-180)/260))
     if regional_controls:
@@ -159,6 +187,81 @@ def geometry(spec, ordering=None):
         centre=sum(anchor(n) for n in items)/len(items)
         start=max(85,min(width-335-step*(len(items)-1),centre-125-step*(len(items)-1)/2))
         for i,n in enumerate(items):put(n.id,start+i*step,y,'root',250,90)
+    actors={n.id for n in spec.nodes if actor(n)}
+    direct_channels={e.target for e in spec.edges if e.source in actors}
+    def connected_groups(key):
+        return list(dict.fromkeys(owner[e.target if e.source==key else e.source]
+            for e in spec.edges if key in (e.source,e.target)
+            and (e.target if e.source==key else e.source) in owner))
+    movable=[n.id for n in spec.nodes if n.scope=='external' and n.id not in actors|direct_channels
+             and connected_groups(n.id)]
+    membership={key:tuple(members) for members in interface_groups(spec).values() for key in members}
+    def units(keys):
+        available=set(keys)
+        return list(dict.fromkeys(tuple(k for k in membership.get(key,(key,)) if k in available) for key in keys))
+    # Multi-subsystem integrations get their desired slot before single-group
+    # peers; pushing a callback system down would create a page-height return.
+    side_units=units(movable)
+    side_units.sort(key=lambda unit:-len({g for key in unit for g in connected_groups(key)}))
+    if movable:
+        pos={k:(x+350,y,w,h) for k,(x,y,w,h) in pos.items()}
+        boxes={k:(x+350,y,w,h) for k,(x,y,w,h) in boxes.items()}
+        width+=700
+        used={'left':[],'right':[]}
+        for unit in side_units:
+            key=unit[0]
+            peers={e.target if e.source==key else e.source for e in spec.edges if key in (e.source,e.target)}
+            groups_here=connected_groups(key)
+            access=[g for g in groups_here if any(k in peers and nodes[k].placement_role=='entry'
+                    and owner.get(k)==g for k in nodes)]
+            gx,gy,gw,gh=boxes[(access or groups_here)[0]]
+            side='left' if gx+gw/2<boxes['region'][0]+boxes['region'][2]/2 else 'right'
+            block_height=(len(unit)-1)*150+100
+            desired=max(boxes['cloud'][1]+50,gy+gh/2-block_height/2)
+            candidates=[desired]+[q for a,z in used[side] for q in (a-block_height-60,z+60)]
+            available=[yy for yy in candidates if yy>=boxes['cloud'][1]+50
+                and all(yy+block_height+45<=a or z+45<=yy for a,z in used[side])]
+            yy=min(available,key=lambda yy:(abs(yy-desired),yy))
+            used[side].append((yy,yy+block_height))
+            x=25 if side=='left' else boxes['cloud'][0]+boxes['cloud'][2]+55
+            for i,key in enumerate(unit):
+                pos[key]=(x,yy+i*150,pos[key][2],pos[key][3])
+    # Partners behind an existing external API are downstream systems, not
+    # entry channels. Keep their group off the user rail, with wrapped slots.
+    leaves=[n.id for n in spec.nodes if n.scope=='external' and n.id not in actors
+        and not any(e.source==n.id for e in spec.edges)
+        and any(e.target==n.id and nodes[e.source].scope=='external' and e.source not in actors for e in spec.edges)]
+    placed_leaves=set()
+    for unit in units(leaves):
+        peers=[e.source for e in spec.edges if e.target in unit and nodes[e.source].scope=='external'
+               and e.source not in actors and e.source not in leaves]
+        if not peers: continue
+        peer=pos[peers[0]]
+        if not (peer[0]+peer[2]<=boxes['cloud'][0] or peer[0]>=boxes['cloud'][0]+boxes['cloud'][2]):
+            continue
+        x=peer[0]; yy=peer[1]+peer[3]+60
+        for key in unit:
+            w,h=pos[key][2:]
+            occupied=[r for k,r in pos.items() if k not in unit and nodes[k].scope=='external']
+            while any(x<ox+ow+20 and x+w+20>ox and yy<oy+oh+30 and yy+h+30>oy
+                      for ox,oy,ow,oh in occupied):
+                yy=max(oy+oh+45 for ox,oy,ow,oh in occupied
+                       if x<ox+ow+20 and x+w+20>ox and yy<oy+oh+30 and yy+h+30>oy)
+            pos[key]=(x,yy,w,h); yy+=h+60; placed_leaves.add(key)
+    leaves=[k for k in leaves if k not in placed_leaves]
+    footer_y=max(boxes['cloud'][1]+boxes['cloud'][3],
+        max((y+h for k,(x,y,w,h) in pos.items() if k not in leaves),default=0))+110
+    footer_cols=max(1,int((boxes['cloud'][2]-120)/330))
+    column=0;row_bottom=footer_y
+    for unit in units(leaves):
+        span=min(len(unit),footer_cols)
+        if column+span>footer_cols:
+            column=0;footer_y=row_bottom+80
+        for i,key in enumerate(unit):
+            x=boxes['cloud'][0]+80+(column+i%span)*330
+            pos[key]=(x,footer_y+(i//span)*150,pos[key][2],pos[key][3])
+        row_bottom=max(row_bottom,footer_y+math.ceil(len(unit)/span)*150)
+        column+=span
     if set(pos)!=set(nodes):raise ValueError('Compact mixed view omitted resources: '+str(set(nodes)-set(pos)))
     for key,(x,y,w,h) in {**boxes,**pos}.items():
         if parents[key] in boxes:

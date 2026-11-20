@@ -17,6 +17,9 @@ class AgentState(TypedDict):
     json_path: Optional[str]
     errors: Optional[List[str]]
     current_step: str
+    architecture_assets: Optional[List[Dict[str, Any]]]
+    architecture_version: Optional[str]
+    artifact_architecture_versions: Optional[Dict[str, str]]
     mode: str  # 'POC', 'PROD'
     source_file: Optional[str]
     is_poc_table_conversion: Optional[bool]  # Flag for POC table conversion

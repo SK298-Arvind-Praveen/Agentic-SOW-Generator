@@ -3,6 +3,11 @@ import copy
 import time
 
 
+def repair_level(value):
+    """Read the saved first-repair strategy record or a newer candidate level."""
+    return 1 if isinstance(value, dict) and value else int(value or 0)
+
+
 def prepare(saved, review):
     from app.diagram.service import DiagramSpec, Node, Edge
     from app.diagram.tiered_deployment import enabled
@@ -52,7 +57,7 @@ def options(spec, positions, boxes, parents):
     return {'edge_obstacles':obstacles,'terminal_sides':sides}
 
 
-def routes(spec, positions, boxes, parents, width, height, deadline, captions):
+def routes(spec, positions, boxes, parents, width, height, deadline, captions,header_sizes=None):
     from dataclasses import replace
     from app.diagram.review import local_routes, geometry_report
     nodes = {n.id:n for n in spec.nodes}
@@ -74,12 +79,12 @@ def routes(spec, positions, boxes, parents, width, height, deadline, captions):
             try:
                 try:
                     paths = local_routes(candidate,positions,boxes,parents,width,height,deadline,captions,
-                        False,True,24,True,crossing_penalty=penalty,**constraints)
+                        False,True,24,True,crossing_penalty=penalty,header_sizes=header_sizes,**constraints)
                 except ValueError:
                     # Port preferences may relax, but subnet protection remains.
                     constraints['terminal_sides'] = {}
                     paths = local_routes(candidate,positions,boxes,parents,width,height,deadline,captions,
-                        False,True,24,True,crossing_penalty=penalty,**constraints)
+                        False,True,24,True,crossing_penalty=penalty,header_sizes=header_sizes,**constraints)
             except (ValueError,TimeoutError):
                 continue
             result = [None]*len(sequence)

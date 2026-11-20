@@ -52,6 +52,6 @@ def test_pricing_percentage_is_not_presented_as_call_count():
     rows = dict(_business_volume_rows([{'metric': 'Backend API calls', 'value': '60-70% of conversations'}]))
     assert rows['Interactions requiring backend API calls'] == '60-70% of conversations'
     result = render_aws_pricing_section({'region': 'ap-south-1'})
-    assert '| AWS infrastructure |  |  |' in result
+    assert '| AWS infrastructure | Pending | Sizing inputs require confirmation |' in result
     assert 'homepage' not in result
     assert 'remain editable' not in result

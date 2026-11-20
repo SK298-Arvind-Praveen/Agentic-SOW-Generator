@@ -13,7 +13,7 @@ from app.diagram.review import routes, geometry_report
 def test_static_clauses_match_reference_transcriptions_in_every_mode():
     root = Path(__file__).resolve().parents[1] / 'templates'
     reference = json.loads((root / 'reference_static_sections.json').read_text(encoding='utf-8'))
-    titles = {'service_agreement': 'Service Agreement', 'change_order': 'Change Order',
+    titles = {'change_order': 'Change Order',
               'project_plan_termination': 'Project Plan Termination', 'marketing_authorization': 'Marketing Authorization',
               'terms_conditions': 'Terms & Conditions'}
     for filename in ('poc_template.md','production_template.md'):
@@ -21,6 +21,7 @@ def test_static_clauses_match_reference_transcriptions_in_every_mode():
         agent.template_raw = (root / filename).read_text(encoding='utf-8')
         parsed = agent._parse_template()
         sections = {s.name:s for s in parsed}
+        assert sections['Service Agreement'].section_type.value == 'GENERATED'
         for key,title in titles.items():
             assert sections[title].section_type.value == 'STATIC'
             assert sections[title].content.strip() == reference[key]

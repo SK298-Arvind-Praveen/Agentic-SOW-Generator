@@ -32,6 +32,6 @@ def test_confidential_footer_and_table_header_colour():
 def test_short_bullet_contract_and_company_fallback():
     from app.agents.poc_writer_agent import POCWriterAgent
     assert '8-16 words' in EDITORIAL_CONTRACT
-    assert 'two brief factual paragraphs' in EDITORIAL_CONTRACT
+    assert 'one short factual paragraph of 3-4 sentences' in EDITORIAL_CONTRACT
     text = POCWriterAgent._about_company_fallback({'company_name': 'Example'})
     assert not text.startswith('- ')

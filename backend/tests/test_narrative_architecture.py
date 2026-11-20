@@ -57,7 +57,8 @@ def test_projection_accounts_for_each_real_connection_once(architecture):
     assert len(projected['shared']) == 2
 
 
-def test_corrective_attempt_recomposes_view_using_review_feedback(architecture, monkeypatch):
+@pytest.mark.parametrize('routing_repair', [0,1])
+def test_corrective_attempt_recomposes_view_using_review_feedback(architecture, monkeypatch, routing_repair):
     spec, plan, registry = architecture
     prompts = []
     def generate(prompt, **kwargs):
@@ -68,11 +69,27 @@ def test_corrective_attempt_recomposes_view_using_review_feedback(architecture, 
     monkeypatch.setattr(narrative, 'overview_xml', lambda *args: ('<xml/>', {}))
     monkeypatch.setattr(narrative, 'improve_rows', lambda candidate, *args: candidate)
     feedback = 'Separate the endpoint and workflow connector junctions'
-    spec = replace(spec, architecture_plan={**spec.architecture_plan, 'retry_feedback': feedback})
+    spec = replace(spec, architecture_plan={**spec.architecture_plan, 'retry_feedback': feedback, 'routing_repair':routing_repair})
     result = narrative.prepare(SimpleNamespace(config=None, bedrock=None, icon_registry=registry), spec)
     assert len(prompts) == 1 and feedback in prompts[0]
     assert result.nodes == spec.nodes and result.edges == spec.edges
     assert result.architecture_plan['narrative_view']
+
+
+def test_spent_candidate_composition_budget_reuses_valid_view(architecture, monkeypatch):
+    from app.diagram.reliability import pipeline_attempt, model_attempts
+    spec,plan,registry=architecture
+    spec=replace(spec,architecture_plan={**spec.architecture_plan,'retry_feedback':'Repair connector geometry'})
+    calls=[]
+    monkeypatch.setattr('app.core.bedrock_llm.BedrockLLM.generate',lambda *a,**k:calls.append(k))
+    monkeypatch.setattr(narrative,'overview_xml',lambda *a:('',{}))
+    monkeypatch.setattr(narrative,'improve_rows',lambda value,*a:value)
+    a=pipeline_attempt.set(2); b=model_attempts.set({'Architecture Narrative Composition/candidate-2':2})
+    try:
+        narrative.prepare(SimpleNamespace(config=None,bedrock=None,icon_registry=registry),spec)
+        assert not calls
+    finally:
+        pipeline_attempt.reset(a); model_attempts.reset(b)
 
 
 def test_member_link_projects_to_its_real_group_without_inventing_edges(architecture):
@@ -133,6 +150,32 @@ def test_actual_xml_has_clear_routes_and_all_icons_in_correct_scopes(architectur
     assert parents['user'] == 'root' and parents['cdn'] == 'cloud'
     assert parents['kms'] == 'region' and parents['docs'] == 'extract'
     assert parents['extract'] == 'region'
+
+
+def test_external_plain_text_labels_are_not_html_encoded(architecture):
+    spec, _, registry = architecture
+    spec = replace(spec, nodes=tuple(replace(n, label='App & Web') if n.id == 'external' else n for n in spec.nodes))
+    xml, _ = narrative.overview_xml(spec, registry)
+    cell = ET.fromstring(xml).find(".//mxCell[@id='external']")
+    assert cell.get('value') == 'App & Web'
+
+
+def test_internal_service_wires_terminate_on_visible_icons(architecture):
+    spec, _, registry = architecture
+    xml, _ = narrative.overview_xml(spec, registry)
+    root = ET.fromstring(xml)
+    for wire in root.findall('.//mxCell[@edge="1"]'):
+        if not wire.get('id', '').startswith('internal_'):
+            continue
+        for end, attr in [('sourcePoint', 'overviewSource'), ('targetPoint', 'overviewTarget')]:
+            icon = root.find(f".//mxCell[@id='{wire.get(attr)}']")
+            if 'shape=image' not in icon.get('style', ''):
+                continue
+            geo = icon.find('mxGeometry')
+            x, y, w, h = (float(geo.get(k)) for k in ('x','y','width','height'))
+            point = wire.find(f"mxGeometry/mxPoint[@as='{end}']")
+            px, py = float(point.get('x')), float(point.get('y'))
+            assert x <= px <= x+w and y <= py <= y+h
 
 
 def test_do_not_flatten_physical_deployment_or_multiple_accounts(architecture):
@@ -369,6 +412,9 @@ def test_generation_uses_overview_review_not_incompatible_grid_repair(architectu
     monkeypatch.setenv('ARCHITECTURE_DIAGRAM_ENGINE','hybrid_drawio')
     monkeypatch.setattr(bedrock_llm,'_save_raw_output',lambda *a: None)
     monkeypatch.setattr(narrative,'render',lambda *a,**k: (b'png','<mxfile/>',{'overview_metrics':{}}))
+    # This test isolates review selection, not the Desktop export transport.
+    monkeypatch.setattr('app.diagram.process_story.prepare',lambda svc,spec,*args:spec)
+    monkeypatch.setattr('app.diagram.drawio_renderer.render_drawio',lambda xml,**k:(b'png',xml,{}))
     monkeypatch.setattr(narrative,'review',lambda svc,asset,*a: {**asset,'vision_review':{'status':'reviewed','issues':[]}})
     def forbidden(*a,**k):
         raise AssertionError('Overview cannot be repaired by the old full-graph grid contract')
@@ -434,3 +480,24 @@ def test_dense_runtime_routes_to_every_dependency_without_floating_endpoints():
             x,y,w,h=bounds[edge.get(attr)]
             assert x<=float(point.get('x'))<=x+w
             assert y<=float(point.get('y'))<=y+h
+def test_logical_overview_reserves_measured_large_type_caption_height(architecture):
+    import html
+    import re
+    from app.diagram.figure_readability import wrap_text
+    from PIL import ImageFont
+    spec, _, registry = architecture
+    spec = replace(spec, architecture_plan={**spec.architecture_plan, 'story_overview': True})
+    xml, _ = narrative.overview_xml(spec, registry)
+    for cell in ET.fromstring(xml).findall('.//mxCell'):
+        if not cell.get('id', '').startswith(('name_', 'heading_', 'regional_support', 'global_support')):
+            continue
+        geometry = cell.find('mxGeometry')
+        font = float(re.search(r'fontSize=([\d.]+)', cell.get('style'))[1])
+        value = html.unescape(re.sub('<[^>]+>', ' ', cell.get('value', '')))
+        lines = wrap_text(value, float(geometry.get('width')), font, bold=True)
+        assert float(geometry.get('height')) >= len(lines)*font*1.1+2, cell.get('id')
+        font_path = next(p for p in (Path('C:/Windows/Fonts/arialbd.ttf'),
+            Path(__file__).parents[1]/'assets/fonts/DMSans-Bold.ttf') if p.is_file())
+        measured = ImageFont.truetype(str(font_path), round(font))
+        assert max(measured.getlength(word) for word in value.split()) <= float(geometry.get('width')), cell.get('id')
+    assert not any(c.get('id', '').startswith('interface_caption_') for c in ET.fromstring(xml).findall('.//mxCell'))

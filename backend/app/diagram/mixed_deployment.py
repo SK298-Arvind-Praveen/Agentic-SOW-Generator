@@ -90,6 +90,8 @@ def interface_groups(spec):
 
 
 def audience_geometry(spec, data):
+    from app.diagram.compact_mixed import enabled as compact
+
     groups = interface_groups(spec)
     if not groups:
         return data
@@ -99,9 +101,16 @@ def audience_geometry(spec, data):
         for key, (x, y, w, h) in list(collection.items()):
             collection[key] = (x, y + 40, w, h)
     rails = {}
+    cloud_top = boxes['cloud'][1]
+    is_compact = compact(spec)
     for node in spec.nodes:
-        if node.scope == 'external' and parents[node.id] == 'root':
-            rails.setdefault(pos[node.id][1], []).append(node.id)
+        if node.scope != 'external' or parents[node.id] != 'root':
+            continue
+        _, y, _, h = pos[node.id]
+        # Compact layout already packs side and footer blocks by owner.
+        # Only its horizontal ingress rows can exchange external card slots.
+        if not is_compact or y + h <= cloud_top:
+            rails.setdefault(y, []).append(node.id)
     for members_on_rail in rails.values():
         ordered = [k for members in groups.values() for k in members if k in members_on_rail]
         ordered += [k for k in sorted(members_on_rail,key=lambda k:pos[k][0]) if k not in ordered]
@@ -156,7 +165,7 @@ def projection(spec):
     return links,sorted(i for l in links for path in l['paths'] for i in path)
 
 
-def routes(view,positions,boxes,parents,width,height,deadline,captions,links):
+def routes(view,positions,boxes,parents,width,height,deadline,captions,links,header_sizes=None):
     """Local service connections plus truthful functional interfaces.
 
     Group arrows end on the functional boundary. No control or network node is
@@ -164,6 +173,9 @@ def routes(view,positions,boxes,parents,width,height,deadline,captions,links):
     """
     from dataclasses import replace
     from app.diagram.review import local_routes,geometry_report
+    header_sizes = dict(header_sizes or {})
+    if 'regional_controls' in header_sizes:
+        header_sizes['control_heading'] = header_sizes['regional_controls']
     iconic=bool(view.architecture_plan.get('story_overview'))
     group_ids={g['id'] for g in view.architecture_plan['narrative_view']['groups']} | {k for k in boxes if k.startswith(('__audience_','__integrations_'))}
     indices=[i for i,l in enumerate(links) if not l.get('interface')]
@@ -184,9 +196,9 @@ def routes(view,positions,boxes,parents,width,height,deadline,captions,links):
             selected=[i for i in indices if view.edges[i].source in p and view.edges[i].target in p]
             if not selected:continue
             subset=replace(view,edges=tuple(view.edges[i] for i in selected))
-            paths=local_routes(subset,p,b,par,gw,gh,deadline,captions,iconic,True,24,True)
+            paths=local_routes(subset,p,b,par,gw,gh,deadline,captions,iconic,True,24,True,header_sizes=header_sizes)
             def local_score(candidate):
-                m=geometry_report(subset,p,candidate)
+                m=geometry_report(subset,p,candidate,iconic=iconic)
                 return (m['ambiguous_connector_pairs'],m['connector_crossings'],
                         m['connector_length_normalized'],m['connector_bends'])
             best=local_score(paths)
@@ -196,7 +208,7 @@ def routes(view,positions,boxes,parents,width,height,deadline,captions,links):
                 if time.monotonic()>deadline-2:break
                 try:
                     trial=local_routes(replace(subset,edges=tuple(subset.edges[i] for i in order)),p,b,par,
-                                       gw,gh,deadline,captions,iconic,True,24,True)
+                                       gw,gh,deadline,captions,iconic,True,24,True,header_sizes=header_sizes)
                     restored=[None]*len(selected)
                     for i,path in zip(order,trial):restored[i]=path
                     score=local_score(restored)
@@ -228,7 +240,7 @@ def routes(view,positions,boxes,parents,width,height,deadline,captions,links):
         crossing_penalty=350 if compact(view) else 180
         def route(candidate):
             return local_routes(candidate,p,b,par,width,height,deadline,captions,iconic,True,24,True,terminal_sides=sides,
-                                crossing_penalty=crossing_penalty)
+                                crossing_penalty=crossing_penalty,header_sizes=header_sizes)
         try:paths=route(subset)
         except (ValueError,TimeoutError):
             if not sides:raise
@@ -238,8 +250,8 @@ def routes(view,positions,boxes,parents,width,height,deadline,captions,links):
                 if compact(view) and selected is peers:
                     combined=list(result)
                     for i,path in zip(selected,candidate):combined[i]=path
-                    m=geometry_report(view,positions,combined)
-                else:m=geometry_report(subset,p,candidate)
+                    m=geometry_report(view,positions,combined,iconic=True)
+                else:m=geometry_report(subset,p,candidate,iconic=iconic)
                 return (m['connector_node_intersections'],m['ambiguous_connector_pairs'],
                         m['connector_crossings']*8+m['connector_length_normalized']*18+
                         m['connector_bends']*2+m['long_connector_count']*30)

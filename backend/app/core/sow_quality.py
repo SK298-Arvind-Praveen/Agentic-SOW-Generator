@@ -177,7 +177,9 @@ def normalize_requirements(
     complexity = classify_complexity(req)
     req["_complexity"] = complexity
     req["planning_duration_weeks"] = req.get("duration_weeks") or _recommended_duration(mode, complexity)
-    req["timeline_is_assumption"] = req.get("duration_weeks") is None and not is_known(req.get("timeline"))
+    # General timeline text can describe procurement dates or a contract term;
+    # it does not make our complexity-based implementation estimate confirmed.
+    req["timeline_is_assumption"] = req.get("duration_weeks") is None
 
     if not is_known(req.get("project_overview")):
         req["project_overview"] = (

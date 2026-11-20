@@ -279,7 +279,8 @@ function findRequiredComponentIds(template, catalogEntry, savedComponents, optio
   visit(template, false);
 
   // Source 2: catalog `required[]`.
-  if (catalogEntry && Array.isArray(catalogEntry.required)) {
+  if (catalogEntry && (!catalogEntry.templateId || catalogEntry.templateId === template.id)
+      && Array.isArray(catalogEntry.required)) {
     for (const r of catalogEntry.required) {
       if (r && typeof r.field === 'string') add(r.field);
     }

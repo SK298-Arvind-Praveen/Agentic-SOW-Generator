@@ -4,7 +4,7 @@ from app.core.config import Config
 from app.core.bedrock_llm import BedrockLLM, model_for_task
 
 
-@pytest.mark.parametrize('alias', ['opus-5.5', 'gpt-6-astra'])
+@pytest.mark.parametrize('alias', ['opus-5.5', 'gpt-6-astra', 'haiku'])
 @pytest.mark.parametrize('task', ['fast', 'analysis', 'writer', 'diagram', 'diagram_review', 'review', 'editor', 'fallback'])
 def test_every_component_can_select_new_profile_independently(monkeypatch, alias, task):
     from app.core.bedrock_llm import TASK_MODEL_ATTRIBUTES
@@ -45,3 +45,10 @@ def test_full_arns_remain_supported():
     for profile in MODEL_PROFILES.values():
         assert resolve_model(profile['id']) == profile['id']
     assert resolve_model('custom.model-id') == 'custom.model-id'
+
+
+def test_haiku_default_and_alias_use_current_profile(monkeypatch):
+    monkeypatch.delenv('BEDROCK_FAST_MODEL_ID', raising=False)
+    expected = 'arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/oj2y908xxkkf'
+    assert Config().FAST_MODEL_ID == resolve_model('haiku') == expected
+    assert MODEL_PROFILES['haiku']['label'] == 'Claude Haiku 4.5'

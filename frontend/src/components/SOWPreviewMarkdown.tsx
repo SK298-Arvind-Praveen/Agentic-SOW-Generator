@@ -15,6 +15,7 @@ const NON_BODY_KEYS = new Set([
   'tableofcontents',
   'table_contents',
   'generation_quality_summary',
+  'generation_quality_warnings',
   'architecture_diagram_asset',
   'architecture_diagram_assets',
 ]);

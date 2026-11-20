@@ -108,6 +108,13 @@ SERVICE_SYNONYMS = {
     "quick suite": "Amazon Quick",
 }
 
+def is_reporting_service(node):
+    """Business analytics remain workflows, including current registry aliases."""
+    key = str(getattr(node, 'icon_key', '')).lower()
+    return (key == 'aws.service.business-applications.amazon-quick'
+            or any(token in key for token in ('quicksight', 'redshift', 'athena')))
+
+
 # Available design options, never claims that the BRD names these resources.
 DEPLOYMENT_OPTIONS = (
     'Amazon VPC Endpoints', 'Amazon VPC Internet Gateway', 'Amazon VPC NAT Gateway',

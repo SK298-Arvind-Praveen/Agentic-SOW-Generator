@@ -34,7 +34,6 @@ class PocBenchmarkContractTests(unittest.TestCase):
             [
                 "{PROJECT_TITLE}",
                 "Table_of_contents",
-                "Document Version Control",
                 "Service Agreement",
                 "About ShellKode",
                 "About {COMPANY_NAME}",
@@ -69,6 +68,14 @@ class PocBenchmarkContractTests(unittest.TestCase):
             "Deliverable Acceptance",
         ):
             self.assertNotIn(f"## {heading}", self.template)
+
+    def test_gantt_contract_preserves_undated_terms_without_inventing_bars(self):
+        for mode in ('poc', 'production'):
+            body = (Path(__file__).resolve().parents[1] / 'templates' / f'{mode}_template.md').read_text(encoding='utf8')
+            gantt = body.split('GANTT FORMAT:', 1)[1].split('[META_', 1)[0]
+            self.assertIn('activity-linked notes below the grid', gantt)
+            self.assertIn('never invent week allocations', gantt)
+            self.assertNotIn('No legend, second table or prose', gantt)
 
     def test_objective_section_does_not_repeat_objectives_subheading(self):
         self.assertNotIn("### 1.1 Objectives", self.template)
@@ -115,16 +122,15 @@ class PocBenchmarkContractTests(unittest.TestCase):
 
     def test_core_sections_retain_strict_local_authoring_rules(self):
         for section_title, required_text in (
-            ("## Document Version Control", "compact table"),
             ("## 1. Objective", "end result"),
             ("## 3. Scope of Work", "Preserve distinct business rules"),
             ("## Solution Architecture", "Service name | Role in the project"),
             ("## 5. Open Clarifications", "Do not carry every upstream unknown"),
-            ("## 6. Out of Scope", "Never infer an exclusion"),
-            ("## 7. Assumptions", "material project-specific delivery premises"),
+            ("## 6. Out of Scope", "never exclude included work or infer exclusion from silence"),
+            ("## 7. Assumptions", "material gap-filling delivery premises"),
             ("## 8. Project Timeline", "GANTT FORMAT:"),
             ("## 9. Success Criteria", "quantifiable success targets"),
-            ("## 10. AWS Pricing", "Use tables only"),
+            ("## 10. AWS Pricing", "AWS Pricing Calculator: [Open Link]"),
             ("## 11. {AUTHOR_ORG_SHORT} Project Team Effort", "Leave unavailable numeric cells blank"),
         ):
             section_title = re.sub(r"^(## )\d+\. ", r"\1", section_title)
@@ -133,8 +139,8 @@ class PocBenchmarkContractTests(unittest.TestCase):
             block = self.template[start: next_section if next_section >= 0 else None]
             self.assertIn(required_text, block)
 
-    def test_company_profile_validator_requires_two_company_only_paragraphs(self):
-        valid = "Example Limited provides retail services.\n\nIt operates digital and physical customer channels."
+    def test_company_profile_validator_requires_one_company_only_paragraph(self):
+        valid = "Example Limited provides retail services. It sells clothing and accessories. It operates digital and physical customer channels."
         self.assertEqual(CompanyResearchAgent._company_profile_issues(valid), [])
         invalid = "# Example\n\nThis engagement defines the project scope."
         issues = CompanyResearchAgent._company_profile_issues(invalid)
@@ -294,7 +300,7 @@ class PocBenchmarkContractTests(unittest.TestCase):
               {"name":"Ticket Classification","capability_ids":["CAP-001"],"task_statement":"Classify cases"},
               {"name":"Escalation Management","capability_ids":["CAP-002"],"task_statement":"Manage TAT breaches"}
             ]},
-            {"name":"Email Operations","purpose":"Handle email","boundary_type":"release","separation_basis":"Separate release", "modules":[
+            {"name":"Email Operations","purpose":"Handle email","boundary_type":"release","separation_basis":"Separately commissioned email product", "independent_output_evidence":"Email Operations is a separately commissioned product with its own hand-off.", "modules":[
               {"name":"Email Assignment","capability_ids":["CAP-003"],"task_statement":"Route messages"}
             ]}
           ],
@@ -304,7 +310,9 @@ class PocBenchmarkContractTests(unittest.TestCase):
         plan = agent._architect_scope(
             {"key_deliverables": ["Ticket Classification", "Escalation Management", "Email Assignment"]},
             {"company_name": "Example", "project_title": "CRM"},
-            "Tickets use TAT escalation. Emails use assignment rules.",
+            "Customer Service Platform and Email Operations are distinct commissioned outputs. "
+            "Tickets use TAT escalation. Emails use assignment rules. "
+            "Email Operations is a separately commissioned product with its own hand-off.",
         )
         self.assertEqual(len(plan["deliverables"]), 2)
         self.assertEqual(len(plan["deliverables"][0]["modules"]), 2)

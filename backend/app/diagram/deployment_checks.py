@@ -2,7 +2,11 @@
 import re
 
 
-def validate(spec, requirements):
+def validate(spec, requirements, selected_region=''):
+    from dataclasses import replace
+    if selected_region:
+        spec = replace(spec, nodes=tuple(replace(n, region=selected_region)
+            if n.scope not in {'global','external'} else n for n in spec.nodes))
     source = str(requirements.get('architecture_source_context') or '')
     if not source:
         return spec
@@ -18,11 +22,11 @@ def validate(spec, requirements):
         if len({n.availability_zone for n in compute if n.availability_zone}) < 2:
             issues.append('BRD explicitly requires two AZs: distribute the application compute across two named AZs; do not invent duplicate resources')
     regions = set(re.findall(r'\b(?:eu|us|ap|sa|ca|me|af|il)-(?:north|south|east|west|central|northeast|southeast)-\d\b', source))
-    if re.search(r'\b(?:UK|United Kingdom)\s+region\b', source, re.I) and any(
+    if not selected_region and re.search(r'\b(?:UK|United Kingdom)\s+region\b', source, re.I) and any(
             not re.search(r'\b(?:UK|United Kingdom|London|eu-west-2)\b', n.region, re.I)
             for n in nodes if n.scope not in {'global','external'}):
         issues.append('Source requires UK-region hosting: explicitly choose and label the UK deployment region on regional nodes; do not use the placeholder Region')
-    if len(regions) == 1:
+    if not selected_region and len(regions) == 1:
         region = next(iter(regions))
         if any(n.region != region for n in nodes if n.scope not in {'global','external'}):
             issues.append('BRD specifies region '+region+': preserve it in every regional node, not the placeholder Region')

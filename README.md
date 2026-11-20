@@ -226,7 +226,7 @@ Create this file (never commit it):
 AWS_REGION=us-east-1
 BEDROCK_REGION=us-east-1
 BEDROCK_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
-BEDROCK_FAST_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/hbq88skix7wt
+BEDROCK_FAST_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/oj2y908xxkkf
 BEDROCK_ANALYSIS_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
 BEDROCK_WRITER_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
 BEDROCK_DIAGRAM_MODEL_ID=arn:aws:bedrock:us-east-1:106611079163:application-inference-profile/20kstbja9ona
@@ -269,7 +269,7 @@ Bedrock models are selected per component in `backend/config/.env`. Each
 | Selection | Model | Application inference profile |
 |---|---|---|
 | `sonnet-5` | Claude Sonnet 5 | `20kstbja9ona` |
-| `haiku` | Claude Haiku 4.5 | `hbq88skix7wt` |
+| `haiku` | Claude Haiku 4.5 | `oj2y908xxkkf` |
 | `sonnet-5.5` | Claude Sonnet 5.5 | `hlc2w29214np` |
 | `opus-5.5` | Claude Opus 5.5 | `lwjwoyltuicz` |
 | `gpt-6-astra` | GPT-6 Astra | `o8dwriwugus2` |
@@ -285,20 +285,20 @@ after changing a selection. Adding a profile does not switch existing assignment
 This is backend configuration, not an in-app model dropdown. Embeddings use the
 separate `SEMANTIC_SEARCH_EMBEDDING_MODEL_ID`; do not replace it with a text model.
 
-The three-generative-model configuration uses Haiku for bounded extraction and
-supporting sections, Opus for planning/writing/editing, and Astra for independent
-diagram and SOW review. Apply these selections in the backend environment:
+The current configuration uses Haiku for bounded extraction and supporting
+sections, and Sonnet 5.5 for planning, writing, editing, diagram and SOW review.
+Each component remains independently configurable in `backend/config/.env`:
 
 ```dotenv
-BEDROCK_MODEL_ID=opus-5.5
+BEDROCK_MODEL_ID=sonnet-5.5
 BEDROCK_FAST_MODEL_ID=haiku
-BEDROCK_ANALYSIS_MODEL_ID=opus-5.5
-BEDROCK_WRITER_MODEL_ID=opus-5.5
-BEDROCK_DIAGRAM_MODEL_ID=opus-5.5
-BEDROCK_EDITOR_MODEL_ID=opus-5.5
-BEDROCK_DIAGRAM_REVIEW_MODEL_ID=gpt-6-astra
-BEDROCK_REVIEW_MODEL_ID=gpt-6-astra
-BEDROCK_FALLBACK_MODEL_ID=gpt-6-astra
+BEDROCK_ANALYSIS_MODEL_ID=sonnet-5.5
+BEDROCK_WRITER_MODEL_ID=sonnet-5.5
+BEDROCK_DIAGRAM_MODEL_ID=sonnet-5.5
+BEDROCK_EDITOR_MODEL_ID=sonnet-5.5
+BEDROCK_DIAGRAM_REVIEW_MODEL_ID=sonnet-5.5
+BEDROCK_REVIEW_MODEL_ID=sonnet-5.5
+BEDROCK_FALLBACK_MODEL_ID=sonnet-5.5
 ```
 
 `BEDROCK_REVIEW_MODEL_ID` controls SOW targeted corrections separately from fast
@@ -451,4 +451,13 @@ Architecture planning also uses a local, versioned library of 20 curated AWS
 reference patterns. It supplies at most three advisory patterns to the Solution
 Architecture writer and diagram planner without changing the project requirements.
 See [library coverage, validation and limitations](backend/knowledge/architecture/README.md).
+
+# Optional architecture process flow
+
+Set `ARCHITECTURE_PROCESS_FLOW=on` in `backend/config/.env` to include a numbered
+process-flow panel beside the solution architecture in the preview and SOW download.
+Set it to `off` (the default) for the existing architecture-only presentation.
+Restart the backend and generate or regenerate the architecture after changing it.
+The panel follows existing diagram connections; it does not add services or change
+the approved architecture. Numbers are placed beside connectors where space allows.
 

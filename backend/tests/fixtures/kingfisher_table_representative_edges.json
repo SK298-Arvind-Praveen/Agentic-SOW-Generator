@@ -1,0 +1,1059 @@
+{
+  "title": "Product Catalogue POC on AWS",
+  "nodes": [
+    {
+      "id": "test_clients",
+      "label": "Approved Test Clients",
+      "kind": "actor",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "aws.resource.general-icons.client",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. architecture_components: Infrastructure-as-code repositories held by the client",
+      "group": "application_processing",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "runtime"
+    },
+    {
+      "id": "source_db",
+      "label": "Source PostgreSQL Clone",
+      "kind": "external",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "source_media",
+      "label": "Source Media Store",
+      "kind": "external",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "migration"
+    },
+    {
+      "id": "test_endpoints",
+      "label": "Dependency Test Endpoints",
+      "kind": "external",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "",
+      "selection": "none",
+      "evidence": "",
+      "group": "",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "runtime"
+    },
+    {
+      "id": "client_repo",
+      "label": "Client IaC Repository",
+      "kind": "external",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "aws.resource.general-icons.client",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. architecture_components: Infrastructure-as-code repositories held by the client",
+      "group": "application_processing",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "deployment"
+    },
+    {
+      "id": "ops_team",
+      "label": "Client Operations Team",
+      "kind": "actor",
+      "layer": 0,
+      "subtitle": "",
+      "icon_key": "aws.resource.general-icons.client",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. architecture_components: Infrastructure-as-code repositories held by the client",
+      "group": "application_processing",
+      "placement_role": "external",
+      "scope": "external",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "",
+      "region": "",
+      "vpc": "",
+      "flow_id": "operations"
+    },
+    {
+      "id": "iam",
+      "label": "AWS Identity and Access Management",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-identity-and-access-management",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. Optional supporting infrastructure; select only for a justified deployment need",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "budgets",
+      "label": "AWS Budgets",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.cloud-financial-management.aws-budgets",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. aws_services: AWS Budgets / Cost Explorer - assumption for daily cost tracking and 70%/90% alerts",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "",
+      "vpc": "",
+      "flow_id": "operations"
+    },
+    {
+      "id": "cost_explorer",
+      "label": "Cost Explorer",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.cloud-financial-management.aws-cost-explorer",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "global",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "vpn",
+      "label": "Site-to-Site VPN",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.service.networking-content-delivery.aws-site-to-site-vpn",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "POC VPC",
+      "flow_id": "runtime"
+    },
+    {
+      "id": "alb",
+      "label": "Internal ALB",
+      "kind": "service",
+      "layer": 1,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.elastic-load-balancing-application-load-balancer",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names alb",
+      "group": "network_delivery",
+      "placement_role": "entry",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "asg",
+      "label": "EC2 Auto Scaling",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.resource.compute.amazon-ec2-auto-scaling",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "application_processing",
+      "placement_role": "compute",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "ec2_a",
+      "label": "Catalogue App EC2",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.compute.amazon-ec2",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. aws_services: Amazon EC2 (2 instances in private subnets) - BRD proposed target, subject to G1",
+      "group": "application_processing",
+      "placement_role": "compute",
+      "scope": "az",
+      "availability_zone": "az_a",
+      "subnet": "private",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "ec2_b",
+      "label": "Catalogue App EC2",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.compute.amazon-ec2",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. aws_services: Amazon EC2 (2 instances in private subnets) - BRD proposed target, subject to G1",
+      "group": "application_processing",
+      "placement_role": "compute",
+      "scope": "az",
+      "availability_zone": "az_b",
+      "subnet": "private",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "POC VPC",
+      "flow_id": "runtime"
+    },
+    {
+      "id": "runner",
+      "label": "Migration Runner EC2",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.compute.amazon-ec2",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. aws_services: Amazon EC2 (2 instances in private subnets) - BRD proposed target, subject to G1",
+      "group": "application_processing",
+      "placement_role": "integration",
+      "scope": "az",
+      "availability_zone": "az_a",
+      "subnet": "private",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "POC VPC",
+      "flow_id": "migration"
+    },
+    {
+      "id": "dms",
+      "label": "AWS DMS",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.databases.aws-database-migration-service",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names dms",
+      "group": "data_storage",
+      "placement_role": "integration",
+      "scope": "az",
+      "availability_zone": "az_a",
+      "subnet": "private",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "POC VPC",
+      "flow_id": "migration"
+    },
+    {
+      "id": "rds_primary",
+      "label": "RDS PostgreSQL Primary",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.databases.amazon-rds",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names rds",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "az",
+      "availability_zone": "az_a",
+      "subnet": "private",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "rds_standby",
+      "label": "Multi-AZ Standby",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.databases.amazon-rds",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names rds",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "az",
+      "availability_zone": "az_b",
+      "subnet": "private",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "POC VPC",
+      "flow_id": "runtime"
+    },
+    {
+      "id": "s3_gwep",
+      "label": "S3 Gateway Endpoint",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-endpoints",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. Optional supporting infrastructure; select only for a justified deployment need",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "POC VPC",
+      "flow_id": ""
+    },
+    {
+      "id": "iface_ep",
+      "label": "Interface Endpoints",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.resource.networking-content-delivery.amazon-vpc-endpoints",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. Optional supporting infrastructure; select only for a justified deployment need",
+      "group": "network_delivery",
+      "placement_role": "network",
+      "scope": "vpc",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "POC VPC",
+      "flow_id": "runtime"
+    },
+    {
+      "id": "datasync",
+      "label": "AWS DataSync",
+      "kind": "service",
+      "layer": 2,
+      "subtitle": "",
+      "icon_key": "aws.service.migration-modernization.aws-datasync",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "application_processing",
+      "placement_role": "integration",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "migration"
+    },
+    {
+      "id": "s3_media",
+      "label": "S3 Media Bucket",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names s3",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "s3_evidence",
+      "label": "S3 Evidence Bucket",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names s3",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "s3_artefact",
+      "label": "S3 Artefact Bucket",
+      "kind": "service",
+      "layer": 3,
+      "subtitle": "",
+      "icon_key": "aws.service.storage.amazon-simple-storage-service",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names s3",
+      "group": "data_storage",
+      "placement_role": "data",
+      "scope": "managed",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "deployment"
+    },
+    {
+      "id": "secrets",
+      "label": "AWS Secrets Manager",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-secrets-manager",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. aws_services: AWS Secrets Manager - assumption for the 'approved AWS mechanism' for secrets",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "ssm",
+      "label": "Systems Manager",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.aws-systems-manager",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "kms",
+      "label": "AWS Key Management Service",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-key-management-service",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names kms",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "acm",
+      "label": "Certificate Manager",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.aws-certificate-manager",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "inspector",
+      "label": "Amazon Inspector",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.security-identity.amazon-inspector",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "security_identity",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "cloudtrail",
+      "label": "AWS CloudTrail",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.aws-cloudtrail",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "application_processing",
+      "placement_role": "security",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": ""
+    },
+    {
+      "id": "cloudwatch",
+      "label": "Amazon CloudWatch",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.amazon-cloudwatch",
+      "selection": "inferred",
+      "evidence": "Implementation option; not a confirmed client mandate. source names Amazon CloudWatch",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "operations"
+    },
+    {
+      "id": "sns",
+      "label": "Amazon SNS",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.application-integration.amazon-simple-notification-service",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "operations"
+    },
+    {
+      "id": "cfn",
+      "label": "CloudFormation",
+      "kind": "service",
+      "layer": 4,
+      "subtitle": "",
+      "icon_key": "aws.service.management-tools.aws-cloudformation",
+      "selection": "inferred",
+      "evidence": "Available implementation option; deployment must be source justified",
+      "group": "application_processing",
+      "placement_role": "operations",
+      "scope": "regional",
+      "availability_zone": "",
+      "subnet": "",
+      "account": "Kingfisher POC Account",
+      "region": "ap-south-1",
+      "vpc": "",
+      "flow_id": "deployment"
+    }
+  ],
+  "edges": [
+    {
+      "source": "test_clients",
+      "target": "vpn",
+      "label": "HTTPS requests",
+      "operation_type": "request",
+      "initiator": "test_clients",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c4",
+        "c3"
+      ]
+    },
+    {
+      "source": "vpn",
+      "target": "alb",
+      "label": "Forward HTTPS",
+      "operation_type": "request",
+      "initiator": "test_clients",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c4"
+      ]
+    },
+    {
+      "source": "alb",
+      "target": "ec2_a",
+      "label": "Route requests",
+      "operation_type": "request",
+      "initiator": "test_clients",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c4"
+      ]
+    },
+    {
+      "source": "alb",
+      "target": "ec2_b",
+      "label": "Route requests",
+      "operation_type": "request",
+      "initiator": "test_clients",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c4"
+      ]
+    },
+    {
+      "source": "ec2_a",
+      "target": "rds_primary",
+      "label": "Query catalogue",
+      "operation_type": "request",
+      "initiator": "ec2_a",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c6"
+      ]
+    },
+    {
+      "source": "ec2_b",
+      "target": "rds_primary",
+      "label": "Query catalogue",
+      "operation_type": "request",
+      "initiator": "ec2_b",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c6"
+      ]
+    },
+    {
+      "source": "rds_primary",
+      "target": "rds_standby",
+      "label": "Sync replication",
+      "operation_type": "replication",
+      "initiator": "rds_primary",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c6",
+        "c16"
+      ]
+    },
+    {
+      "source": "ec2_a",
+      "target": "s3_gwep",
+      "label": "S3 reads",
+      "operation_type": "read",
+      "initiator": "ec2_a",
+      "data_direction": "target_to_source",
+      "evidence_refs": [
+        "c7",
+        "c5"
+      ]
+    },
+    {
+      "source": "s3_gwep",
+      "target": "s3_media",
+      "label": "Get images",
+      "operation_type": "read",
+      "initiator": "ec2_a",
+      "data_direction": "target_to_source",
+      "evidence_refs": [
+        "c7"
+      ]
+    },
+    {
+      "source": "s3_gwep",
+      "target": "s3_artefact",
+      "label": "Get package",
+      "operation_type": "read",
+      "initiator": "ec2_a",
+      "data_direction": "target_to_source",
+      "evidence_refs": [
+        "c5"
+      ]
+    },
+    {
+      "source": "ec2_a",
+      "target": "test_endpoints",
+      "label": "Call dependencies",
+      "operation_type": "request",
+      "initiator": "ec2_a",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c11"
+      ]
+    },
+    {
+      "source": "asg",
+      "target": "ec2_a",
+      "label": "Replace node",
+      "operation_type": "control",
+      "initiator": "asg",
+      "data_direction": "control",
+      "evidence_refs": [
+        "c16"
+      ]
+    },
+    {
+      "source": "asg",
+      "target": "ec2_b",
+      "label": "Replace node",
+      "operation_type": "control",
+      "initiator": "asg",
+      "data_direction": "control",
+      "evidence_refs": [
+        "c16"
+      ]
+    },
+    {
+      "source": "ec2_a",
+      "target": "iface_ep",
+      "label": "Private API",
+      "operation_type": "request",
+      "initiator": "ec2_a",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c3",
+        "c5"
+      ]
+    },
+    {
+      "source": "iface_ep",
+      "target": "secrets",
+      "label": "Get secrets",
+      "operation_type": "read",
+      "initiator": "ec2_a",
+      "data_direction": "target_to_source",
+      "evidence_refs": [
+        "c5",
+        "c11"
+      ]
+    },
+    {
+      "source": "iface_ep",
+      "target": "ssm",
+      "label": "Read parameters",
+      "operation_type": "read",
+      "initiator": "ec2_a",
+      "data_direction": "target_to_source",
+      "evidence_refs": [
+        "c5",
+        "c12"
+      ]
+    },
+    {
+      "source": "source_db",
+      "target": "dms",
+      "label": "Full load+CDC",
+      "operation_type": "ingestion",
+      "initiator": "dms",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c8"
+      ]
+    },
+    {
+      "source": "dms",
+      "target": "rds_primary",
+      "label": "Apply changes",
+      "operation_type": "write",
+      "initiator": "dms",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c8"
+      ]
+    },
+    {
+      "source": "runner",
+      "target": "rds_primary",
+      "label": "Schema, reconcile",
+      "operation_type": "write",
+      "initiator": "runner",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c9",
+        "c10"
+      ]
+    },
+    {
+      "source": "source_media",
+      "target": "datasync",
+      "label": "Copy media",
+      "operation_type": "ingestion",
+      "initiator": "datasync",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c7"
+      ]
+    },
+    {
+      "source": "datasync",
+      "target": "s3_media",
+      "label": "Write objects",
+      "operation_type": "write",
+      "initiator": "datasync",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c7"
+      ]
+    },
+    {
+      "source": "runner",
+      "target": "s3_gwep",
+      "label": "Ledger records",
+      "operation_type": "write",
+      "initiator": "runner",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c10",
+        "c14"
+      ]
+    },
+    {
+      "source": "s3_gwep",
+      "target": "s3_evidence",
+      "label": "Store records",
+      "operation_type": "write",
+      "data_direction": "bidirectional",
+      "evidence_refs": [
+        "c10",
+        "c22"
+      ]
+    },
+    {
+      "source": "rds_primary",
+      "target": "dms",
+      "label": "Delta CDC",
+      "operation_type": "ingestion",
+      "initiator": "dms",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c14"
+      ]
+    },
+    {
+      "source": "dms",
+      "target": "s3_gwep",
+      "label": "Write delta",
+      "operation_type": "write",
+      "initiator": "dms",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c14"
+      ]
+    },
+    {
+      "source": "runner",
+      "target": "source_db",
+      "label": "Apply delta",
+      "operation_type": "write",
+      "initiator": "runner",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c14"
+      ]
+    },
+    {
+      "source": "client_repo",
+      "target": "cfn",
+      "label": "Deploy stacks",
+      "operation_type": "control",
+      "initiator": "client_repo",
+      "data_direction": "control",
+      "evidence_refs": [
+        "c2",
+        "c24"
+      ]
+    },
+    {
+      "source": "cfn",
+      "target": "asg",
+      "label": "Provision stack",
+      "operation_type": "control",
+      "initiator": "cfn",
+      "data_direction": "control",
+      "evidence_refs": [
+        "c2"
+      ]
+    },
+    {
+      "source": "ec2_a",
+      "target": "cloudwatch",
+      "label": "Logs, metrics",
+      "operation_type": "ingestion",
+      "initiator": "ec2_a",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c15"
+      ]
+    },
+    {
+      "source": "cloudwatch",
+      "target": "sns",
+      "label": "Alarm notify",
+      "operation_type": "event",
+      "initiator": "cloudwatch",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c15"
+      ]
+    },
+    {
+      "source": "rds_primary",
+      "target": "sns",
+      "label": "RDS events",
+      "operation_type": "event",
+      "initiator": "rds_primary",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c15"
+      ]
+    },
+    {
+      "source": "budgets",
+      "target": "sns",
+      "label": "Budget alerts",
+      "operation_type": "event",
+      "initiator": "budgets",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c21"
+      ]
+    },
+    {
+      "source": "sns",
+      "target": "ops_team",
+      "label": "Email alerts",
+      "operation_type": "event",
+      "initiator": "sns",
+      "data_direction": "source_to_target",
+      "evidence_refs": [
+        "c15",
+        "c21"
+      ]
+    }
+  ],
+  "architecture_plan": {
+    "narrative_view": {
+      "roles": {
+        "vpn": "Client network link",
+        "alb": "Internal ingress",
+        "acm": "Listener certificate",
+        "asg": "Node replacement",
+        "ec2_a": "App node A",
+        "ec2_b": "App node B",
+        "iface_ep": "Private AWS APIs",
+        "s3_artefact": "App package",
+        "inspector": "Vulnerability scans",
+        "rds_primary": "Catalogue writer",
+        "rds_standby": "Failover standby",
+        "s3_gwep": "Private S3 path",
+        "s3_media": "Catalogue media",
+        "dms": "DB load / CDC",
+        "runner": "Schema / reconcile",
+        "datasync": "Media transfer",
+        "s3_evidence": "Migration ledger",
+        "budgets": "Cost alerts",
+        "cfn": "Stack deployment",
+        "cloudtrail": "API audit",
+        "cloudwatch": "Logs / alarms",
+        "cost_explorer": "Cost reports",
+        "iam": "Access roles",
+        "kms": "Encryption keys",
+        "secrets": "Credentials",
+        "sns": "Alert delivery",
+        "ssm": "Writer flag / config"
+      }
+    },
+    "service_design": {
+      "summary": "A six-week, single-account (eu-west-2, two AZ) migration POC built from versioned AWS CloudFormation held in client repositories. The Linux application package keeps its identity and runs on two private Amazon EC2 nodes in an EC2 Auto Scaling group behind an internal Application Load Balancer. Approved test clients reach the load balancer over the approved source/client network connection, proposed as AWS Site-to-Site VPN. The application writes to one authoritative Amazon RDS for PostgreSQL Multi-AZ DB instance, which replicates synchronously to a standby in the second AZ. The standby is not used for reads. Media is read from a private, KMS-encrypted Amazon S3 bucket through an S3 gateway endpoint. Schema objects are pre-created with native PostgreSQL tooling from a private migration-runner EC2 instance. AWS DMS performs full load plus ordered CDC with validation. AWS DataSync copies media with verification. Reconciliation scripts write the migration ledger, exception records and delta ledger as versioned run records to an S3 evidence bucket. Cutover and rollback are human-gated runbooks; there is no orchestration product. Single-writer control uses database write grants plus an active-environment flag in Systems Manager Parameter Store that also gates the import scheduler. Post-write rollback captures target-only changes with a second DMS CDC task from RDS to S3 starting at the write-release position, so no reverse writer path is created. Recovery uses native RDS Multi-AZ failover and point-in-time restore to an isolated instance; there is no separate backup product. Operations use CloudWatch dashboards, logs and alarms routed to SNS, RDS event notifications for backup failures, CloudTrail for AWS API audit, Inspector for vulnerability findings, and Budgets plus Cost Explorer for daily cost tracking and the 70%/90% alerts, which are notifications and not hard caps. All services are proposals pending G1 approval.",
+      "capabilities": [
+        {
+          "id": "c4",
+          "name": "Application tier and ingress",
+          "evidence_quote": "Amazon EC2 instances in private subnets behind an internal Application Load Balancer; approved test clients only",
+          "service_ids": [
+            "s2",
+            "s3",
+            "s4",
+            "s21"
+          ],
+          "existing_implementation": "Existing Linux application package (web/API tier and import process) is redeployed unchanged except for logged configuration, object-storage and compatibility corrections.",
+          "gap": "Instance sizes are confirmed at G1.",
+          "implementation": "Internal ALB with an HTTPS listener using an imported certificate, health checks and a security group restricted to approved test-client CIDRs. Two EC2 nodes, one per AZ, run in an Auto Scaling group with fixed capacity of 2. An unhealthy node is removed from the target group and replaced from the launch template."
+        }
+      ]
+    }
+  }
+}

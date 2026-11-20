@@ -15,7 +15,9 @@ from app.diagram.service import DiagramService, validate_spec
 
 
 @pytest.fixture
-def service():
+def service(monkeypatch):
+    monkeypatch.setattr('app.diagram.process_flow.decorate',
+        lambda png, xml, *args: (png, xml, {'decoration_warnings': []}))
     service = DiagramService.__new__(DiagramService)
     service.config = SimpleNamespace(ASSETS_DIR=Path(__file__).parents[1] / 'assets')
     service.icon_registry = AwsIconRegistry(service.config.ASSETS_DIR)

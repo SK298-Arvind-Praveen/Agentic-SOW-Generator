@@ -54,6 +54,25 @@ test('failure persists until dismissed and never replaces preview', async () => 
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
+test('unreviewed candidate is shown separately and never claims an update or chimes', async () => {
+  const updated = jest.fn();
+  status.mockResolvedValueOnce({ success: true, job: { id: 'j', status: 'running' } })
+    .mockResolvedValue({ success: true,
+      job: { id: 'j', status: 'review_required', message: 'Previous preview retained; candidate needs review.' },
+      architecture_revision_candidate: { status: 'review_required', instructions: 'Change deployment',
+        assets: [{ image_base64: 'candidate-pixels', review_warning: 'Image review is incomplete' }] } });
+  render(<ArchitectureRegenerationControls previewId="p1" onBusyChange={jest.fn()} onUpdated={updated} />);
+  await act(async () => {});
+  await act(async () => { jest.advanceTimersByTime(2500); });
+  expect(screen.getByRole('alert')).toHaveTextContent('Previous preview retained');
+  expect(screen.getByText('Unapproved diagram candidate')).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: 'Unapproved architecture candidate' })).toHaveAttribute('src', 'data:image/png;base64,candidate-pixels');
+  expect(screen.getByText('Image review is incomplete')).toBeInTheDocument();
+  expect(updated).not.toHaveBeenCalled();
+  expect(playPreviewReadyChime).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Regenerate diagram' })).toBeEnabled();
+});
+
 test('reopening an already completed regeneration does not replay the chime', async () => {
   status.mockResolvedValue({ success: true, job: { id: 'old-job', status: 'completed' }, content: {} });
   render(<ArchitectureRegenerationControls previewId="p1" onBusyChange={jest.fn()} onUpdated={jest.fn()} />);

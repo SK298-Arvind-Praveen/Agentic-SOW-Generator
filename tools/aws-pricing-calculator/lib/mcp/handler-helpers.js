@@ -21,6 +21,7 @@ const { canRehydrateFetch } = require('../lint/can-rehydrate-fetch');
 const { nextStepFor, notFoundHintFor, allFieldsAreSyntheticSlots, findCatalogEntry, partialEntryHintFor } = require('../lint/lint-hints');
 const { getEntry } = require('../lint/catalog');
 const { synthesizeAgentFields } = require('../aws/agent-fields');
+const { catalogForTemplate } = require('../aws/template-selection');
 const traceEvents = require('../trace/trace-events');
 
 // MCP response envelope shorthands. Tools register handlers that return
@@ -166,11 +167,12 @@ function createHandlerHelpers({ catalog }) {
       // injects any keys absent from the user's config. Lives here, not
       // in the per-service transform (lib/aws/ec2.js), so the same primitive
       // is available to every service that needs it.
-      config = applyDefaultFields(config, catalogEntry);
+      config = applyDefaultFields(config, validation.templateId
+        ? catalogForTemplate(catalogEntry, validation.templateId) : catalogEntry);
       // Pass the catalog's templateId as a hint to the builder so multi-
       // template services (Cognito, MQ, etc.) route through the human-
       // curated tier rather than field-membership scoring's tie-break.
-      // The hint always wins when present — but unverified entries emit a
+      // The hint breaks ties among compatible templates. Unverified entries emit a
       // trace event because their templateId is itself an unconfirmed
       // guess (e.g. CloudFront's catalog says productPackd1 while
       // inference picks CDN; nobody has browser-confirmed which is

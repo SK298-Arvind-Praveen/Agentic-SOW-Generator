@@ -284,6 +284,33 @@ def test_excluded_and_existing_identity_options_are_not_new_dependencies():
     assert 'AWS Identity and Access Management' in unlisted_dependencies(value)
 
 
+@pytest.mark.parametrize('optional', [
+    'Existing IAM Identity Center can be reused if TUL already operates one.',
+    'An existing Amazon OpenSearch Service domain may be reused if the client already operates one.',
+])
+def test_conditional_existing_service_reuse_does_not_add_inventory_dependency(optional):
+    from app.diagram.service_design import unlisted_dependencies
+    value = design()
+    value['capabilities'][0]['implementation'] = (
+        'Vendor operator access to AWS uses IAM roles with MFA and session logging. '
+        + optional + ' AWS CloudTrail records API activity.')
+    # The optional existing alternative must not hide either selected mechanism
+    # in its neighboring sentences or force a new deployment into inventory.
+    assert set(unlisted_dependencies(value)) == {'AWS Identity and Access Management', 'AWS CloudTrail'}
+
+
+@pytest.mark.parametrize('implementation', [
+    'AWS IAM Identity Center authenticates staff.',
+    'Existing IAM Identity Center is reused for operator access.',
+    'Deploy AWS IAM Identity Center if the client needs operator access.',
+])
+def test_optional_reuse_exception_does_not_hide_actual_identity_dependency(implementation):
+    from app.diagram.service_design import unlisted_dependencies
+    value = design()
+    value['capabilities'][0]['implementation'] = implementation
+    assert unlisted_dependencies(value) == ['AWS IAM Identity Center']
+
+
 def test_failure_prevention_is_not_mistaken_for_service_exclusion():
     from app.diagram.service_design import unlisted_dependencies
     value = design()
@@ -298,7 +325,7 @@ def test_source_quote_restores_original_punctuation_without_changing_words():
     assert result['capabilities'][0]['evidence_quote'] == 'Extract fields, from scanned multipage PDFs'
 
 
-def test_overview_aggregates_handlers_but_preserves_boundaries_and_details():
+def test_overview_preparation_preserves_canonical_handlers_and_connections():
     from app.diagram.service_design import consolidate_overview_handlers
     raw = {'nodes': [{'id': 'a', 'label': 'Intake Lambda', 'region': 'Region'},
                      {'id': 'b', 'label': 'Extract Lambda', 'region': 'Region'},
@@ -308,10 +335,10 @@ def test_overview_aggregates_handlers_but_preserves_boundaries_and_details():
            'architecture_plan': {'service_mapping': [{'service_id': 'lambda', 'node_ids': ['a', 'b', 'other']}],
              'flows': [{'id': 'processing', 'paths': [['a', 'b', 'ocr']]}]}}
     result = consolidate_overview_handlers(raw)
-    assert {n['id'] for n in result['nodes']} == {'a', 'other', 'ocr'}
-    assert result['edges'] == [{'source': 'a', 'target': 'ocr'}]
-    assert result['architecture_plan']['flows'][0]['paths'] == [['a', 'ocr']]
-    assert len(result['architecture_plan']['lambda_implementation_details']['functions']) == 2
+    assert {n['id'] for n in result['nodes']} == {'a', 'b', 'other', 'ocr'}
+    assert result['edges'] == raw['edges']
+    assert result['architecture_plan']['flows'][0]['paths'] == [['a', 'b', 'ocr']]
+    assert result['architecture_plan']['service_mapping'][0]['node_ids'] == ['a', 'b', 'other']
     assert len(raw['nodes']) == 4  # Saved source graph is not mutated.
 
 

@@ -4,6 +4,8 @@ from collections import Counter
 
 
 _BOX_EDGE = re.compile(r'^\s*[+┌└├┬┼╔╚╠][\s+|\-─━═┐┘┤┴┬┼╗╝╣]+\s*$')
+_SCOPE_HEADING = re.compile(r'#{2,6}\s+.+')
+_DELIVERABLE_TABLE_ROW = re.compile(r'^\s*\|([^|]+)\|(?:.*\|)?\s*$')
 
 
 def strip_text_diagrams(text):
@@ -82,9 +84,30 @@ def presentation_issues(text, category):
     return issues
 
 
+def is_scope_heading(line):
+    return bool(_SCOPE_HEADING.fullmatch(line.strip()))
+
+
+def deliverables_table_span(lines):
+    """Locate the deliverables summary table before the first scope heading."""
+    for start, line in enumerate(lines):
+        if is_scope_heading(line):
+            break
+        header = _DELIVERABLE_TABLE_ROW.fullmatch(line)
+        if not header:
+            continue
+        label = re.sub(r'\[([^\]]+)\]\(https?://[^()\s]+\)', r'\1', header.group(1))
+        if re.sub(r'[*_`]', '', label).strip().casefold() != 'deliverable':
+            continue
+        end = start + 1
+        while end < len(lines) and re.fullmatch(r'\s*\|.+\|\s*', lines[end]):
+            end += 1
+        return start, end
+    return None
+
+
 def has_deliverables_table(text):
-    preamble = re.split(r'(?m)^#{2,6} ', text, maxsplit=1)[0]
-    return bool(re.search(r'(?im)^\s*\|\s*deliverable\s*\|', preamble))
+    return deliverables_table_span(text.splitlines()) is not None
 
 
 def regroup_scope_modules(text, groups):

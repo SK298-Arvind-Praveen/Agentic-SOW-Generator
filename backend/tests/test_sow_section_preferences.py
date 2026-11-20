@@ -47,11 +47,12 @@ class SowSectionPreferenceTests(unittest.TestCase):
         self.assertNotIn("Status", dependencies)
         self.assertNotIn("Open", dependencies)
 
-    def test_request_parsing_defaults_to_all_but_preserves_clear_optional(self):
+    def test_request_parsing_defaults_to_all_except_opt_in_conceptual(self):
         self.assertEqual(
             set(parse_selected_section_ids(None, "POC")),
-            available_section_ids("POC"),
+            available_section_ids("POC") - {"conceptual_flow_diagram"},
         )
+        self.assertEqual(parse_selected_section_ids('["conceptual_flow_diagram"]', "POC"), ["conceptual_flow_diagram"])
         self.assertEqual(parse_selected_section_ids("[]", "POC"), [])
         self.assertEqual(
             parse_selected_section_ids('["aws_pricing", "timelines_deliverables"]', "POC"),
@@ -177,7 +178,7 @@ class SowSectionPreferenceTests(unittest.TestCase):
         self.assertLess(output_keys.index("project_overview"), output_keys.index("scope_of_work"))
         self.assertNotIn("current_state_and_business_context", output)
 
-    def test_dynamic_toc_numbers_document_control_and_acceptance(self):
+    def test_dynamic_toc_numbers_service_agreement_and_acceptance(self):
         backend = Path(__file__).resolve().parents[1]
         template = (backend / "templates" / "poc_template.md").read_text(encoding="utf-8")
         agent = POCWriterAgent.__new__(POCWriterAgent)
@@ -197,12 +198,13 @@ class SowSectionPreferenceTests(unittest.TestCase):
             },
         )
         lines = toc.splitlines()
-        self.assertRegex(lines[0], r"^1\. Document Version Control$")
+        self.assertRegex(lines[0], r"^1\. Service Agreement$")
+        self.assertNotIn("Document Version Control", toc)
         acceptance = next(line for line in lines if "Acceptance and Signatories" in line)
         self.assertRegex(acceptance, r"^\d+\. Acceptance and Signatories")
         self.assertTrue(all(re.match(r"^\d+\. ", line) for line in lines))
 
-    def test_selected_about_client_cannot_collapse_to_an_empty_body(self):
+    def test_selected_about_client_stays_blank_with_preview_warning_when_unverified(self):
         backend = Path(__file__).resolve().parents[1]
         template = (backend / "templates" / "poc_template.md").read_text(encoding="utf-8")
         agent = POCWriterAgent.__new__(POCWriterAgent)
@@ -227,18 +229,19 @@ class SowSectionPreferenceTests(unittest.TestCase):
             selected_sow_sections=["about_client"],
         )
 
-        self.assertTrue(output["about_company"].strip())
+        self.assertEqual(output["about_company"], '')
+        self.assertTrue(any('About Client is blank' in w for w in output['generation_quality_warnings']))
         self.assertIn("About Example Customer", output["toc_structure"])
 
-    def test_about_client_contract_requires_two_plain_paragraphs(self):
+    def test_about_client_contract_requires_one_plain_paragraph(self):
         section = SimpleNamespace(name="About {COMPANY_NAME}")
-        valid = "Axis Securities operates in financial services.\n\nThe company provides securities and broking services."
+        valid = "Example Limited operates in financial services. The company provides securities and broking services. It serves retail investors."
         self.assertEqual(POCWriterAgent._authoring_issues(valid, section), [])
 
         invalid = "### Company Profile\n- Financial services organisation"
         issues = POCWriterAgent._authoring_issues(invalid, section)
-        self.assertTrue(any("exactly two brief paragraphs" in issue for issue in issues))
-        self.assertTrue(any("must not contain subsections" in issue for issue in issues))
+        self.assertTrue(any("3-4 sentences" in issue for issue in issues))
+        self.assertTrue(any("heading, list or table" in issue for issue in issues))
 
     def test_about_shellkode_is_static_and_verbatim(self):
         backend = Path(__file__).resolve().parents[1]

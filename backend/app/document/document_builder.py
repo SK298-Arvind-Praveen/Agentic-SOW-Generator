@@ -718,11 +718,13 @@ class SectionBuilder:
         table_caption_callback: Optional[Any] = None,
         heading_callback: Optional[Any] = None,
     ) -> List[Any]:
+        from app.core.section_formats import sequence_gantt_markdown
+
         added: List[Any] = []
         caption_context = section_title or "Statement of Work"
         active_heading: Optional[Tuple[str, int]] = None
         heading_counters = {2: 0, 3: 0, 4: 0}
-        for kind, payload in self._iter_blocks(content or ""):
+        for kind, payload in self._iter_blocks(sequence_gantt_markdown(content or "")):
             if kind == "table":
                 tables = self.build_table(payload)
                 if tables is not None:
@@ -914,6 +916,7 @@ class SectionBuilder:
             yield block
 
     def _add_rich_runs(self, paragraph, text: str, size: Optional[float] = None, color: Optional[str] = None):
+        text = str(text).replace("&#124;", "|")
         links = list(re.finditer(r"\[([^\]\n]+)\]\((https?://[^\s()]+)\)", str(text)))
         if links:
             offset = 0
@@ -1088,8 +1091,10 @@ class SectionBuilder:
             widths = [int(CONTENT_WIDTH_DXA * 0.45), int(CONTENT_WIDTH_DXA * 0.20)]
             widths.append(CONTENT_WIDTH_DXA - sum(widths))
         if gantt:
-            remaining = CONTENT_WIDTH_DXA - 500 - 2600
-            widths = [500, 2600] + [remaining // (cols - 2)] * (cols - 2)
+            # Leave room for "S.No" plus cell margins; 500 DXA wrapped the
+            # last letter onto a second line in actual Word exports.
+            remaining = CONTENT_WIDTH_DXA - 640 - 2600
+            widths = [640, 2600] + [remaining // (cols - 2)] * (cols - 2)
             widths[-1] += CONTENT_WIDTH_DXA - sum(widths)
         font_size = 11.0
         if gantt:
@@ -1254,7 +1259,7 @@ class DocumentBuilder:
     RESERVED_KEYS = {
         'conceptual_flow_asset',
         "cover_page", "toc_structure", "table_of_contents", "tableofcontents",
-        "table_contents", "generation_quality_summary", ARCHITECTURE_ASSET_KEY,
+        "table_contents", "generation_quality_summary", "generation_quality_warnings", ARCHITECTURE_ASSET_KEY,
         ARCHITECTURE_ASSETS_KEY,
     }
 
@@ -2018,7 +2023,7 @@ class DocumentBuilder:
                 heading = self.doc.add_paragraph(style='Heading 1')
                 _set_font(heading.add_run(section_name), name=HEADING_FONT_NAME, size=20.0, bold=True, color=BRAND_BLUE)
                 self._add_bookmark_to_heading(heading, section_name, position + 1)
-                self._add_architecture_diagram(asset)
+                self._add_architecture_diagram(asset, heading=heading)
             return
         content = self._resolve_section_content(section_name, sections, metadata)
         if not content and not self._preserve_blank_section(section_name, sections):
@@ -2045,7 +2050,7 @@ class DocumentBuilder:
         # The architecture overview leads the section, before any narrative.
         for asset in architecture_assets:
             if asset.get("diagram_type", "architecture_overview") == "architecture_overview":
-                self._add_architecture_diagram(asset)
+                self._add_architecture_diagram(asset, heading=heading)
                 self._inserted_diagram_ids.add(id(asset))
 
         def insert_for_heading(heading_text: str, _level: int):
@@ -2151,7 +2156,7 @@ class DocumentBuilder:
         caption.add_run(f"Table {self._table_counter}: {context}")
         return caption
 
-    def _add_architecture_diagram(self, asset: Any):
+    def _add_architecture_diagram(self, asset: Any, heading=None):
         """Insert only the figure; the section's authored bullets stay separate."""
         if not isinstance(asset, dict) or not asset.get("image_base64"):
             return None
@@ -2162,6 +2167,32 @@ class DocumentBuilder:
                 pixel_width, pixel_height = image.size
             aspect = pixel_width / max(pixel_height, 1)
             max_width, max_height = 6.95, 4.75
+            figure_page = asset.get('diagram_type') == 'architecture_overview'
+            original_page = None
+            if figure_page:
+                from docx.enum.section import WD_SECTION_START, WD_ORIENT
+                page = self.doc.sections[-1]
+                page_fields = ('page_width', 'page_height', 'orientation', 'left_margin',
+                               'right_margin', 'top_margin', 'bottom_margin')
+                original_page = {key: getattr(page, key) for key in page_fields}
+                page = self.doc.add_section(WD_SECTION_START.NEW_PAGE)
+                if heading is not None:
+                    self.doc.paragraphs[-1]._p.addnext(heading._p)
+                    heading.paragraph_format.space_before = Pt(0)
+                    heading.paragraph_format.space_after = Pt(6)
+                    heading.paragraph_format.line_spacing = 1
+                    heading.paragraph_format.keep_with_next = True
+                numbering = page._sectPr.find(qn('w:pgNumType'))
+                if numbering is not None: numbering.attrib.pop(qn('w:start'), None)
+                from app.diagram.figure_readability import fit_figure
+                fitted = fit_figure(asset, original_page['page_width']/914400,
+                                    original_page['page_height']/914400, heading is not None)
+                page.orientation = WD_ORIENT.LANDSCAPE if fitted['page_width'] > fitted['page_height'] else WD_ORIENT.PORTRAIT
+                page.page_width = Inches(fitted['page_width'])
+                page.page_height = Inches(fitted['page_height'])
+                page.left_margin = page.right_margin = Inches(.5)
+                page.top_margin = page.bottom_margin = Inches(.5)
+                max_width, max_height = fitted['width'], fitted['height']
             if asset.get('diagram_type') == 'conceptual_flow':
                 max_height = 8.6
             if asset.get('layout_engine') == 'elk':
@@ -2181,6 +2212,12 @@ class DocumentBuilder:
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             paragraph.paragraph_format.space_before = Pt(5)
             paragraph.paragraph_format.space_after = Pt(8)
+            if figure_page:
+                # Inheriting Normal's 1.5-line spacing inflates an inline image's
+                # line box and moves the reviewed figure away from its heading.
+                paragraph.paragraph_format.line_spacing = 1
+                paragraph.paragraph_format.space_before = Pt(0)
+                paragraph.paragraph_format.space_after = Pt(0)
             shape = paragraph.add_run().add_picture(
                 io.BytesIO(image_bytes),
                 width=Inches(width),
@@ -2190,6 +2227,9 @@ class DocumentBuilder:
                 "descr",
                 str(asset.get("alt_text") or "Proposed logical architecture diagram"),
             )
+            if original_page:
+                page = self.doc.add_section(WD_SECTION_START.NEW_PAGE)
+                for key, value in original_page.items(): setattr(page, key, value)
             # Editing controls stay in the app, not the client-facing document.
             return paragraph
         except Exception as exc:

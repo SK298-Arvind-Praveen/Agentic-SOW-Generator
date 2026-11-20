@@ -59,6 +59,8 @@ def layout_patch(spec, patch):
     if (not isinstance(edge_order, list) or any(type(i) is not int for i in edge_order)
             or sorted(edge_order) != list(range(len(spec.edges)))):
         raise ValueError('Edge order must preserve every connection exactly once')
+    if edge_order != list(range(len(spec.edges))):
+        raise ValueError('Visual patches cannot reorder canonical edge IDs')
     scale = patch.get('spacing_scale', spec.spacing_scale)
     if type(scale) not in (float, int) or not 1.0 <= scale <= 1.25:
         raise ValueError('Spacing scale must be between 1.0 and 1.25')
@@ -179,7 +181,7 @@ def _call(service, prompt, deadline, image=None, planner=False, call_name=None):
         for attempt in range(1 if pipeline_attempt.get() else 2):
             try:
                 return BedrockLLM(service.config, client).generate(
-                    prompt, task='diagram' if planner else 'fast', max_tokens=2200,
+                    prompt, task='diagram' if planner else 'diagram_review', max_tokens=32768,
                     model_id=(service.config.DIAGRAM_MODEL_ID if planner else
                               getattr(service.config, 'DIAGRAM_REVIEW_MODEL_ID', service.config.FAST_MODEL_ID)),
                     call_name=call_name or ('Architecture Placement Repair' if planner else 'Architecture Vision Review'),
@@ -292,9 +294,9 @@ Account and Region, without Proposed or concrete region codes.
 Return JSON only, with at most six concrete issues. Use this exact shape:
 {"issues":[{"kind":"visual or architecture","node_ids":["existing id"],"problem":"short observation"}],
  "layout_patch":{"node_order":["every existing node ID exactly once"],
- "edge_order":[0,1],"spacing_scale":1.0}}
-Use {} for layout_patch if no safe improvement. edge_order must contain every zero-based
-edge index exactly once; node_order reorders peers within existing placement buckets.
+ "spacing_scale":1.0}}
+Use {} for layout_patch if no safe improvement. Do not reorder canonical edges.
+node_order reorders peers within existing placement buckets.
 spacing_scale may be 1.0 to 1.25. Never delete components/flows, hide labels, rename
 services or change their meaning to declutter. Report architecture issues separately;
 you cannot directly change architecture. No claims that this is certified or perfect.

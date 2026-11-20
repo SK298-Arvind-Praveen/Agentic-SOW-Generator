@@ -1,4 +1,6 @@
-"""Live multipart/status API regression using Flask's in-process HTTP client.
+"""Architecture-only multipart diagnostic, NOT full website acceptance.
+
+Use verify_full_sow_request.py for complete selections, drafts and finalize.
 
 Uses the application's existing TESTING identity and isolates cloud draft/archive
 persistence. Upload parsing, source extraction, async worker, graph, model calls,
@@ -66,7 +68,9 @@ def main():
     (out/'audit.json').write_text(json.dumps(audit,indent=2,default=str),encoding='utf8')
     print('HTTP RESULT',json.dumps({'status':audit['status'],'assets':[
         {k:a.get(k) for k in ('status','layout_engine','layout_metrics','text_alignment','quality_warnings')} for a in assets]}),flush=True)
-    if not assets or not all(a.get('image_base64') and not a.get('used_fallback') for a in assets):raise SystemExit(1)
+    from app.diagram.run_manifest import assert_diagram_acceptance
+    if not assets:raise SystemExit(1)
+    for asset in assets:assert_diagram_acceptance(asset)
 
 
 if __name__=='__main__':main()

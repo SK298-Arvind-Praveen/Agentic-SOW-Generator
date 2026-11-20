@@ -36,6 +36,80 @@ def test_physical_tiers_follow_request_order_and_keep_true_owners():
     assert not any('workloads' in k for k in b)
 
 
+def test_nat_only_azs_do_not_turn_aggregate_serverless_compute_into_tiered_apps():
+    value=spec()
+    nodes=tuple(replace(n,scope='vpc',availability_zone='',subnet='')
+        if n.placement_role in {'compute','data'} else n for n in value.nodes)
+    assert not tiers.enabled(replace(value,nodes=nodes))
+
+
+def test_migration_pull_sources_stay_beside_the_connection_not_in_output_rail():
+    value=spec()
+    nodes=value.nodes+(
+        Node('migration','DMS','service',1,scope='az',vpc='App',availability_zone='b',
+             subnet='private',placement_role='integration',flow_id='load'),
+        Node('connection','Approved connection','external',0,scope='external',placement_role='network'),
+        Node('source','Source database','external',0,scope='external',flow_id='load'))
+    edges=tuple(e for e in value.edges if e.source!='user')+(
+        Edge('user','connection'),Edge('connection','entry'),
+        Edge('migration','connection','Read source','read','migration','target_to_source'),
+        Edge('connection','source','Source access','read','migration','target_to_source'),
+        Edge('migration','dba','Apply changes'))
+    value=replace(value,nodes=nodes,edges=edges,architecture_plan={**value.architecture_plan,
+        'story_overview':True,'flows':[{'id':'load','kind':'migration'}]})
+    from app.diagram.contracts import freeze
+    before=freeze(value)['version']
+    positions,boxes,parents,*_=geometry(value)
+    assert positions['source'][0]+positions['source'][2]<boxes['cloud'][0]
+    assert positions['connection'][0]+positions['connection'][2]<boxes['cloud'][0]
+    assert parents['source']==parents['connection']=='root'
+    assert freeze(value)['version']==before
+
+
+def test_private_endpoints_do_not_block_the_application_database_lane():
+    value=spec()
+    nodes=tuple(replace(n,subnet='private') if n.placement_role=='data' else n for n in value.nodes)
+    nodes+=tuple(Node('vpce_'+az,'Interface Endpoints','service',0,scope='az',vpc='App',
+        availability_zone=az,subnet='private',placement_role='network') for az in ('a','b'))
+    nodes+=(Node('dms','DMS','service',0,scope='az',vpc='App',availability_zone='a',subnet='private',placement_role='integration'),)
+    plan={**value.architecture_plan,'story_overview':True,'narrative_view':{'groups':[
+        {'id':'app','rows':[['appa','vpce_a','dba'],['appb','vpce_b','dbb'],['dms']]}],'roles':{}}}
+    p,*_=geometry(replace(value,nodes=nodes,architecture_plan=plan))
+    for az in ('a','b'):
+        assert p['app'+az][0]==p['db'+az][0]
+        assert p['vpce_'+az][0]!=p['app'+az][0]
+        left,right=sorted([p['app'+az],p['vpce_'+az]])
+        assert (right[0]-left[0]-left[2])*.75>=32
+
+
+def test_selected_migration_sources_align_with_their_actual_targets():
+    value=spec()
+    nodes=value.nodes+(
+        Node('helper','Copy host','service',0,scope='az',vpc='App',availability_zone='a',subnet='private',placement_role='compute'),
+        Node('dms','DMS','service',0,scope='az',vpc='App',availability_zone='a',subnet='private',placement_role='integration'),
+        Node('db_source','Database source','external',0,scope='external'),
+        Node('media_source','Media source','external',0,scope='external'))
+    base=len(value.edges)
+    edges=value.edges+(Edge('db_source','dms'),Edge('db_source','helper'),Edge('media_source','helper'))
+    value=replace(value,nodes=nodes,edges=edges,architecture_plan={**value.architecture_plan,
+        'story_overview':True,'process_story':{'steps':[{'edge_ids':[f'e{base}',f'e{base+2}']}]}})
+    p,*_=geometry(value)
+    assert p['media_source'][1]==p['helper'][1]
+    assert p['db_source'][1]==p['dms'][1]
+
+
+def test_external_dependency_fanout_stays_above_lower_data_routes():
+    value=spec()
+    nodes=value.nodes+(Node('second','Second dependency','external',0,scope='external'),
+        Node('third','Third dependency','external',0,scope='external'))
+    edges=value.edges+(Edge('appa','second'),Edge('appa','third'))
+    value=replace(value,nodes=nodes,edges=edges,architecture_plan={**value.architecture_plan,'story_overview':True})
+    p,*_=geometry(value)
+    outputs=[p[k] for k in ('sink','second','third')]
+    assert max(y+h for x,y,w,h in outputs)<=p['appa'][1]+p['appa'][3]
+    assert len({y for x,y,w,h in outputs})==3
+
+
 def test_request_database_replication_and_egress_edges_never_disappear_into_one_group():
     value=spec();links,indices=projection(value)
     assert [item['edge'] for item in links]==list(value.edges)
@@ -113,8 +187,38 @@ def test_migration_ingress_alignment_keeps_external_cards_apart():
         Node('repo','Repository','external',0,scope='external'),
     ),edges=value.edges+(Edge('source','dms'),Edge('dms','dba')))
     positions,*_=geometry(value)
-    top=[positions[n.id] for n in value.nodes if n.scope=='external' and positions[n.id][1]==15]
+    top=[positions[n.id] for n in value.nodes if n.scope=='external' and positions[n.id][1]==32]
+    assert len(top)>=2
     for i,(x,y,w,h) in enumerate(top):
         for xx,yy,ww,hh in top[i+1:]:
             assert x+w<=xx or xx+ww<=x
     assert positions['user'][0]==positions['entry'][0]
+
+
+def test_many_external_inputs_wrap_without_overlaps_or_blocked_top_ports():
+    value=spec()
+    extra=tuple(Node('input'+str(i),'Input '+str(i),'actor',0,scope='external') for i in range(11))
+    value=replace(value,nodes=value.nodes+extra,edges=value.edges+tuple(Edge(n.id,'entry') for n in extra))
+    p,b,*_=geometry(value)
+    cards=[p[n.id] for n in (value.nodes[-11:]+(next(n for n in value.nodes if n.id=='user'),))]
+    assert len({r[1] for r in cards})>1
+    for i,(x,y,w,h) in enumerate(cards):
+        assert y>=24 and y+h<b['cloud'][1]
+        for xx,yy,ww,hh in cards[i+1:]:
+            assert y+h<=yy or yy+hh<=y or x+w+32/.75<=xx or xx+ww+32/.75<=x
+
+
+def test_migration_helpers_face_the_shared_source_connection_without_moving_owners():
+    value=spec()
+    nodes=value.nodes+(
+        Node('dms','DMS','service',0,scope='az',vpc='App',availability_zone='a',subnet='private',placement_role='integration'),
+        Node('runner','Migration runner','service',0,scope='az',vpc='App',availability_zone='b',subnet='private',placement_role='compute'),
+        Node('connection','Source connection','external',0,scope='external',placement_role='network'))
+    edges=value.edges+(Edge('dms','connection','Read source','read'),Edge('connection','runner','Pull files'))
+    value=replace(value,nodes=nodes,edges=edges,architecture_plan={**value.architecture_plan,
+        'story_overview':True,'process_story':{'steps':[{'edge_ids':[f'e{i}' for i in range(len(edges))]}]}})
+    before=value.as_dict();p,b,parents,*_=geometry(value)
+    assert p['connection'][0]<b['cloud'][0]
+    assert p['runner'][0]<p['appb'][0]
+    assert parents['runner']==parents['appb']
+    assert value.as_dict()==before

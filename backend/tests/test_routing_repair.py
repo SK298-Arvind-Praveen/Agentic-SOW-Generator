@@ -19,6 +19,13 @@ def value(raw):
         tuple(Edge(**e) for e in raw['edges']),architecture_plan=raw['architecture_plan'])
 
 
+def finding(stage, description):
+    return {'kind': 'architecture' if stage == 'graph' else 'visual', 'stage': stage,
+        'rule_id': stage+'.test', 'severity': 'important', 'description': description,
+        'node_ids': ['ecs_a'], 'edge_ids': ['e0'], 'step_ids': [],
+        'evidence': description, 'repair_instruction': 'Correct the identified '+stage+' issue.'}
+
+
 def test_visual_review_activates_renderer_repair_without_changing_architecture():
     raw=saved();original=copy.deepcopy(raw)
     repaired=routing_repair.prepare(raw,{'issues':[{'kind':'visual','description':'SQL crosses reports'}]})
@@ -37,7 +44,7 @@ def test_review_retry_changes_renderer_instead_of_only_rephrasing_groups():
         spec=requirements.get('_architecture_retry_spec',raw)
         return [{'spec':spec,'image_base64':'rendered','layout_engine':'narrative_drawio',
             'vision_review':{'status':'reviewed','issues':[] if len(calls)==2 else
-                [{'kind':'visual','description':'Route crosses another subnet'}]}}]
+                [finding('layout', 'Route crosses another subnet')]}}]
     service._generate_assets_once=generate
     result=service._generate_assets_bounded({}, {}, '')
     assert len(calls)==2
@@ -57,7 +64,10 @@ def test_repaired_routes_preserve_graph_and_avoid_unrelated_subnets():
         assert not any(hits_box(a,z,box) for a,z in zip(path,path[1:]) for box in constraints[(e.source,e.target)])
     metrics=geometry_report(view,p,paths)
     assert metrics['connector_node_intersections']==metrics['ambiguous_connector_pairs']==0
-    assert metrics['connector_crossings']<=2
+    # A third short crossing is preferable to the two-crossing candidate's
+    # long detour through the outside corridor. Containment remains strict.
+    assert metrics['connector_crossings']<=3
+    assert metrics['long_connector_count']==metrics['detouring_connector_count']==0
     assert parents['vpce']=='vpc_0'
     assert p['ecs_a'][0]+p['ecs_a'][2]<p['vpce'][0]<p['ecs_b'][0]
     assert p['cognito'][0] - (b['vpc_0'][0]+b['vpc_0'][2]) >= 100
@@ -68,8 +78,8 @@ def test_visual_repair_is_not_lost_when_architecture_retry_was_already_spent():
     service=DiagramService.__new__(DiagramService);raw=saved();calls=[]
     def generate(requirements,metadata,narrative):
         calls.append(copy.deepcopy(requirements))
-        issues=([{'kind':'architecture','description':'Initial graph needs correction'}] if len(calls)==1
-                else [{'kind':'visual','description':'SQL crosses reports'}] if len(calls)==2 else [])
+        issues=([finding('graph', 'Initial graph needs correction')] if len(calls)==1
+                else [finding('layout', 'SQL crosses reports')] if len(calls)==2 else [])
         return [{'spec':requirements.get('_architecture_retry_spec',raw),'image_base64':'rendered',
             'layout_engine':'narrative_drawio','vision_review':{'status':'reviewed','issues':issues}}]
     service._generate_assets_once=generate
@@ -85,7 +95,7 @@ def test_failed_geometry_correction_is_bounded_and_retains_an_image():
         calls.append(1)
         return [{'spec':requirements.get('_architecture_retry_spec',raw),'image_base64':'rendered',
             'layout_engine':'narrative_drawio','vision_review':{'status':'reviewed','issues':[
-                {'kind':'visual','description':'Remaining visible issue'}]}}]
+                finding('layout', 'Remaining visible issue')]}}]
     service._generate_assets_once=generate
     result=service._generate_assets_bounded({}, {}, '')
     assert len(calls)==3 and result[0]['image_base64']

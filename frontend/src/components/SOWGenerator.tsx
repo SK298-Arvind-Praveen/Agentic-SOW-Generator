@@ -1674,7 +1674,7 @@ Date                                         Date`
                 <div className="pricing-options-panel" style={{ marginTop: '20px', padding: '18px', border: '1px solid #dbe4f0', borderRadius: '12px', background: '#f8fafc' }}>
                   <h3 style={{ margin: '0 0 6px', fontSize: '16px' }}>AWS Pricing Calculator</h3>
                   <p style={{ margin: '0 0 14px', color: '#64748b', fontSize: '13px' }}>
-                    A calculator estimate is created only from usage values found in the uploaded documents or additional details. Missing sizing inputs remain open for confirmation.
+                    The calculator uses usage values from your documents and estimates missing sizing inputs. Estimated values are marked as approximated in the SOW. Your selected AWS Region takes precedence.
                   </p>
                   <div className="field-group" style={{ marginBottom: '12px' }}>
                     <label htmlFor="pricingRegion" className="field-label">AWS Region</label>
@@ -1701,7 +1701,7 @@ Date                                         Date`
                       checked={formData.pricingIncludeProposed ?? true}
                       onChange={(event) => setFormData(previous => ({ ...previous, pricingIncludeProposed: event.target.checked }))}
                     />
-                    Price architect-recommended AWS services as well as services explicitly named in the source, but only when the source provides their usage sizing
+                    Include architect-recommended AWS services alongside those named in the source, estimating missing usage where needed
                   </label>
                 </div>
               )}
@@ -2064,6 +2064,14 @@ Date                                         Date`
               ) && (
                 <>
                   <h3 className="preview-section-title">Document Sections</h3>
+                  {typeof effectivePreviewContent === 'object' && Array.isArray((effectivePreviewContent as any).generation_quality_warnings) &&
+                    (effectivePreviewContent as any).generation_quality_warnings.length > 0 && (
+                      <div role="alert" className="diagram-warning">
+                        <strong>SOW needs review</strong>
+                        <ul>{(effectivePreviewContent as any).generation_quality_warnings.map((warning: string, index: number) =>
+                          <li key={index}>{warning}</li>)}</ul>
+                      </div>
+                    )}
                   <div className="preview-content-display">
                     {typeof effectivePreviewContent === 'string' ? (
                       <div className="preview-content-section">

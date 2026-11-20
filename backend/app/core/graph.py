@@ -14,6 +14,7 @@ from app.core.nodes import (
     analyze_objective_node,
     rule_validation_node,
     solution_design_node,
+    architecture_node,
     scope_architecture_node,
     aws_pricing_node,
     content_generation_node,
@@ -31,6 +32,7 @@ def create_graph():
     workflow.add_node("analyze", analyze_objective_node)
     workflow.add_node("validate", rule_validation_node)
     workflow.add_node("solution_design", solution_design_node)
+    workflow.add_node("architecture", architecture_node)
     workflow.add_node("scope_architecture", scope_architecture_node)
     workflow.add_node("pricing", aws_pricing_node)
     workflow.add_node("generate", content_generation_node)
@@ -43,7 +45,8 @@ def create_graph():
         {END: END, "validate": "validate"},
     )
     workflow.add_edge("validate", "solution_design")
-    workflow.add_edge("solution_design", "scope_architecture")
+    workflow.add_edge("solution_design", "architecture")
+    workflow.add_edge("architecture", "scope_architecture")
     workflow.add_edge("scope_architecture", "pricing")
     workflow.add_edge("pricing", "generate")
     workflow.add_edge("generate", "build")
@@ -66,6 +69,7 @@ def create_preview_graph():
     workflow.add_node("analyze", analyze_objective_node)
     workflow.add_node("validate", rule_validation_node)
     workflow.add_node("solution_design", solution_design_node)
+    workflow.add_node("architecture", architecture_node)
     workflow.add_node("scope_architecture", scope_architecture_node)
     workflow.add_node("pricing", aws_pricing_node)
     workflow.add_node("generate", content_generation_node)
@@ -77,7 +81,8 @@ def create_preview_graph():
         {END: END, "validate": "validate"},
     )
     workflow.add_edge("validate", "solution_design")
-    workflow.add_edge("solution_design", "scope_architecture")
+    workflow.add_edge("solution_design", "architecture")
+    workflow.add_edge("architecture", "scope_architecture")
     workflow.add_edge("scope_architecture", "pricing")
     workflow.add_edge("pricing", "generate")
     workflow.add_edge("generate", END)  # Stop here, don't build document
@@ -100,6 +105,7 @@ def create_fast_preview_graph():
     workflow.add_node("analyze", analyze_objective_node)
     workflow.add_node("validate", rule_validation_node)
     workflow.add_node("solution_design", solution_design_node)
+    workflow.add_node("architecture", architecture_node)
     workflow.add_node("scope_architecture", scope_architecture_node)
     workflow.add_node("pricing", aws_pricing_node)
     workflow.add_node("generate", content_generation_node)
@@ -111,7 +117,8 @@ def create_fast_preview_graph():
         {END: END, "validate": "validate"},
     )
     workflow.add_edge("validate", "solution_design")
-    workflow.add_edge("solution_design", "scope_architecture")
+    workflow.add_edge("solution_design", "architecture")
+    workflow.add_edge("architecture", "scope_architecture")
     workflow.add_edge("scope_architecture", "pricing")
     workflow.add_edge("pricing", "generate")
     workflow.add_edge("generate", END)

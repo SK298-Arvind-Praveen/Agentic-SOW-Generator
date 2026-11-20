@@ -2,12 +2,24 @@
 import copy
 import json
 import time
+from xml.etree.ElementTree import ParseError
 from contextvars import ContextVar
 
 # Each stage gets an initial call and one corrective call. A shared ledger keeps
 # nested JSON helpers and pipeline resumes from multiplying the allowance.
 pipeline_attempt = ContextVar('architecture_pipeline_attempt', default=0)
 model_attempts = ContextVar('architecture_model_attempts', default=None)
+
+
+def semantic_acceptance(asset):
+    """A candidate can change dependent business content only after image review."""
+    review = asset.get('vision_review') or {}
+    return bool(asset.get('image_base64') and asset.get('spec') and not asset.get('used_fallback')
+        and asset.get('status') not in {'unavailable', 'review_required'}
+        and not asset.get('validation_warnings') and not asset.get('quality_warnings')
+        and review.get('image_reviewed') is True
+        and review.get('status') in {'reviewed', 'passed', 'reviewed_no_issues'}
+        and not review.get('unresolved_architecture') and not review.get('issues'))
 
 
 def structured_retry(call, prompt, validate, *, attempts=3, deadline=None):
@@ -64,6 +76,7 @@ def unavailable_asset(reason):
 
 def publication_issues(asset):
     reasons = []
+    reasons.extend((asset.get('renderer_details') or {}).get('decoration_warnings') or [])
     if not asset.get('image_base64'):
         reasons.append('No rendered image')
     if asset.get('used_fallback'):
@@ -77,7 +90,7 @@ def publication_issues(asset):
     metrics = asset.get('layout_metrics') or {}
     # Crossings, shared tracks, detours and omitted arrow captions are layout
     # diagnostics, not grounds to discard an otherwise valid architecture.
-    # Font size deliberately has no publication threshold.
+    # Physical typography is checked against the exported figure in retry_issues.
     for key in ('node_overlaps', 'out_of_bounds', 'containment_violations'):
         if metrics.get(key, 0):
             reasons.append(f'{key}={metrics[key]}')
@@ -99,6 +112,18 @@ def retry_issues(asset):
     reasons = publication_issues(asset) + asset.get('validation_warnings', [])
     metrics = asset.get('layout_metrics') or {}
     review = asset.get('vision_review') or {}
+    if asset.get('diagram_type') == 'architecture_overview':
+        if (review.get('image_reviewed') is not True
+                or review.get('status') not in {'reviewed', 'passed', 'reviewed_no_issues'}):
+            reasons.append('Image review is incomplete; the available architecture is not verified')
+        if asset.get('image_base64') and asset.get('drawio_xml'):
+            from app.diagram.figure_readability import fit_figure
+            try:
+                size = fit_figure(asset, 8.5, 11)['minimum_type_pt']
+                if size is None or size < 8:
+                    reasons.append(f'Architecture text needs a readable export layout (projected minimum {size} pt)')
+            except (ValueError, TypeError, OSError, ParseError):
+                reasons.append('Architecture export readability could not be verified')
     if metrics.get('connector_node_intersections'):
         reasons.append('Connectors intersect nodes')
     if metrics.get('connector_crossings', 0) > max(3, metrics.get('edges', 0) * .25):
@@ -112,6 +137,9 @@ def retry_issues(asset):
 
 def retain_with_warning(asset):
     """Keep rendered output usable without representing a failed check as a pass."""
+    advisories = [str(i['description']) for i in (asset.get('vision_review') or {}).get('advisories', [])
+                  if isinstance(i, dict) and i.get('description')]
+    if advisories: asset['layout_advisories'] = list(dict.fromkeys(advisories))
     reasons = retry_issues(asset)
     reasons += [str(i.get('description')) for i in (asset.get('vision_review') or {}).get('issues', [])
                 if isinstance(i, dict) and i.get('description')]

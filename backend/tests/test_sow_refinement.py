@@ -142,8 +142,9 @@ class SowRefinementTests(unittest.TestCase):
             def get_next_version(self, *_args):
                 return "v4"
 
-        def capture(preview_id, state, _fast, on_complete=None):
+        def capture(preview_id, state, _fast, on_complete=None, on_cancel=None):
             self.assertTrue(callable(on_complete))
+            self.assertTrue(callable(on_cancel))
             captured["preview_id"] = preview_id
             captured["state"] = state
 

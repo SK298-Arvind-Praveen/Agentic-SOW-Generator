@@ -356,6 +356,11 @@ have several cards; do not turn every requirement into a card.
     plan=structured_retry(lambda p: planner.generate(p,task='diagram',max_tokens=32768,temperature=0.05,
         call_name='Conceptual Hybrid Plan',retry_on_truncation=False).text,prompt,
         lambda value:validate_design_detail(value,selected),attempts=planning_attempts)
+    identity = requirements.get('_document_identity') or {}
+    document_title = ': '.join(str(identity.get(key) or '').strip()
+                               for key in ('company_name', 'project_title') if identity.get(key))
+    if document_title:
+        plan['title'] = document_title
     xml = xml_for(plan, config)
     try:
         png, xml, details = render_drawio(xml)

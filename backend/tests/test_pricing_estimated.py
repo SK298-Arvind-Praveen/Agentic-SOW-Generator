@@ -72,7 +72,7 @@ def test_compact_table_omits_service_inventory_and_minor_inputs():
             {'metric':'request rate','value':'50 requests/second','status':'Approximated'},
             {'metric':'database tables','value':'30'},{'metric':'cost consumption ceiling','value':'USD 3000'}]}
     text=render_aws_pricing_section(result)
-    assert '100 GB' in text and '50 requests/second (Approximated)' in text
+    assert '100 GB' in text and '50 requests/second (Approx.)' in text
     assert 'AWS KMS' not in text and 'Key count' not in text and 'database tables' not in text
     assert 'Service | Sizing input' not in text and 'USD 3000' not in text
 
@@ -88,7 +88,7 @@ def test_website_region_wins_and_calculator_build_gets_one_repair():
     assert len(client.builds)==2 and client.builds[1][0]['config']['monthlyRequests']==20000
     text=render_aws_pricing_section(result)
     assert text.startswith('AWS Pricing Calculator: [Open Link](https://calculator.aws/#/estimate?id=test123)\n\n|')
-    assert 'Approximated' in text and '20000 requests' in text and '12.50' in text
+    assert '(Approx.)' in text and '20000 requests' in text and '12.50' in text
 
 
 def test_no_charge_controls_are_accounted_for_without_fake_paid_inputs():
@@ -155,6 +155,63 @@ def test_json_response_tolerates_trailing_model_wrapper_without_losing_fields():
     assert _json_object('```json\n{"config":{"a":1},"sizing":[]}}\n```')=={'config':{'a':1},'sizing':[]}
 
 
+def test_generic_rds_retains_selected_postgresql_product_not_backup():
+    class Catalog(Client):
+        def call(self,tool,args):
+            if tool=='search_services':
+                return [{'key':'amazonRdsBackup','name':'RDS'},
+                        {'key':'amazonRDSPostgreSQLDB','name':'Amazon RDS for PostgreSQL'}]
+            return super().call(tool,args)
+    owner=AwsPricingService(SimpleNamespace(),llm=LLM(mapped()))
+    entry,missing=owner._prepare_service(Catalog(),{'service_name':'Amazon RDS','_estimate_missing':True,
+        '_sizing_context':'Selected database: RDS PostgreSQL Multi-AZ, 100 GB, seven-day backup retention.'},'ap-south-1')
+    assert not missing and entry['service']=='amazonRDSPostgreSQLDB'
+
+
+def test_source_engine_cannot_override_selected_database_engine():
+    owner=AwsPricingService(SimpleNamespace(),llm=LLM(mapped()))
+    entry,missing=owner._prepare_service(Client(),{'service_name':'Amazon RDS','_estimate_missing':True,
+        'usage_facts':{'engine':'MySQL'},'evidence_quote':'Target engine: MySQL',
+        '_sizing_context':'Migrate existing PostgreSQL warehouse into selected Amazon RDS MySQL target.'},'ap-south-1')
+    assert not missing and entry['service']=='amazonRDSMySQLDB'
+
+
+def test_scheduler_uses_eventbridge_product_contract():
+    class Catalog(Client):
+        def call(self,tool,args):
+            if tool=='search_services':return []
+            return super().call(tool,args)
+    owner=AwsPricingService(SimpleNamespace(),llm=LLM(mapped()))
+    entry,missing=owner._prepare_service(Catalog(),{'service_name':'Amazon EventBridge Scheduler',
+        '_estimate_missing':True},'ap-south-1')
+    assert not missing and entry['service']=='amazonEventBridge'
+
+
+def test_internet_gateway_is_accounted_for_without_an_invented_paid_product():
+    owner=AwsPricingService(SimpleNamespace(),llm=LLM())
+    plan={'service_name':'Amazon VPC Internet Gateway','_estimate_missing':True}
+    entry,missing=owner._prepare_service(Client(),plan,'ap-south-1')
+    assert entry is None and not missing and plan['_no_direct_charge']
+
+
+def test_endpoint_pricing_preserves_selected_interface_and_gateway_kinds():
+    requirements={'aws_services':['Amazon VPC Endpoints'],'approved_architecture':{'nodes':[
+        {'id':'interface','label':'Interface Endpoints','scope':'vpc',
+         'icon_key':'aws.resource.networking-content-delivery.amazon-vpc-endpoints'},
+        {'id':'s3','label':'S3 Gateway Endpoint','scope':'vpc',
+         'icon_key':'aws.resource.networking-content-delivery.amazon-vpc-endpoints'}]}}
+    names=AwsPricingService._candidate_services(requirements,{})
+    assert 'AWS PrivateLink' in names and 'Amazon VPC Endpoints' not in names
+    assert 'Gateway Endpoint' in ' '.join(names)
+
+
+def test_external_customer_endpoints_are_not_billed_as_new_deployments():
+    req={'aws_services':['Amazon VPC Endpoints'],'approved_architecture':{'nodes':[
+        {'id':'gateway','label':'S3 Gateway Endpoint','scope':'vpc'},
+        {'id':'external','label':'Existing customer interface endpoint','scope':'external'}]}}
+    assert AwsPricingService._candidate_services(req,{})==['Amazon VPC Gateway Endpoint']
+
+
 def test_word_export_keeps_saved_link_before_tables_and_renders_approximation():
     from docx import Document
     from docx.oxml.ns import qn
@@ -170,7 +227,7 @@ def test_word_export_keeps_saved_link_before_tables_and_renders_approximation():
     assert children.index(paragraph)<next(i for i,x in enumerate(children) if x.tag==qn('w:tbl'))
     assert any(r.target_ref==result['estimate_url'] for r in doc.part.rels.values())
     assert all(cell.text.strip() for table in doc.tables for row in table.rows for cell in row.cells)
-    assert any('Approximated' in cell.text for table in doc.tables for row in table.rows for cell in row.cells)
+    assert any('(Approx.)' in cell.text for table in doc.tables for row in table.rows for cell in row.cells)
     sizing_widths=SectionBuilder._column_widths([['Service','Sizing input','Value','Basis'],
         ['Amazon CloudWatch','Logs','5 GB','Approximated: POC usage']])
     assert sizing_widths[0] >= sum(sizing_widths)*0.20

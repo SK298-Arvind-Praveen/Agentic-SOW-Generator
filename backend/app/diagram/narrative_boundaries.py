@@ -20,10 +20,11 @@ def enabled(spec):
 
 def controls(spec):
     from app.diagram.narrative import support_ids
+    from app.diagram.aws_icons import is_reporting_service
     result = support_ids(spec) | {n.id for n in spec.nodes if n.scope != 'external' and
             (n.placement_role in {'security', 'operations'} or 'auto-scaling' in n.icon_key
              or 'elastic-container-registry' in n.icon_key)
-            and 'cognito' not in n.icon_key}
+            and 'cognito' not in n.icon_key and not is_reporting_service(n)}
     # Audit sinks belong with their control producer, not in the customer path.
     for n in spec.nodes:
         peers={e.source if e.target==n.id else e.target for e in spec.edges if n.id in (e.source,e.target)}
@@ -216,8 +217,19 @@ def overview_xml(spec, registry):
         boxes={k:(x*.75,y,w*.75,h+(20 if k=='regional_controls' else 0)) for k,(x,y,w,h) in boxes.items()}
         width=math.ceil(width*.75)
     captions={k:boundary_header(kinds[k])[0] or v for k,v in captions.items()}
+    from app.diagram.figure_readability import overview_type_size, display_name, wrap_text, caption_geometry
+    label_size = overview_type_size(width, height)
+    node_labels = {n.id: wrap_text(display_name(n), pos[n.id][2]-4, label_size, bold=True) for n in spec.nodes}
+    if iconic:
+        pos, boxes, height, label_size, node_labels = caption_geometry(spec, pos, boxes, parents, captions, width, height)
+    from app.diagram.figure_readability import boundary_header_sizes
+    badges = {key: boundary_header(kinds[key], registry)[1] for key in boxes}
+    header_sizes = boundary_header_sizes(boxes, captions, label_size, {k for k,v in badges.items() if v})
     support = controls(spec)
     links, indices = projection(spec)
+    from app.diagram.projection import select_links, merge_reciprocal_links
+    links = merge_reciprocal_links(select_links(spec, links))
+    indices = sorted({i for link in links for path in link['paths'] for i in path})
     visible = tuple(link['edge'] for link in links)
     view = replace(spec, edges=visible)
     owners=workload_owners(spec)
@@ -239,14 +251,22 @@ def overview_xml(spec, registry):
     repair=bool(spec.architecture_plan.get('routing_repair')) and tiered_enabled(spec) and not iconic
     if mixed:
         from app.diagram.mixed_deployment import routes as mixed_routes
-        paths=mixed_routes(view,pos,boxes,parents,width,height,deadline,captions,links)
+        paths=mixed_routes(view,pos,boxes,parents,width,height,deadline,captions,links,header_sizes=header_sizes)
     elif repair:
         from app.diagram.routing_repair import routes as repair_routes
-        paths=repair_routes(view,pos,boxes,parents,width,height,deadline,captions)
+        paths=repair_routes(view,pos,boxes,parents,width,height,deadline,captions,header_sizes=header_sizes)
     else:
-        paths = local_routes(view,routing_pos,routing_boxes,routing_parents,width,height,deadline,captions,iconic or not tiered,True,16 if iconic else 32,tiered)
+        node_map={n.id:n for n in spec.nodes}
+        terminal_sides={}
+        if iconic:
+            for edge in visible:
+                a,b=node_map.get(edge.source),node_map.get(edge.target)
+                if a and b and a.placement_role=='entry' and b.placement_role=='compute':
+                    ax,_,aw,_=pos[a.id];bx,_,bw,_=pos[b.id]
+                    terminal_sides[(a.id,b.id)]={a.id:{'left' if bx+bw/2<ax+aw/2 else 'right'}}
+        paths = local_routes(view,routing_pos,routing_boxes,routing_parents,width,height,deadline,captions,iconic or not tiered,not iconic,16 if iconic else 32,tiered,terminal_sides=terminal_sides,header_sizes=header_sizes)
     def score(p, positions=None):
-        positions=positions or pos;m=geometry_report(view,positions,p)
+        positions=positions or pos;m=geometry_report(view,positions,p,iconic=iconic or not tiered)
         story_cost=0
         if tiered:
             nm={n.id:n for n in spec.nodes}
@@ -283,8 +303,8 @@ def overview_xml(spec, registry):
         candidate_geometry=cp,cb,cpar,cw,ch,cc,cs
         try:
             rp,rb,rpar=route_geometry(cp,cb,cpar)
-            trial = local_routes(view,rp,rb,rpar,cw,ch,deadline,cc,not tiered,True,32,tiered)
-            report = geometry_report(view,cp,trial)
+            trial = local_routes(view,rp,rb,rpar,cw,ch,deadline,cc,not tiered,True,32,tiered,header_sizes=header_sizes)
+            report = geometry_report(view,cp,trial,iconic=iconic or not tiered)
             trial_score = score(trial,cp)
             if trial_score < best_score:
                 pos,boxes,parents,width,height,captions,kinds = candidate_geometry
@@ -302,16 +322,17 @@ def overview_xml(spec, registry):
         return 3
     for order in [sorted(range(len(visible)),key=runtime_priority),list(reversed(range(len(visible)))), sorted(range(len(visible)),key=lambda i:
                   abs(routing_pos[visible[i].source][0]-routing_pos[visible[i].target][0])+abs(routing_pos[visible[i].source][1]-routing_pos[visible[i].target][1]))]:
-        if mixed or repair or iconic or time.monotonic()>deadline:
+        if mixed or repair or time.monotonic()>deadline:
             break
         try:
-            candidate = local_routes(replace(view,edges=tuple(visible[i] for i in order)),routing_pos,routing_boxes,routing_parents,width,height,deadline,captions,not tiered,True,32,tiered)
+            candidate = local_routes(replace(view,edges=tuple(visible[i] for i in order)),routing_pos,routing_boxes,routing_parents,width,height,deadline,captions,
+                iconic or not tiered, not iconic, 16 if iconic else 32, tiered, terminal_sides=terminal_sides,header_sizes=header_sizes)
             restored = [None]*len(order)
             for i,p in zip(order,candidate): restored[i] = p
             if score(restored)<score(paths): paths = restored
         except (ValueError,TimeoutError):
             pass
-    metrics = {**geometry_report(view,pos,paths), 'nodes':len(spec.nodes), 'containment_violations':0,
+    metrics = {**geometry_report(view,pos,paths,iconic=iconic or not tiered), 'nodes':len(spec.nodes), 'containment_violations':0,
                'out_of_bounds':sum(x<0 or y<0 or x>width or y>height for path in paths for x,y in path),
                'physical_boundaries':True, 'original_edges':len(spec.edges),
                'visible_edge_indices':indices, 'shared_associations':len(spec.edges)-len(indices)}
@@ -325,7 +346,7 @@ def overview_xml(spec, registry):
         raise ValueError('Physical narrative has obstructed routes: '+json.dumps(metrics))
     file = ET.Element('mxfile',host='app.diagrams.net')
     page = ET.SubElement(file,'diagram',id='overview',name='Solution overview')
-    model = ET.SubElement(page,'mxGraphModel',page='1',pageWidth=str(width),pageHeight=str(height),
+    model = ET.SubElement(page,'mxGraphModel',page='1',pageWidth=str(width),pageHeight=str(height),minimumFontSize=str(label_size),
                           renderedMembership=json.dumps(parents),edgeCoverage=json.dumps(indices))
     if mixed:
         model.set('audienceGroups', json.dumps(metrics['audience_groups']))
@@ -346,12 +367,12 @@ def overview_xml(spec, registry):
     for key in sorted(boxes,key=depth):
         rect=boxes[key]
         color,fill,dash=palette[kinds[key]]
-        _,badge=boundary_header(kinds[key],registry)
+        badge=badges[key]
         # ElementTree escapes the XML attribute; these are plain-text labels,
         # so HTML-escaping as well would display literal '&amp;' in draw.io.
         cell(key,captions[key],rect,
              f'rounded=0;whiteSpace=wrap;fillColor={fill};strokeColor={color};dashed={dash};strokeWidth=1.5;'
-             f'fontColor={"#12325A" if kinds[key]=="functional" else color};fontSize=16;fontStyle=1;align=left;verticalAlign=top;spacing=10;spacingLeft={44 if badge else 10};',
+             f'fontColor={"#12325A" if kinds[key]=="functional" else color};fontSize={label_size};fontStyle=1;align=left;verticalAlign=top;spacing=8;spacingLeft={44 if badge else 8};',
              parents[key] if parents[key]!='root' else '1')
         if badge:
             x,y,_,_=rect
@@ -361,7 +382,7 @@ def overview_xml(spec, registry):
     for n in spec.nodes:
         x,y,w,h=pos[n.id]; parent=parents[n.id] if parents[n.id]!='root' else '1'
         small=h<=100; size=64 if iconic else 42 if small else 58
-        name=re.sub(r'^(Amazon|AWS)\s+','',n.label)
+        name=display_name(n)
         uri=registry.svg_data_uri(n.icon_key) if n.icon_key else None
         if tiered and not iconic:
             cell(n.id,'',(x,y,w,h),'rounded=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#CBD5E1;',parent)
@@ -376,12 +397,12 @@ def overview_xml(spec, registry):
              'rounded=1;fillColor=#F8FAFC;strokeColor=#64748B;',parent)
         if uri:
             cell('icon_'+n.id,'',(x+(w-size)/2,y,size,size),'shape=image;imageAspect=1;image='+uri.replace(';base64,',',')+';',parent)
-        label='<b>'+html.escape(name)+'</b>'
+        label=f'<div style="line-height:1.2;font-size:{label_size}px"><b>'+'<br/>'.join(html.escape(line) for line in node_labels[n.id])+'</b></div>'
         role=roles.get(n.id,'')
         if role and not small and not iconic: label+='<br/><font color="#64748B">'+html.escape(role)+'</font>'
-        cell('label_'+n.id,label,(x-8,y+size+5,w+16,h-size-5) if uri else (x+5,y+8,w-10,h-16),
+        cell('label_'+n.id,label,(x,y+size+5,w,h-size-5) if uri else (x+5,y+8,w-10,h-16),
              'text;html=1;whiteSpace=wrap;align=center;verticalAlign='+('top' if uri else 'middle')+
-             ';fontSize=15;fontFamily=Helvetica;fillColor=none;strokeColor=none;',parent)
+             f';fontSize={label_size};fontFamily=Helvetica;spacing=0;fillColor=none;strokeColor=none;',parent)
     caption_boxes = []
     def caption_rect(path, label):
         from app.diagram.review import hits_box

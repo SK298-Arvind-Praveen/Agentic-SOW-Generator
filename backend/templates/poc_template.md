@@ -7,7 +7,7 @@ If the answer is none, remove it. A true fact is not automatically relevant to t
 Merge points describing the same action or boundary, retaining distinct obligations and exceptions.
 Use familiar verbs: build, connect, check, store, test, hand over. Avoid 'enterprise-grade', 'comprehensive', 'robust', 'posture', 'governance baseline' and repeated 'evidenced by'.
 Use one short sentence per bullet. Never prefix a bullet with a bold summary label and colon; write the sentence directly.
-In every generated narrative bullet, use one meaningful inline **bold** phrase, usually 1-2 words, highlighting the key action, outcome or delivery condition, not just a product name. Never bold whole sentences or add label-and-colon prefixes. Keep About Client as two factual paragraphs with sparse emphasis; leave static/legal content unchanged. Tables do not need bold in every cell.
+In every generated narrative bullet, use one meaningful inline **bold** phrase, usually 1-2 words, highlighting the key action, outcome or delivery condition, not just a product name. Never bold whole sentences or add label-and-colon prefixes. Keep About Client as one factual paragraph of 3-4 sentences (approximately 60-85 words, comparable in length to About Shellkode) with sparse emphasis; leave static/legal content unchanged. Tables do not need bold in every cell.
 Write at agreement level, not test-plan or operational-runbook level. Combine related actions and approvals, keep each fact in its primary section, and omit implementation microsteps unless they change acceptance or scope.
 Do not shorten prose by dropping qualifiers, negation, units, thresholds, human review or phase boundaries.
 Tables are for values people compare (pricing, staffing, schedule, contacts); narrative commitments use bullets.
@@ -76,7 +76,7 @@ ShellKode is a cloud-native company with a global presence, delivering services 
 [META_GENERATED]
 ## About {COMPANY_NAME}
 
-Write exactly two short factual paragraphs about {COMPANY_NAME}: its identity, products and established operations. No bullets, subsection headings or tables. Keep only confirmed company facts; never add project requirements, engagement commentary, invented scale or generic praise. Never pad sparse evidence to fill two paragraphs.
+Write exactly one short factual paragraph of 3-4 sentences (approximately 60-85 words, comparable in length to About Shellkode) about {COMPANY_NAME}: its identity, products and established operations. No bullets, subsection headings or tables. Keep only confirmed company facts; never add project requirements, engagement commentary, invented scale or generic praise. Never pad sparse evidence to reach a sentence count.
 
 [META_GENERATED]
 ## Objective
@@ -131,7 +131,7 @@ Follow the user-selected timeline_format; default to table. Output only the sele
 
 TABLE FORMAT: One milestone table: Timeframe | Milestone | Outcome. Group related activities. Preserve input dates/durations and leave unsupported timing blank. No additional prose.
 
-GANTT FORMAT: One grid: S.No | Activity | W1 ... Wn (weeks) or M1 ... Mn (months), using only the input schedule's horizon and unit. Concise phase/activity rows; ■ for active delivery cells (light green), ◆ for explicitly included hypercare/support (blue), blank inactive cells. Grey headers. Preserve source-supported overlaps, not invented allocation. Never copy the example's activities or eight-month duration. If timing is unsupported, leave cells blank; without a horizon use a blank Timeframe column. No legend, second table or prose.
+GANTT FORMAT: One grid: S.No | Activity | W1 ... Wn (weeks) or M1 ... Mn (months), using only the input schedule's horizon and unit. Concise phase/activity rows; ■ for active delivery cells (light green), ◆ for explicitly included hypercare/support (blue), blank inactive cells. Grey headers. Preserve source-supported overlaps, not invented allocation. Never copy the example's activities or eight-month duration. If timing is unsupported, leave cells blank; without a horizon use a blank Timeframe column. No legend or second table. Preserve source-backed contractual phases without numbered timing as brief activity-linked notes below the grid; never invent week allocations for those notes.
 
 [META_GENERATED]
 ## Success Criteria

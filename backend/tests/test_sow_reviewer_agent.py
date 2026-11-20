@@ -7,6 +7,26 @@ import pytest
 from app.agents.sow_reviewer_agent import SOWReviewerAgent, apply_corrections
 
 
+def test_sow_review_allows_large_corrections_and_retries_transient_transport_once(monkeypatch):
+    from botocore.exceptions import ReadTimeoutError
+    import app.agents.sow_reviewer_agent as module
+    calls=[]; configs=[]
+    class Client:
+        def close(self): pass
+    def client(*a,**kw): configs.append(kw['config']); return Client()
+    def generate(self,*a,**kw):
+        calls.append(kw)
+        if len(calls)==1: raise ReadTimeoutError(endpoint_url='https://bedrock-runtime.us-east-1.amazonaws.com')
+        return SimpleNamespace(text='{"corrections":[]}')
+    monkeypatch.setattr(module.boto3,'client',client)
+    monkeypatch.setattr(module.BedrockLLM,'_generate_once',generate)
+    monkeypatch.setattr(module.time,'sleep',lambda _:None)
+    reviewer=SOWReviewerAgent(SimpleNamespace(BEDROCK_REGION='us-east-1',FAST_MODEL_ID='test'))
+    assert reviewer._invoke('review source')=='{"corrections":[]}'
+    assert len(calls)==2 and configs[0].read_timeout>=90
+    assert calls[1]['max_tokens']>=16384
+
+
 def test_assumptions_and_exclusions_share_review_with_scope_evidence():
     original = {
         'work': '- Deliver a **unified platform** for both brands.',

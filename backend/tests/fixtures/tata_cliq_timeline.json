@@ -1,0 +1,55 @@
+{
+  "authored": "| S.No | Activity | W1 | W2 | W3 | W4 | W5 | W6 | W7 | W8 |\n|---|---|---|---|---|---|---|---|---|---|\n| 1 | Solution design and architecture review | ■ | ■ |   |   |   |   |   |   |\n| 2 | Enterprise integration discovery and API documentation | ■ | ■ | ■ |   |   |   |   |   |\n| 3 | Admin console and bot copy editor development |   | ■ | ■ | ■ |   |   |   |   |\n| 4 | Agentic chatbot engine with NLU and Bedrock tooling |   | ■ | ■ | ■ | ■ |   |   |   |\n| 5 | Omnichannel integration (App, Web, WhatsApp) |   |   | ■ | ■ | ■ | ■ |   |   |\n| 6 | Knowledge base ingestion and retrieval setup |   |   | ■ | ■ | ■ |   |   |   |\n| 7 | Bot-to-agent handover and Agent Assist implementation |   |   |   | ■ | ■ | ■ |   |   |\n| 8 | Analytics, dashboards and reporting pipelines |   |   |   | ■ | ■ | ■ |   |   |\n| 9 | Functional, integration and security testing | | | | | ■ | ■ | ■ |   |\n| 10 | UAT, performance validation and go-live readiness |   |   |   |   |   | ■ | ■ |   |\n| 11 | Production deployment and go-live |   |   |   |   |   |   | ■ |   |\n| 12 | Hypercare support and stabilisation | ◆ | ◆ |   |   |   |   |   |   |\n| 13 | Knowledge transfer and training delivery | ◆ |   |   |   |   |   |   |   |\n| 14 | Handover and operational readiness documentation | ◆ |   |   |   |   |   |   |   |",
+  "reviewed": "| S.No | Activity | Timeframe |\n| --- | --- | --- |\n| 1 | Solution design and architecture | |\n| 2 | Platform build and integrations | |\n| 3 | Technical testing | |\n| 4 | Training and operational readiness | |\n| 5 | Business acceptance and launch approval | |\n| 6 | Production deployment | |\n| 7 | Go-live support and stabilisation | |\n| 8 | Contract support and continuous improvement | |\n| 9 | Exit export and knowledge transfer | |",
+  "requirements": {
+    "key_features": [
+      "AI/Agentic chatbot with NLU, multi-step reasoning and autonomous resolution",
+      "Drag-and-drop interface for clients to update bot copies/messages",
+      "Omnichannel support across Mobile App, Web and WhatsApp with shared context",
+      "Customer authentication/verification via existing OTP services",
+      "Transactional self-service journeys",
+      "Knowledge management integration",
+      "Live agent chat, rule-based Bot-to-Agent handover and conversation context transfer",
+      "Agent Assist: conversation summary, recommended responses, knowledge suggestions, next-best actions, case wrap-up summaries, AI-generated replies, conversation catch-up, case classification, sentiment analysis",
+      "Smart replies and macros using generative AI",
+      "Multi-language support (English plus applicable Indian/regional languages)",
+      "Personalization and recommendations",
+      "Proactive engagement driven by business events and triggers",
+      "Configurable escalation management",
+      "Dashboards, scheduled reports, alerts, conversation analytics and AI performance monitoring",
+      "Survey triggered for every conversation, with closed-loop automatic case creation on negative feedback",
+      "Searchable conversation history and audit logs"
+    ],
+    "integration_details": [
+      "iOS/Android mobile apps - SDK, APIs, WebView or recommended mechanism",
+      "E-commerce website - web SDK, JavaScript, APIs or embeddable components; responsive desktop and mobile web",
+      "WhatsApp Business Platform/API - support, authentication, notifications, transactional journeys; BSP unknown",
+      "SAP Hybris Commerce/OMS - API type (REST/SOAP/OData) and version unknown",
+      "Existing CRM/customer-support platform - bot-to-agent handover, history transfer, case creation",
+      "Existing authentication/OTP services - customer identification",
+      "SSO for agents/admins/all users",
+      "Payment, Returns/Refunds, Loyalty, Catalogue, Customer Profile APIs",
+      "Mixpanel and Datalake - analytics/event integration",
+      "SMS, WhatsApp, Push Notification and Email services",
+      "Enterprise API gateway",
+      "Amazon Redshift - order data backup",
+      "Genesys - telephony/IVR (voice is out of current scope)"
+    ],
+    "compliance_requirements": [],
+    "ui_required": true,
+    "aws_services": [
+      "Amazon Redshift (existing data warehouse with order data backup)",
+      "Amazon Bedrock - LLM inference for agentic chatbot, Agent Assist and handover summarization (proposed; referenced in vendor sizing Q&A)",
+      "Amazon Bedrock Knowledge Bases - RAG over FAQs/knowledge articles (proposed)",
+      "Amazon API Gateway - secure APIs/webhooks for channel and backend integration (proposed)",
+      "AWS Lambda - orchestration of backend API calls to SAP Hybris and other systems (proposed)",
+      "Amazon DynamoDB - session/conversation context store (proposed)",
+      "Amazon S3 - conversation history archive and data lake export (proposed)",
+      "Amazon CloudWatch - platform monitoring and alerting (proposed)"
+    ],
+    "data_volume_gb": null,
+    "concurrent_users": null,
+    "timeline": "RFQ issued 12 Aug 2026; submissions due 17 Aug 2026; contract period 1 year with optional 2-year and 3-year pricing",
+    "duration_weeks": null
+  }
+}

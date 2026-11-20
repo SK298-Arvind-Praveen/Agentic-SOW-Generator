@@ -264,6 +264,9 @@ def unlisted_dependencies(design):
             return value
         clauses = []
         for clause in re.split(r'[.;!?\n]', value):
+            # Remove only a conditional, client-owned alternative. Other
+            # dependencies in the same sentence (IAM, CloudTrail) still count.
+            clause = re.sub(r'\bor\s+(?:an?\s+)?existing\s+[^,;]+?\s+if\s+[^,;]+', '', clause, flags=re.I)
             # A stated decision about reusing an EXISTING console service is not
             # a proposal to provision it. Do not force it into the chosen stack.
             if (re.search(r'\breuse\b.*\bexisting\b', clause, re.I)
@@ -276,9 +279,26 @@ def unlisted_dependencies(design):
     text = _positive_text(selected_text([c.get('implementation', '') for c in design['capabilities']]
                           + [design['workflows']]))
     matches = [(m.start(),m.end(),key,name) for key,name,pattern in names for m in pattern.finditer(text)]
+    optional_existing = [(start,end) for start,end,_,_ in matches
+        if re.search(r'\bexisting\s*$', text[:start], re.I)
+        and re.match(r'(?:\s+(?:domain|cluster|instance|deployment|tenant|installation))?\s+'
+                     r'(?:can|may|could)\s+be\s+reused\s+if\b', text[end:], re.I)]
+    # A selected named resource can contain its parent product's spelling.
+    # Scheduler does not require an additional EventBridge event bus. Match the
+    # complete selected resource phrase while retaining standalone dependencies.
+    for key in selected:
+        if key.startswith('aws.service.'):
+            continue
+        item=registry.by_key.get(key,{})
+        label=item.get('label','')
+        if label:
+            short=re.sub(r'^(?:Amazon|AWS)\s+','',label)
+            pattern=re.compile(r'\b(?:'+ '|'.join(map(re.escape,(label,short)))+r')\b',re.I)
+            matches.extend((m.start(),m.end(),key,label) for m in pattern.finditer(text))
     # 'IAM' inside 'IAM Identity Center' is not a second dependency. Preserve
     # standalone IAM occurrences elsewhere, including execution-role references.
-    return sorted({name for start,end,key,name in matches if key not in selected and not any(
+    return sorted({name for start,end,key,name in matches if key not in selected
+        and not any(a <= start and end <= b for a,b in optional_existing) and not any(
         other_start <= start and end <= other_end and other_end-other_start > end-start
         for other_start,other_end,_,_ in matches)})
 
@@ -371,7 +391,9 @@ def validate_diagram_coverage(spec, design, registry):
             family_resource = bool(expected and expected.key.startswith('aws.service.')
                 and node.icon_key.startswith('aws.resource.') and node.icon_key in registry.by_key
                 and node.icon_key.rsplit('.',1)[-1].startswith(expected.key.rsplit('.',1)[-1]+'-'))
-            if node.scope == 'external' or (expected and node.icon_key != expected.key and not elb_resource and not family_resource):
+            existing = (service.get('deployment') == 'existing_external' or
+                (service.get('status') == 'confirmed' and re.search(r'\bexisting\b', str(service.get('purpose','')), re.I)))
+            if (node.scope == 'external' and not existing) or (expected and node.icon_key != expected.key and not elb_resource and not family_resource):
                 errors.append(f"{service['name']} mapped to unrelated node {nid} ({node.label})")
             elif not expected and re.sub(r'^(?:amazon|aws)\s+', '', service['name'].strip(), flags=re.I).casefold() != re.sub(r'^(?:amazon|aws)\s+', '', node.label.strip(), flags=re.I).casefold():
                 errors.append(f"{service['name']} needs an accurately named node")
@@ -405,55 +427,9 @@ def validate_diagram_coverage(spec, design, registry):
 
 
 def consolidate_overview_handlers(raw):
-    """Aggregate Lambda presentation only; retain original functions in metadata."""
-    if not (raw.get('architecture_plan') or {}).get('service_mapping'):
-        return raw  # Old saved diagrams retain their existing abstraction.
-    raw = copy.deepcopy(raw)
-    groups, aliases, original = {}, {}, []
-    for node in raw.get('nodes', []):
-        if (node.get('scope') == 'external' or not (
-                node.get('icon_key') == 'aws.service.compute.aws-lambda'
-                or re.search(r'\blambda\b', node.get('label', ''), re.I))):
-            continue
-        boundary = tuple(node.get(k, '') for k in ('account', 'region', 'vpc', 'subnet', 'availability_zone'))
-        groups.setdefault(boundary, []).append(node)
-    for peers in groups.values():
-        if len(peers) < 2:
-            continue
-        first = peers[0]
-        original.extend(copy.deepcopy(peers))
-        first.update(label='AWS Lambda', flow_id='')
-        aliases.update({n['id']: first['id'] for n in peers})
-    if not aliases:
-        return raw
-    raw['nodes'] = [n for n in raw['nodes'] if n['id'] not in aliases or aliases[n['id']] == n['id']]
-    original_edges = copy.deepcopy(raw.get('edges', []))
-    edges, seen = [], set()
-    for edge in raw.get('edges', []):
-        edge['source'] = aliases.get(edge['source'], edge['source'])
-        edge['target'] = aliases.get(edge['target'], edge['target'])
-        key = (edge['source'], edge['target'], edge.get('label', ''))
-        if edge['source'] != edge['target'] and key not in seen:
-            edges.append(edge)
-            seen.add(key)
-    raw['edges'] = edges
-    plan = raw['architecture_plan']
-    flows = []
-    for flow in plan.get('flows', []):
-        paths = []
-        for path in flow.get('paths', []):
-            compact = []
-            for node_id in path:
-                node_id = aliases.get(node_id, node_id)
-                if not compact or compact[-1] != node_id:
-                    compact.append(node_id)
-            if len(compact) > 1 and compact not in paths:
-                paths.append(compact)
-        if paths or flow.get('kind') == 'control':
-            flow['paths'] = paths
-            flows.append(flow)
-    plan['flows'] = flows
-    for mapping in plan['service_mapping']:
-        mapping['node_ids'] = list(dict.fromkeys(aliases.get(n, n) for n in mapping.get('node_ids', [])))
-    plan['lambda_implementation_details'] = {'functions': original, 'connections': original_edges}
-    return raw
+    """Retain canonical functions; functional overview groups own aggregation.
+
+    A handler-to-handler operation remains a genuine relationship even when the
+    functions share a deployment boundary. Never remap their canonical IDs.
+    """
+    return copy.deepcopy(raw)

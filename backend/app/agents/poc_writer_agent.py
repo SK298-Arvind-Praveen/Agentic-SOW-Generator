@@ -14,6 +14,25 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import boto3
 
+
+def recover_missing_sections(output, missing, repair):
+    """One targeted repair per missing section; preserve the rest of the SOW."""
+    warnings=[]
+    for key in missing:
+        label=key.replace('_',' ').capitalize()
+        try:
+            content=repair(key)
+            if isinstance(content,str) and content.strip():
+                output[key]=content
+                warnings.append(f'{label} was regenerated after the content review left it empty. Review this section before finalizing.')
+                continue
+            reason='the repair returned no usable content'
+        except Exception as exc:
+            print(f'[SOW][QUALITY-REPAIR] {key}: {type(exc).__name__}: {exc}',flush=True)
+            reason='the targeted repair did not complete'
+        warnings.append(f'{label} remains empty because {reason}. The rest of the SOW is preserved; add or regenerate this section before finalizing.')
+    return warnings
+
 from app.core.bedrock_llm import BedrockLLM
 from app.core.section_formats import presentation_contract
 from app.core.document_context import select_section_evidence
@@ -310,6 +329,7 @@ class POCWriterAgent:
         phase_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         mode = self.template_type
+        self._region_repairs = {}
         selected_preferences = parse_selected_section_ids(selected_sow_sections, mode)
         selected_set = set(selected_preferences)
         req = normalize_requirements(requirements, requirements.get("_original_objective", metadata.get("objective", "")), mode)
@@ -413,7 +433,7 @@ class POCWriterAgent:
             if not cleaned.strip():
                 if self._section_category(section) == "about_client":
                     cleaned = self._about_company_fallback(metadata)
-            if not cleaned.strip() and self._section_category(section) != 'success_criteria':
+            if not cleaned.strip() and self._section_category(section) not in {'success_criteria', 'about_client'}:
                 raise RuntimeError(
                     f"{resolved_section_name} returned no usable content; generation halted"
                 )
@@ -484,7 +504,15 @@ class POCWriterAgent:
         if phase_callback:
             phase_callback('Checking and correcting SOW consistency')
         editorial_omissions = self._review_document_relevance(output, active_sections, metadata)
-        from app.core.section_formats import sequence_gantt_markdown
+        from app.core.section_formats import (
+            finalize_gantt_markdown, has_gantt_allocation, has_complete_gantt_allocation,
+            retain_gantt_context, sequence_gantt_markdown,
+        )
+        allocation_check = (has_complete_gantt_allocation
+                            if req.get('planning_duration_weeks') and not req.get('duration_weeks')
+                            else has_gantt_allocation)
+        gantt_key = None
+        unallocated_gantt = None
         for section in active_sections:
             if self._section_category(section) == 'project_team_effort':
                 key = self._section_key(section.name, metadata)
@@ -492,21 +520,58 @@ class POCWriterAgent:
                     output[key] = self._clean_content(output[key], section.name)
             if self._section_category(section) == 'timelines_deliverables':
                 key = self._section_key(section.name, metadata)
-                if isinstance(output.get(key), str):
+                if metadata.get('timeline_format') == 'gantt':
+                    gantt_key = key
+                    authored = next((content for old_key, content, _ in rendered.values() if old_key == key), '')
+                    output[key] = finalize_gantt_markdown(output.get(key) or '', req, authored)
+                    if not allocation_check(output[key]):
+                        unallocated_gantt = retain_gantt_context(output[key], authored)
+                        output[key] = ''
+                elif isinstance(output.get(key), str):
                     output[key] = sequence_gantt_markdown(output[key])
         expected_generated_keys = {
             key for key, _content, generated in rendered.values() if generated
         } - editorial_omissions
+        # Company lookup failure is optional enrichment, not a generation failure.
+        empty_company_keys = {self._section_key(s.name, metadata) for s in active_sections
+                              if self._section_category(s) == 'about_client'
+                              and not output.get(self._section_key(s.name, metadata))}
+        expected_generated_keys -= empty_company_keys
         missing, issues = validate_generated_sections(
             output, mode, required_keys=expected_generated_keys
         )
-        # Missing output is a real failure. Stylistic checks are best-effort
-        # repair signals and must not discard an otherwise usable SOW.
-        if missing:
-            details = "; ".join(f"missing {item}" for item in missing)
-            raise RuntimeError(f"SOW generation quality gate failed; generation halted: {details}")
-        output["generation_quality_summary"] = self._quality_summary([], getattr(self, '_review_issues', []), req)
+        jobs_by_key={job[2]:job for job in generation_jobs}
+        if unallocated_gantt is not None and gantt_key in jobs_by_key and gantt_key not in missing:
+            missing.append(gantt_key)
+        def repair_missing(key):
+            nonlocal unallocated_gantt
+            if key not in jobs_by_key:return ''
+            content = generate_job(jobs_by_key[key])[2]
+            if key == gantt_key:
+                content = finalize_gantt_markdown(content, req)
+                if allocation_check(content):
+                    return retain_gantt_context(content, unallocated_gantt)
+                unallocated_gantt = retain_gantt_context(unallocated_gantt, content)
+                return ''
+            return content
+        warnings = recover_missing_sections(output, missing, repair_missing)
+        if empty_company_keys:
+            warnings.append('About Client is blank: company research could not verify a profile for '
+                            + str(metadata.get('company_name') or 'the supplied name')
+                            + '. Check the full company name or provide its official website and regenerate. '
+                            + 'No placeholder paragraph is included in the download.')
+        if unallocated_gantt is not None and not output.get(gantt_key):
+            output[gantt_key] = retain_gantt_context('', unallocated_gantt)
+            label = gantt_key.replace('_', ' ').capitalize()
+            warnings = [warning for warning in warnings if not warning.startswith(f'{label} remains empty')]
+            warnings.append('Project Timeline has missing or incomplete period allocation. Review the full delivery schedule before finalizing.')
+        missing, issues = validate_generated_sections(output, mode, required_keys=expected_generated_keys)
+        if warnings:
+            output['generation_quality_warnings'] = warnings
+        output["generation_quality_summary"] = self._quality_summary(missing, [*getattr(self, '_review_issues', []), *warnings], req)
         print(f"✅ Assembly complete - {len(output)} sections")
+        if getattr(self, '_region_repairs', None):
+            output['authoring_region_repairs'] = self._region_repairs
         return output
 
     def _review_document_relevance(self, output, sections, metadata):
@@ -604,12 +669,17 @@ class POCWriterAgent:
             f"Use the project name {metadata.get('project_title', 'Project')!r} consistently.",
             "The authoritative requirements baseline overrides any generic recommendation.",
         ]
+        from app.core.authoring_context import selected_region_instruction
+        if metadata.get('pricing_region'): notes.append(selected_region_instruction(metadata))
         duration = None
         if selected_sections is None or "timelines_deliverables" in selected_sections:
             duration = requirements.get("duration_weeks") or requirements.get("planning_duration_weeks")
         if duration:
-            label = "confirmed" if requirements.get("duration_weeks") else "planning assumption"
-            notes.append(f"Duration is {duration} weeks ({label}); do not present it differently.")
+            if requirements.get("duration_weeks"):
+                notes.append(f"Duration is {duration} weeks (confirmed); preserve the supplied duration.")
+            else:
+                notes.append(f"Initial planning estimate is {duration} weeks; extend the indicative horizon "
+                             "as needed to schedule every in-scope rollout phase, subject to approval.")
         services = requirements.get("aws_services") or []
         if services:
             notes.append("Named AWS services: " + ", ".join(map(str, services)) + ".")
@@ -641,6 +711,10 @@ class POCWriterAgent:
         source_context: str,
         prior_summaries: List[str],
     ) -> str:
+        if self._section_category(section) == 'about_client':
+            # The research agent owns corporate facts. A second project-aware
+            # generation pass used to turn this profile back into a BRD recap.
+            return self._about_company_fallback(metadata)
         if self._section_key(section.name, metadata) == "aws_pricing":
             from app.pricing import render_aws_pricing_section
             return render_aws_pricing_section(requirements.get("aws_pricing_result") or {})
@@ -648,6 +722,8 @@ class POCWriterAgent:
             section, requirements, metadata, source_context,
             prior_context="\n".join(prior_summaries[-4:]),
         )
+        from app.core.authoring_context import selected_region_instruction, restore_target_region
+        prompt += '\n' + selected_region_instruction(metadata)
         architected_scope = (
             self._section_key(section.name, metadata) == "scope_of_work"
             and (getattr(self, "scope_architecture_plan", {}) or {}).get("deliverables")
@@ -672,53 +748,23 @@ class POCWriterAgent:
             content = ''  # Internal transport sentinel, never client-facing content.
         resolved_name = self._replace_placeholders(section.name, metadata, requirements)
         content = self._clean_content(content, resolved_name)
-        issues = self._authoring_issues(content, section)
-        about_client = self._section_category(section) == "about_client"
-        if issues and about_client and not architected_scope:
-            # Enforce the two-paragraph profile through focused retries, but do
-            # not fail the entire document because of a presentational miss.
-            for attempt in range(2):
-                detected = "; ".join(issues)
-                retry_prompt = (
-                    prompt
-                    + "\n\nSelf-review the previous draft. The deterministic validator found: "
-                    + detected
-                    + ". Rewrite it as exactly two short factual prose paragraphs. "
-                    "Describe only the company; remove headings, bullets, project context, engagement "
-                    "language, disclaimers and unsupported claims. Silently verify that every finding "
-                    "is resolved, then return only the two corrected paragraphs.\n\n"
-                    + content[:4000]
-                )
-                try:
-                    revised = self._call_bedrock(
-                        retry_prompt,
-                        max_tokens=600,
-                        model_id=getattr(self.config, "WRITER_MODEL_ID", None),
-                        call_name=f"SOW Section - {section.name} repair {attempt + 1}",
-                    )
-                except Exception:
-                    break
-                revised = self._clean_content(revised, resolved_name)
-                if revised:
-                    content = revised
-                issues = self._authoring_issues(content, section)
-                if not issues:
-                    break
-        if not content.strip() and about_client:
-            content = self._about_company_fallback(metadata)
         if not content.strip() and self._section_category(section) != 'success_criteria':
             raise RuntimeError(f"{section.name} returned empty content; generation halted")
+        content, repairs = restore_target_region(content, metadata)
+        if repairs:
+            if not hasattr(self, '_region_repairs'): self._region_repairs = {}
+            self._region_repairs[self._section_key(section.name, metadata)] = repairs
         return content
 
     @staticmethod
     def _about_company_fallback(metadata: Dict[str, Any]) -> str:
         """Keep optional company enrichment from aborting an otherwise valid SOW."""
         supplied = str(metadata.get("company_description") or "").strip()
-        paragraphs = [item.strip() for item in re.split(r"\n\s*\n", supplied) if item.strip()]
-        if paragraphs:
-            return "\n\n".join(re.sub(r'^[-*]\s+', '', p) for p in paragraphs[:2])
-        company = str(metadata.get("company_name") or "The customer").strip()
-        return f"{company} is the client organisation."
+        from app.agents.company_research_agent import CompanyResearchAgent
+        if supplied and not CompanyResearchAgent._company_profile_issues(supplied):
+            return supplied
+        # Research failures are recorded in company_research_audit; never publish filler.
+        return ''
 
     def _generate_scope_deliverables(
         self,
@@ -1038,7 +1084,7 @@ Return this shape:
     {{
       "name": "outcome-oriented deliverable name",
       "purpose": "business and solution boundary",
-      "separation_basis": "independent phase, deployment, acceptance boundary, or other source-backed reason",
+      "separation_basis": "source-specified distinct customer output or explicitly labelled deliverable package",
       "modules": [
         {{
           "name": "cohesive implementation module or workstream",
@@ -1063,8 +1109,8 @@ Return this shape:
 
 Architecture rules:
 - Determine the natural number of deliverables and modules from the problem; there is no target, minimum, or maximum count.
-- A deliverable is a separately deployable or acceptably complete business outcome, release, or phase. It is not a synonym for a source table row, feature, integration, technical layer, workstream, or module.
-- First cluster capabilities that share the same users, release boundary, operating workflow, deployment and acceptance event. Promote a cluster to a separate deliverable only when it has a credible independent phase, deployment or acceptance boundary, and record that reason in separation_basis.
+- A deliverable is a source-specified distinct customer output or product. Pilot, Extend, Scale, waves and releases of one product remain nested phases within ONE deliverable; preserve their names, sequence, capabilities and approval gates in phase-qualified module names.
+- First cluster capabilities that share the same users, release boundary, operating workflow, deployment and acceptance event. Promote a cluster only when the source specifies a distinct customer output or explicitly labels a separate deliverable; timing or deployment gates alone are insufficient. Record the source-backed reason in separation_basis.
 - Preserve explicitly numbered or named customer-authored deliverables as top-level deliverables when
   each describes a distinct reviewable business outcome. A shared programme, deployment, or acceptance
   event does not override those explicit boundaries. Ordinary feature rows, artefacts, technical layers,
@@ -1173,7 +1219,7 @@ SOURCE EVIDENCE:
 Review rules:
 - Merge deliverables that are merely channels, integrations, platform layers, functional capabilities, or source-table rows belonging to the same implemented and accepted solution.
 - Retain every module, requirement, source_basis item, output, dependency, qualification, and open boundary. Do not reduce coverage while merging.
-- Keep separate deliverables only for a real independent phase, release, deployment, commercial hand-off, or acceptance event; state that reason in separation_basis.
+- Keep separate deliverables only for source-specified distinct customer outputs or explicitly labelled deliverable packages; state that reason in separation_basis. Nest rollout phases of the same product as phase-qualified modules, preserving every capability and gate.
 - Do not target a particular count. A single coherent deliverable with many modules is valid; multiple deliverables are valid only when their boundaries are real.
 - Preserve evidence status. Source Assumption, Proposed, Open, To be confirmed, optional and future items must not become Confirmed.
 """
@@ -1223,22 +1269,8 @@ Review rules:
             if re.match(r"^\s*\|.+\|\s*$", line)
         ]
         if name == "about {company_name}":
-            paragraphs = [
-                paragraph.strip()
-                for paragraph in re.split(r"\n\s*\n", content or "")
-                if paragraph.strip()
-            ]
-            if len(paragraphs) != 2:
-                issues.append("About Client must contain exactly two brief paragraphs")
-            if re.search(r'(?m)^\s*(?:[-*+]\s|#|\|)', content or ''):
-                issues.append("About Client must not contain bullets, headings or tables")
-            if re.search(
-                r"(?i)\b(?:this engagement|project scope|project objectives?|"
-                r"statement of work|requirements relevant to|specific operational context|"
-                r"supplied project|proposed solution|shellkode(?:'s)? involvement)\b",
-                content or "",
-            ):
-                issues.append("About Client must describe only the company, not the engagement or its problem")
+            from app.agents.company_research_agent import CompanyResearchAgent
+            issues.extend('About Client: ' + issue for issue in CompanyResearchAgent._company_profile_issues(content))
         elif name in {"scope of work", "detailed scope of work"}:
             deliverables = re.findall(r"(?im)^###\s+.*\bdeliverable\b.*$", content or "")
             modules = re.findall(r"(?m)^####\s+.+$", content or "")
@@ -1384,6 +1416,13 @@ Review rules:
         supporting_context: Optional[str] = None,
         prior_context: str = "",
     ) -> str:
+        if self._section_category(section) == 'about_client':
+            return (
+                'Preserve this company research as one short paragraph of 3-4 sentences (approximately 60-85 words, comparable in length to About Shellkode). '
+                'Use only these corporate facts; never add project context, requirements, '
+                'use cases, station workflows or inferred company identities.\n\n'
+                + str(metadata.get('company_description') or '')
+            )
         type_label = {
             "POC": "proof-of-concept",
             "PROD": "production implementation",
@@ -1530,7 +1569,7 @@ RELEVANCE AND SECTION OWNERSHIP (takes priority over exhaustive coverage lists):
 {section_editorial_contract(editorial_category(section.name, self._section_category(section)))}
 
 MANDATORY SELECTED PRESENTATION (overrides conflicting generic/custom template guidance)
-{presentation_contract(self._section_category(section), metadata)}
+{presentation_contract(self._section_category(section), metadata, requirements)}
 {'Before returning an empty section, check the BRD/user inputs for both numerical targets and required functional outcomes. Absence of numbers is not a reason to omit descriptive criteria. Only when neither exists, return exactly [NO_SOURCE_BACKED_SUCCESS_CRITERIA] as the entire response; this internal sentinel becomes a blank section.' if self._section_category(section) == 'success_criteria' else ''}
 Preserve explicitly requested custom-template layout; apply these relevance rules to its content without adding filler rows.
 
@@ -1587,7 +1626,7 @@ NON-NEGOTIABLE AUTHORING STANDARD
   with generic cloud activities or vague summaries.
 - Except for About Client, use short bullets, with no opening or closing paragraph. Do not
   restate the project objective, customer context, or the same requirement in multiple forms.
-- About Client is the two-paragraph exception. Other generated narrative sections use short bullets. Preserve required tables.
+- About Client is the one-paragraph exception. Other generated narrative sections use short bullets. Preserve required tables.
 - Default to no subsection headings. Follow any essential opening sentence with concise action bullets. Convert labels such as Roles, Data, Dependencies, Controls,
   Validation, or Risks into ordinary sentences instead of separate headings or bold lead-in labels.
 - Outside Scope of Work, use at most two direct subsections and no nested subsections. In Scope of
@@ -1615,7 +1654,7 @@ NON-NEGOTIABLE AUTHORING STANDARD
   possibilities that do not change scope, ownership, dependency, acceptance, or a decision.
 - Solution Architecture: Return only one Markdown table: Service name | Role in the project. Include every selected architecture service, including shared security, networking and operations. Give each component a brief project-specific role, normally 5-16 words. Keep repeated services with different purposes as separate rows. Order rows along the actual request/data flow, followed by shared controls; do not sort alphabetically. Do not invent services, deployment details or guarantees. The diagram is generated separately: no bullets, introductory prose, ASCII art, Mermaid or diagram code.
 - The section should be complete enough for commercial and technical review, without filler or repetition.
-- For About Client, write exactly two short factual paragraphs about the company, without engagement commentary or bullets. Never invent facts to pad them.
+- For About Client, write exactly one short factual paragraph of 3-4 sentences (approximately 60-85 words, comparable in length to About Shellkode) about the company, without engagement commentary or bullets. Never invent facts to pad them.
 """
 
     def _build_prompt(
@@ -1712,7 +1751,7 @@ NON-NEGOTIABLE AUTHORING STANDARD
             f"- Missing expected sections: {', '.join(missing) if missing else 'None'}",
             f"- Automated content flags: {len(issues)}",
             f"- Open clarifications carried forward: {len(requirements.get('open_clarifications', []))}",
-            "- Diagram generation: intentionally excluded from this probe",
+            "- Diagram validation is recorded separately in the architecture diagnostics",
         ]
         return "\n".join(lines)
 

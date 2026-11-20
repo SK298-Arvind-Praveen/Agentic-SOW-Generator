@@ -19,6 +19,7 @@ class Config:
     """Configuration class for POC generator with static ShellKode details"""
     
     def __init__(self):
+        self.ARCHITECTURE_PROCESS_FLOW = os.getenv('ARCHITECTURE_PROCESS_FLOW','off').strip().lower() in {'on','true','1','yes'}
         # =====================================================================
         # BASE DIRECTORIES
         # =====================================================================
@@ -64,7 +65,7 @@ class Config:
         )
         default_fast_inference_profile = (
             "arn:aws:bedrock:us-east-1:106611079163:"
-            "application-inference-profile/hbq88skix7wt"
+            "application-inference-profile/oj2y908xxkkf"
         )
         # Dedicated diagram planning/review profile; do not change SOW writing,
         # general analysis, editing or embeddings when switching diagram models.
@@ -270,6 +271,11 @@ class Config:
             "AWS_PRICING_ENABLED", "true"
         ).strip().lower() not in {"0", "false", "no", "off"}
         self.AWS_PRICING_ESTIMATE_MISSING = True
+        self.AWS_PRICING_DISPLAY_CURRENCY = os.getenv('AWS_PRICING_DISPLAY_CURRENCY', 'INR').upper()
+        self.AWS_PRICING_FX_REFRESH = os.getenv('AWS_PRICING_FX_REFRESH', 'true').lower() not in {'0', 'false', 'off'}
+        self.AWS_PRICING_USD_INR_RATE = os.getenv('AWS_PRICING_USD_INR_RATE', '94.2400')
+        self.AWS_PRICING_FX_DATE = os.getenv('AWS_PRICING_FX_DATE', '2026-11-13')
+        self.AWS_PRICING_FX_SOURCE = os.getenv('AWS_PRICING_FX_SOURCE', 'https://www.federalreserve.gov/releases/h10/hist/dat00_in.htm')
         self.AWS_PRICING_NODE_BINARY = os.environ.get("AWS_PRICING_NODE_BINARY", "node")
         self.AWS_PRICING_CALCULATOR_BUNDLE = Path(os.environ.get(
             "AWS_PRICING_CALCULATOR_BUNDLE",

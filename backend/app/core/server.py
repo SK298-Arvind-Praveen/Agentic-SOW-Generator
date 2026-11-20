@@ -1525,6 +1525,8 @@ def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None)
             "token_usage": token_usage, "total_tokens": total_tokens,
             "edit_count": snapshot.get('edit_count', 0),
             "architecture_changes": snapshot.get('architecture_changes', []),
+            "architecture_revision_candidate": snapshot.get('architecture_revision_candidate'),
+            "architecture_job": snapshot.get('architecture_job') if (snapshot.get('architecture_job') or {}).get('status') == 'review_required' else None,
             "saved_at": datetime.now().isoformat(),
         }
         snapshot_location = f"s3://{bucket}/{snapshot_key}"
@@ -1634,7 +1636,7 @@ def _save_preview_as_draft(preview_id, automatic=False, revision_candidate=None)
                         raise GenerationCancelled()
                     if revision_candidate is not None:
                         live.setdefault('metadata', {}).update(revision_candidate.get('metadata') or {})
-                        for field in ('content', 'final_state', 'edit_count', 'token_usage', 'total_tokens', 'architecture_changes'):
+                        for field in ('content', 'final_state', 'edit_count', 'token_usage', 'total_tokens', 'architecture_changes', 'architecture_revision_candidate'):
                             if field in revision_candidate:
                                 live[field] = revision_candidate[field]
                         live['last_modified'] = datetime.now().isoformat()
@@ -4431,6 +4433,8 @@ def open_saved_draft(document_id):
                 "total_tokens": int(snapshot.get("total_tokens") or 0),
                 "edit_count": int(snapshot.get('edit_count') or 0),
                 "architecture_changes": snapshot.get('architecture_changes', []),
+                "architecture_revision_candidate": snapshot.get('architecture_revision_candidate'),
+                "architecture_job": snapshot.get('architecture_job'),
                 "ready_at": time.time(), "last_activity_at": time.time(),
                 # The persisted record already protects this preview from loss.
                 "auto_draft_enabled": False,
@@ -4508,6 +4512,26 @@ def _run_architecture_revision(preview_id, job_id, snapshot, instructions):
         candidate['_architecture_job_id'] = job_id
         candidate['token_usage'] = combined_usage()
         candidate['total_tokens'] = int(candidate['token_usage'].get('total_tokens') or 0)
+        diagnostic = candidate.get('architecture_revision_candidate')
+        if diagnostic and diagnostic.get('status') == 'review_required':
+            reasons = []
+            for asset in diagnostic.get('assets') or []:
+                review = asset.get('vision_review') or {}
+                reasons.extend(str(value) for value in [review.get('error'), asset.get('error'),
+                    *asset.get('quality_warnings', []), *asset.get('validation_warnings', []),
+                    *[issue.get('description') for issue in review.get('issues', []) if isinstance(issue, dict)]] if value)
+            reason = '; '.join(dict.fromkeys(reasons))[:1000] or 'Required image review did not approve the candidate.'
+            diagnostic['reason'] = reason
+            with preview_lock:
+                live = preview_storage.get(preview_id)
+                if live and (live.get('architecture_job') or {}).get('id') == job_id:
+                    live.update(status='ready', progress=100,
+                        token_usage=candidate['token_usage'], total_tokens=candidate['total_tokens'],
+                        architecture_revision_candidate=diagnostic)
+                    live['architecture_job'].update(status='review_required', error=reason,
+                        message='Previous preview and saved draft retained; the candidate needs review.')
+            return
+        candidate['architecture_revision_candidate'] = None
         progress('Saving the updated recoverable draft')
         # Persist both image and text before reporting success. Existing draft ID
         # is reused, so regeneration does not create a new completed SOW/version.
@@ -4555,6 +4579,8 @@ def regenerate_preview_architecture(preview_id):
             if job.get('status') == 'completed':
                 payload.update(content=live.get('content'), metadata=live.get('metadata'),
                                pricing_result=(live.get('final_state') or {}).get('pricing_result'))
+            elif job.get('status') == 'review_required':
+                payload['architecture_revision_candidate'] = live.get('architecture_revision_candidate')
             return jsonify(payload), 200
         if job.get('status') == 'running':
             return jsonify(success=True, job=job, preview_id=preview_id), 202

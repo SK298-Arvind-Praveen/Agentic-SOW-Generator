@@ -16,8 +16,27 @@ test('a clean diagram does not show a warning', () => {
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
+test('minor layout advisories are available in collapsed notes without claiming review failed', () => {
+  render(<DiagramWarning asset={{status:'ready', image_base64:'png',
+    layout_advisories:['Connector touches a readable heading.']}} />);
+  expect(screen.getByRole('note')).toHaveTextContent('Connector touches a readable heading.');
+  expect(screen.getByText('Layout notes (1)').closest('details')).not.toHaveAttribute('open');
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.queryByText('Diagram needs review')).not.toBeInTheDocument();
+});
+
 test('late prose alignment failure is visible', () => {
   render(<DiagramWarning asset={{status:'review_required', image_base64:'png',
     text_alignment:{error:'Model unavailable during explanation'}}} />);
   expect(screen.getByRole('alert')).toHaveTextContent('Model unavailable during explanation');
+});
+
+test('warning starts collapsed and removes generic review summaries', () => {
+  render(<DiagramWarning asset={{status:'review_required', quality_warnings:[
+    'Overview image review found visual issues; see diagram diagnostics',
+    'Image review found visual defects', 'SAP connector is detached']}} />);
+  expect(screen.getByText('Diagram needs review').closest('details')).not.toHaveAttribute('open');
+  expect(screen.queryByText('Image review found visual defects')).not.toBeInTheDocument();
+  expect(screen.queryByText('Overview image review found visual issues; see diagram diagnostics')).not.toBeInTheDocument();
+  expect(screen.getByText('SAP connector is detached')).toBeInTheDocument();
 });

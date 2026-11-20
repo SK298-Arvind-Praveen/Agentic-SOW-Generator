@@ -14,6 +14,7 @@ export default function ArchitectureRegenerationControls(props: Props) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [reviewCandidate, setReviewCandidate] = useState<any>(null);
   const callbacks = useRef(props);
   callbacks.current = props;
   const clickLock = useRef(false);
@@ -55,6 +56,12 @@ export default function ArchitectureRegenerationControls(props: Props) {
           setError(job.error || 'Regeneration failed. The previous preview was retained.');
           setMessage('');
         }
+        if (job.status === 'review_required' && dismissedFailure.current !== job.id) {
+          dismissedFailure.current = job.id;
+          setReviewCandidate(response.architecture_revision_candidate || null);
+          setError(`${job.message || 'Previous preview and saved draft retained.'} ${job.error || ''}`.trim());
+          setMessage('');
+        }
         if (job.status === 'completed' && applied.current !== job.id) {
           applied.current = job.id;
           callbacks.current.onUpdated(response);
@@ -63,6 +70,7 @@ export default function ArchitectureRegenerationControls(props: Props) {
             ? `Diagram updated. Pricing estimate unavailable: ${response.pricing_result.error || response.pricing_result.cost_read_warning || 'Additional sizing inputs are needed.'}`
             : 'Diagram, affected SOW sections, and pricing updated.');
           setError('');
+          setReviewCandidate(null);
         }
       } catch {
         if (!cancelled && clickLock.current) setMessage('Connection interrupted. The server is still working; reconnecting…');
@@ -82,6 +90,7 @@ export default function ArchitectureRegenerationControls(props: Props) {
     starting.current = true;
     acceptedJob.current = '';
     setError('');
+    setReviewCandidate(null);
     setMessage('Starting architecture regeneration…');
     try {
       const response = await apiService.regenerateArchitecture(props.previewId, instructions);
@@ -113,5 +122,16 @@ export default function ArchitectureRegenerationControls(props: Props) {
     <p style={{ fontSize: '13px', color: '#64748b' }}>Updates the diagram and affected SOW text together. You can close the preview while it runs.</p>
     {message && <p role="status" aria-live="polite">{message}</p>}
     {error && <div role="alert" style={{ color: '#b91c1c' }}>{error} <button type="button" aria-label="Dismiss regeneration error" onClick={() => setError('')}>×</button></div>}
+    {reviewCandidate && <details open>
+      <summary>Unapproved diagram candidate</summary>
+      <p>This candidate is separate from the published preview. Review the issue and revise the request or retry generation.</p>
+      {reviewCandidate.reason && <p>{reviewCandidate.reason}</p>}
+      {reviewCandidate.instructions && <p>Requested changes: {reviewCandidate.instructions}</p>}
+      {(reviewCandidate.assets || []).map((asset: any, index: number) => <div key={index}>
+        {asset.review_warning && <p>{asset.review_warning}</p>}
+        {asset.image_base64 && <img alt="Unapproved architecture candidate" style={{ maxWidth: '100%', height: 'auto' }}
+          src={`data:image/png;base64,${asset.image_base64}`} />}
+      </div>)}
+    </details>}
   </div>;
 }
