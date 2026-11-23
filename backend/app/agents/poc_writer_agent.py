@@ -728,6 +728,13 @@ class POCWriterAgent:
             self._section_key(section.name, metadata) == "scope_of_work"
             and (getattr(self, "scope_architecture_plan", {}) or {}).get("deliverables")
         )
+        from app.core.generation_efficiency import stage_key, content_key, stage_cache, run_id, record
+        reuse_key = content_key(stage_key(self.llm, 'section:' + section.name, task='writer'),
+            [prompt, section.content, section.metadata, self._section_token_budget(section)]) if not architected_scope else None
+        cached = stage_cache.get(run_id(), reuse_key) if reuse_key else None
+        if cached is not None and not self._authoring_issues(cached, section):
+            record({'stage': 'SOW Section - ' + section.name, 'result_cache_hits': 1})
+            return cached
         if architected_scope:
             content = self._generate_scope_deliverables(
                 requirements, metadata, source_context, prior_summaries
@@ -754,6 +761,8 @@ class POCWriterAgent:
         if repairs:
             if not hasattr(self, '_region_repairs'): self._region_repairs = {}
             self._region_repairs[self._section_key(section.name, metadata)] = repairs
+        if reuse_key and content.strip() and not self._authoring_issues(content, section):
+            stage_cache.put(run_id(), reuse_key, content)
         return content
 
     @staticmethod
@@ -1084,7 +1093,7 @@ Return this shape:
     {{
       "name": "outcome-oriented deliverable name",
       "purpose": "business and solution boundary",
-      "separation_basis": "source-specified distinct customer output or explicitly labelled deliverable package",
+      "separation_basis": "independent phase, deployment, acceptance boundary, or other source-backed reason",
       "modules": [
         {{
           "name": "cohesive implementation module or workstream",
@@ -1109,8 +1118,8 @@ Return this shape:
 
 Architecture rules:
 - Determine the natural number of deliverables and modules from the problem; there is no target, minimum, or maximum count.
-- A deliverable is a source-specified distinct customer output or product. Pilot, Extend, Scale, waves and releases of one product remain nested phases within ONE deliverable; preserve their names, sequence, capabilities and approval gates in phase-qualified module names.
-- First cluster capabilities that share the same users, release boundary, operating workflow, deployment and acceptance event. Promote a cluster only when the source specifies a distinct customer output or explicitly labels a separate deliverable; timing or deployment gates alone are insufficient. Record the source-backed reason in separation_basis.
+- A deliverable is a separately deployable or acceptably complete business outcome, release, or phase. It is not a synonym for a source table row, feature, integration, technical layer, workstream, or module.
+- First cluster capabilities that share the same users, release boundary, operating workflow, deployment and acceptance event. Promote a cluster to a separate deliverable only when it has a credible independent phase, deployment or acceptance boundary, and record that reason in separation_basis.
 - Preserve explicitly numbered or named customer-authored deliverables as top-level deliverables when
   each describes a distinct reviewable business outcome. A shared programme, deployment, or acceptance
   event does not override those explicit boundaries. Ordinary feature rows, artefacts, technical layers,
@@ -1219,7 +1228,7 @@ SOURCE EVIDENCE:
 Review rules:
 - Merge deliverables that are merely channels, integrations, platform layers, functional capabilities, or source-table rows belonging to the same implemented and accepted solution.
 - Retain every module, requirement, source_basis item, output, dependency, qualification, and open boundary. Do not reduce coverage while merging.
-- Keep separate deliverables only for source-specified distinct customer outputs or explicitly labelled deliverable packages; state that reason in separation_basis. Nest rollout phases of the same product as phase-qualified modules, preserving every capability and gate.
+- Keep separate deliverables only for a real independent phase, release, deployment, commercial hand-off, or acceptance event; state that reason in separation_basis.
 - Do not target a particular count. A single coherent deliverable with many modules is valid; multiple deliverables are valid only when their boundaries are real.
 - Preserve evidence status. Source Assumption, Proposed, Open, To be confirmed, optional and future items must not become Confirmed.
 """
@@ -1677,6 +1686,9 @@ NON-NEGOTIABLE AUTHORING STANDARD
         model_id: Optional[str] = None,
         call_name: str = "SOW Section Generation",
     ) -> str:
+        from app.core.scope_contract import DELIVERABLE_BOUNDARIES, CONCISE_SCOPE
+        if 'scope' in call_name.lower():
+            prompt += '\n' + DELIVERABLE_BOUNDARIES + '\n' + CONCISE_SCOPE
         try:
             result = self.llm.generate(
                 prompt,

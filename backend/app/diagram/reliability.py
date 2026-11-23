@@ -22,13 +22,27 @@ def semantic_acceptance(asset):
         and not review.get('unresolved_architecture') and not review.get('issues'))
 
 
-def structured_retry(call, prompt, validate, *, attempts=3, deadline=None):
+def structured_retry(call, prompt, validate, *, attempts=3, deadline=None, cache_key=None):
     """Retry the exact contract, never accept malformed patches or invent a graph."""
     from app.diagram.service import _extract_json
     from app.core.bedrock_llm import BedrockOutputTruncatedError
     from botocore.exceptions import ClientError, ConnectionClosedError, EndpointConnectionError, ReadTimeoutError, ResponseStreamingError
     from urllib3.exceptions import ProtocolError, ReadTimeoutError as StreamReadTimeoutError
     attempts = min(attempts, 2) if pipeline_attempt.get() else attempts
+    original_prompt = prompt
+    from app.core.generation_efficiency import stage_cache, run_id, record
+    import hashlib
+    run = run_id()
+    key = hashlib.sha256((str(cache_key) + prompt).encode()).hexdigest() if cache_key and run else None
+    if key:
+        cached = stage_cache.get(run, key)
+        if cached is not None:
+            try:
+                result = validate(copy.deepcopy(cached))
+                record({'stage': str(cache_key).split(':', 1)[0], 'result_cache_hits': 1})
+                return result
+            except (ValueError, TypeError, KeyError, IndexError):
+                pass  # The current validator remains authoritative.
     last = None
     for attempt in range(attempts):
         if deadline is not None and deadline - time.monotonic() < 5:
@@ -54,11 +68,14 @@ def structured_retry(call, prompt, validate, *, attempts=3, deadline=None):
                     time.sleep(.25)
             continue
         try:
-            return validate(_extract_json(raw))
+            parsed = _extract_json(raw)
+            result = validate(copy.deepcopy(parsed))
+            if key: stage_cache.put(run, key, parsed)
+            return result
         except (ValueError, TypeError, KeyError, IndexError) as exc:
             last = exc
             print(f'[DIAGRAM][STRUCTURE] attempt={attempt + 1}; rejected={exc}', flush=True)
-            prompt += ('\nYour previous response failed validation: ' + str(exc)
+            prompt = original_prompt + ('\nYour previous response failed validation: ' + str(exc)
                        + '\nReturn the COMPLETE corrected JSON object using exactly the specified schema. '
                        'Preserve graph membership and all connections. No Markdown.\nREJECTED JSON:\n'
                        + str(raw))

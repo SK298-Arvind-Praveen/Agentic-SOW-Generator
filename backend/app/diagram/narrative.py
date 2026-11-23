@@ -1,3 +1,4 @@
+from app.core.generation_efficiency import stage_key
 """A functional overview and a complete connection page from the same graph.
 
 The overview aggregates real cross-subsystem edges; it never fabricates a serial
@@ -244,7 +245,7 @@ def prepare(service, spec):
             temperature=0, call_name='Architecture Narrative Composition').text,
             composition_rules + '\nFIXED GRAPH:\n' + json.dumps(context)
             +'\nPrevious attempt findings (correct the view only):\n'+str(spec.architecture_plan.get('retry_feedback','')),
-            checked_view, attempts=3)
+            checked_view, attempts=3, cache_key=stage_key(planner, 'composition'))
         return improve_rows(replace(spec, architecture_plan={
             **{k:v for k,v in spec.architecture_plan.items() if k!='narrative_diagnostic'}, 'narrative_view': plan}), service.icon_registry)
     except Exception as exc:

@@ -34,8 +34,34 @@ def selected_volumes(result):
     return rows
 
 
+def volume_assumption(label, value):
+    """Present the same sizing facts as prose, without table provenance markers."""
+    label = re.sub(r'\s+assumption\s*$', '', label, flags=re.I).strip()
+    value = re.sub(r'\s*\((?:Approx\.|Approximated|Estimated)\)', '', value, flags=re.I).strip().rstrip('.')
+    # The table retains the calculation; prose leads with its resulting volume.
+    if '≈' in value:
+        value = value.rsplit('≈', 1)[1].strip()
+    if re.fullmatch(r'monthly active users', label, re.I):
+        value = re.sub(r'\s*(?:MAU|monthly active users)\b', '', value, flags=re.I).strip()
+        return f'There are approximately {value} monthly active users.'
+    if re.fullmatch(r'usage[- ]hours', label, re.I) and re.search(r'monthly operation', value, re.I):
+        return 'Usage hours represent a typical month of operation, rather than the total POC duration.'
+    if re.fullmatch(r'hours per day(?: at this rate)?', label, re.I):
+        value = re.sub(r'hours/day', 'hours per day', value, flags=re.I)
+        return f'Operations run for approximately {value}.'
+    verb = 'are' if re.search(r'\b(?:requests|conversations|interactions|hours|invocations|users)$', label, re.I) else 'is'
+    return f'{label[:1].upper() + label[1:]} {verb} estimated at {value}.'
+
+
 def append_volume_assumptions(content, result):
-    additions = [f'- Pricing assumes {label}: {value} (Approx.).'
-                 for label, value, estimated in selected_volumes(result) if estimated
-                 and f'{label}: {value}' not in content]
-    return '\n'.join([content.rstrip(), *additions]).strip()
+    additions = []
+    for label, value, estimated in selected_volumes(result):
+        if not estimated:
+            continue
+        sentence = volume_assumption(label, value)
+        # Also upgrade the old generated wording when editing an existing SOW.
+        legacy = f'- Pricing assumes {label}: {value} (Approx.).'
+        content = content.replace(legacy, '- ' + sentence)
+        if sentence not in content and sentence not in additions:
+            additions.append(sentence)
+    return '\n'.join([content.rstrip(), *('- ' + text for text in additions)]).strip()

@@ -46,6 +46,8 @@ class ScopeArchitectAgent:
         self.llm = llm
 
     def _call(self, prompt: str, call_name: str, max_tokens: int = 12000) -> str:
+        from app.core.scope_contract import DELIVERABLE_BOUNDARIES
+        prompt += "\n" + DELIVERABLE_BOUNDARIES
         boundary_decision = call_name in {"Scope Boundary Classification", "Scope Boundary Audit"}
         task = "writer" if boundary_decision else "analysis"
         model_id = (
@@ -187,7 +189,7 @@ class ScopeArchitectAgent:
         deliverable_fragmentation = (
             []
             if refinement_constraints.get("requested_deliverable_count")
-            else self._deliverable_fragmentation_issues(plan, source_context)
+            else self._deliverable_fragmentation_issues(plan)
         )
         fragmentation = (
             []
@@ -221,7 +223,7 @@ class ScopeArchitectAgent:
             revised_deliverable_fragmentation = (
                 []
                 if refinement_constraints.get("requested_deliverable_count")
-                else self._deliverable_fragmentation_issues(revised, source_context)
+                else self._deliverable_fragmentation_issues(revised)
             )
             revised_fragmentation = (
                 []
@@ -252,7 +254,7 @@ class ScopeArchitectAgent:
             # are protected above and never enter this fallback.
             if not requested_count and deliverable_fragmentation:
                 modules = [
-                    {**module, "name": f"{deliverable['name']} — {module['name']}"}
+                    module
                     for deliverable in (plan.get("deliverables") or [])
                     for module in (deliverable.get("modules") or [])
                     if isinstance(module, dict)
@@ -334,25 +336,12 @@ class ScopeArchitectAgent:
         return clean if 2 <= len(clean) <= 10 else []
 
     @staticmethod
-    def _deliverable_fragmentation_issues(plan: Dict[str, Any], source_context: str = '') -> List[str]:
+    def _deliverable_fragmentation_issues(plan: Dict[str, Any]) -> List[str]:
         """Reject capability/checklist rows promoted to contractual deliverables."""
         deliverables = [
             item for item in plan.get("deliverables") or []
             if isinstance(item, dict) and item.get("modules")
         ]
-        if len(deliverables) < 2:
-            return []
-        source_key = re.sub(r"\s+", " ", source_context).strip().casefold()
-        for item in deliverables:
-            if item.get("boundary_type") not in {"phase", "release"}:
-                continue
-            quote = re.sub(r"\s+", " ", str(item.get("independent_output_evidence") or "")).strip().casefold()
-            if not quote or not source_key or quote not in source_key:
-                return [
-                    "rollout phases were promoted to deliverables without source evidence of distinct "
-                    "customer outputs; keep phases nested within their product deliverable, preserving "
-                    "phase names, sequence, capabilities and approval gates"
-                ]
         if len(deliverables) < 3:
             return []
         thin_ratio = sum(
@@ -366,7 +355,7 @@ class ScopeArchitectAgent:
         sequenced_basis = re.compile(
             r"\b(?:day\s*1|phase\s*\d+|wave\s*\d+|release\s*\d+|later|subsequent|"
             r"before|after|follow(?:ing|ed by)|post.go.live|hypercare|separate go.live|"
-            r"commercial hand.?off|contract duration)\b",
+            r"commercial hand.?off|contract duration|distinct customer (?:output|outcome)|independently (?:usable|commissioned))\b",
             flags=re.I,
         )
         unsupported = sum(
@@ -875,8 +864,8 @@ source identifiers, names, quantities, qualifications, status, and disposition. 
 Preserve customer product identity; a similarly named AWS service is not the same platform.
 A current-state gap is not itself a future-phase exclusion. Check later requested enhancements
 before setting disposition, and never invent deferral because the delivery mode is POC.
-Set independent_boundary true only when the source supports a distinct customer output, not merely a phase, release, deployment,
-commercial hand-off, or acceptance event; explain that evidence in boundary_basis.
+Set independent_boundary true only for a distinct usable customer output or independently commissioned package;
+phase, deployment or acceptance gates alone are insufficient. Explain the outcome in boundary_basis.
 """
         value = _json_object(self._call(prompt, "Scope Capability Inventory"))
         clean: List[Dict[str, Any]] = []
@@ -918,7 +907,7 @@ VALIDATED EXPLICIT SOURCE DELIVERABLES (preserve each; this list may be incomple
 EXPLICIT USER REFINEMENT CONSTRAINTS (mandatory when present):
 {json.dumps(refinement_constraints or {}, indent=2, default=str)}
 
-Return {{"discovered_capabilities":[], "deliverables":[{{"name":"outcome-oriented delivery package", "purpose":"brief business outcome and boundary", "boundary_type":"single_package|phase|release|deployment|acceptance|commercial_handoff", "separation_basis":"brief source-backed boundary", "independent_output_evidence":"verbatim source quote specifying a distinct customer output, empty for rollout sequencing alone", "modules":[{{"name":"cohesive mini-problem/workstream", "capability_ids":["CAP-001"], "task_statement":"brief implementation scope", "objective":"brief operating outcome", "evidence_status":"Confirmed|Source Assumption|Proposed|Open"}}]}}], "cross_cutting_decisions":[], "open_boundaries":[{{"capability_id":"CAP-999","reason":"future, optional or open item"}}]}}.
+Return {{"discovered_capabilities":[], "deliverables":[{{"name":"outcome-oriented delivery package", "purpose":"brief business outcome and boundary", "boundary_type":"single_package|phase|release|deployment|acceptance|commercial_handoff", "separation_basis":"brief source-backed boundary", "modules":[{{"name":"cohesive mini-problem/workstream", "capability_ids":["CAP-001"], "task_statement":"brief implementation scope", "objective":"brief operating outcome", "evidence_status":"Confirmed|Source Assumption|Proposed|Open"}}]}}], "cross_cutting_decisions":[], "open_boundaries":[{{"capability_id":"CAP-999","reason":"future, optional or open item"}}]}}.
 
 Classification rules:
 - Assign every in_scope capability ID exactly once. Never omit or duplicate an ID.
@@ -934,29 +923,9 @@ Classification rules:
 - The supplied inventory is authoritative. Do not copy its requirements, source evidence, actors,
   inputs, outputs, dependencies or validation details into the plan; modules reference them by ID.
 - Do not place future, optional or open capability IDs inside a delivery module; preserve them in open_boundaries.
-- A deliverable is a distinct customer-facing output or product, not a delivery phase.
-- One product rolled out through Pilot, Extend, Scale, waves or releases stays ONE deliverable.
-  Keep discovery/readiness and every phase nested as modules, retaining phase names, sequence,
-  approval gates and all capabilities. Separate dates, stations, deployment gates or devices alone
-  do not establish separate customer outputs. Day 1 versus later scope is sequencing evidence only.
-- Use phase-qualified module names (for example, Phase 2 Extend — Integration) so the writer preserves
-  the rollout structure without promoting phases to deliverables.
-- Create multiple deliverables only when the source specifies distinct customer outputs/products,
-  independently commissioned assessments, contractual hand-offs or explicitly named Deliverable N
-  packages. Record the reason in separation_basis. Do not target a count.
-- For phase/release boundary_type, independent_output_evidence MUST quote source text identifying
-  the distinct customer output; a phase label, milestone, acceptance gate or sequence alone is insufficient.
-- EXPLICIT USER REFINEMENT CONSTRAINTS take precedence over inferred cohesion. When their
-  constraint_source is explicit_source_deliverables, preserve customer-authored names and count.
-- Preserve every VALIDATED EXPLICIT SOURCE DELIVERABLE as a distinct named outcome. Explicitly
-  labelled migration, operational workflow, email and reporting deliverables may remain separate
-  even when they share deployment. Their detailed requirements belong beneath them as modules.
-- An unnumbered table titled Deliverables, checklist, feature, channel, integration or AWS layer
-  is not by itself an independent contractual output. Use the smallest natural set of products.
-- When returning more than one deliverable, use phase, release, deployment, acceptance, or
-  commercial_handoff as boundary_type. single_package is valid only for one deliverable.
-- Preserve later-phase scope and its uncertainty without folding it into Pilot/Day 1. Nest the
-  phase under its product unless source evidence establishes a distinct customer output.
+- Preserve explicit customer-authored Deliverable N packages and explicit refinement constraints.
+- For multiple deliverables use an appropriate boundary_type and a concrete separation_basis
+  describing the distinct customer outcome. single_package applies to one deliverable.
 - Optional ideas with no committed/default phase, and future roadmap items that are not being delivered,
   remain open boundaries rather than deliverables. An assessment deliverable is distinct from implementing
   the assessed capability (for example, voice readiness versus voice implementation).
@@ -1134,20 +1103,15 @@ EXPLICIT USER REFINEMENT CONSTRAINTS (mandatory when present):
 
 Return the same plan shape. Assign every in_scope capability ID exactly once and preserve future,
 optional or open IDs only in open_boundaries. Merge capability buckets that
-share one product or customer output. Keep separate deliverables only for source-specified distinct
-customer outputs or explicitly labelled Deliverable N packages, not rollout phases. Pilot, Extend,
-Scale, waves, release sequencing, deployment and acceptance gates alone do not make deliverables.
-Keep discovery and phase-qualified modules inside the product, preserving every phase, capability,
-sequence, condition and approval gate. For phase/release boundaries that remain independent,
-independent_output_evidence must quote source text specifying the distinct customer output.
-An unnumbered table or checklist headed Deliverables does not establish separate contractual outputs.
-Preserve all inventory facts and status labels; never drop capabilities or phases to pass the audit.
+serve the same usable customer outcome. Keep distinct independently commissioned outcomes separate.
+Preserve all inventory facts, status labels, phase sequence and gates. Do not add capabilities or
+remove modules to pass the audit. Apply the shared deliverable split rule below.
 
 Module consolidation rules:
 - Do not mirror capability inventory rows as one module per row. A module is a cohesive implementation
   workstream and should own all capability IDs solved through the same design and operating workflow.
 - Merge channel matrices, channel variants and brand/surface deployments when they share one channel
-  framework; preserve phase boundaries in phase-qualified module names beneath the product.
+  framework; preserve phase sequence within modules unless it produces a distinct customer output.
 - Merge conversational intelligence, context, intent, personalisation and language functions when they
   form one bot/AI engine workstream. Merge live-agent integration, routing, handover, context transfer,
   assist and escalation when they form one agent-service workstream.

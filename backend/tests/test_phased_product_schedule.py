@@ -10,44 +10,21 @@ from app.core.section_formats import (
 )
 
 
-def test_numbered_rollout_phases_are_not_explicit_deliverable_packages():
+def test_phase_labels_alone_do_not_force_separate_deliverables():
     quotes = ['Phase 1 Pilot: Station 27', 'Phase 2 Extend: Station 40', 'Phase 3 Scale: Stations 28 to 39']
     requirements = {'source_deliverables': [
         {'name': quote, 'evidence_quote': quote} for quote in quotes
     ]}
-    assert ScopeArchitectAgent._explicit_source_deliverables(requirements, '\n'.join(quotes)) == []
+    packages = ScopeArchitectAgent._explicit_source_deliverables(requirements, '\n'.join(quotes))
+    assert packages == []
 
 
-def test_repeated_phase_split_is_consolidated_without_losing_phase_scope():
-    names = ['Pilot', 'Extend', 'Scale']
-    inventory = {'capability_units': [
-        {'id': f'CAP-{i:03d}', 'name': name} for i, name in enumerate(names, 1)
-    ]}
-    fragmented = {'deliverables': [
-        {'name': name, 'boundary_type': 'phase', 'separation_basis': f'Phase {i} rollout',
-         'modules': [{'name': f'{name} workflow', 'capability_ids': [f'CAP-{i:03d}']}]}
-        for i, name in enumerate(names, 1)
-    ]}
-    replies = iter([inventory, fragmented, fragmented])
-    agent = ScopeArchitectAgent(SimpleNamespace(), call_fn=lambda *a, **k: json.dumps(next(replies)))
-    plan = agent.architect({}, {'project_title': 'Voice Inspection'}, 'Pilot then Extend then Scale')
-    assert len(plan['deliverables']) == 1
-    modules = plan['deliverables'][0]['modules']
-    assert [m['capability_ids'] for m in modules] == [['CAP-001'], ['CAP-002'], ['CAP-003']]
-    assert all(name in modules[i]['name'] for i, name in enumerate(names))
-
-
-def test_distinct_source_outputs_survive_phase_boundary_audit():
-    source = 'Commission an assessment report. Deliver a separately commissioned inspection application.'
+def test_two_phase_boundaries_do_not_require_product_output_quotes():
     plan = {'deliverables': [
-        {'name': 'Assessment', 'boundary_type': 'phase', 'modules': [{}],
-         'independent_output_evidence': 'Commission an assessment report.'},
-        {'name': 'Inspection application', 'boundary_type': 'phase', 'modules': [{}],
-         'independent_output_evidence': 'Deliver a separately commissioned inspection application.'},
+        {'name': 'Pilot', 'boundary_type': 'phase', 'modules': [{'name': 'Core'}]},
+        {'name': 'Extension', 'boundary_type': 'phase', 'modules': [{'name': 'Integration'}]},
     ]}
-    assert ScopeArchitectAgent._deliverable_fragmentation_issues(plan, source) == []
-    plan['deliverables'][1]['independent_output_evidence'] = 'Invented independent output'
-    assert ScopeArchitectAgent._deliverable_fragmentation_issues(plan, source)
+    assert ScopeArchitectAgent._deliverable_fragmentation_issues(plan) == []
 
 
 PARTIAL = ('| S.No | Activity | W1 | W2 |\n| --- | --- | --- | --- |\n'

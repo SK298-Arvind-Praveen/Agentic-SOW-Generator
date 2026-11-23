@@ -1,3 +1,4 @@
+from app.core.generation_efficiency import stage_key
 """Choose implementations before prose, prices or diagram composition.
 
 This is a capability contract, not a fixed AWS shopping list. Source evidence,
@@ -339,7 +340,8 @@ def ensure_service_design(llm, requirements, metadata, source=''):
         design = structured_retry(lambda p: planner.generate(
             p, task='diagram', max_tokens=16000, temperature=0.0,
             call_name='AWS Capability Service Design', retry_on_truncation=True).text,
-            prompt, lambda value: validate_design(value, evidence), attempts=3)
+            prompt, lambda value: validate_design(value, evidence), attempts=3,
+            cache_key=stage_key(planner, 'service_design'))
         design = {**design, 'status': 'ready', 'source_fingerprint': digest,
                   'reference_knowledge': provenance}
     except Exception as exc:

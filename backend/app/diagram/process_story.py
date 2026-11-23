@@ -1,3 +1,4 @@
+from app.core.generation_efficiency import stage_key
 """Workflow prose belongs to semantic planning, never to renderer keyword rules."""
 import json
 import re
@@ -137,7 +138,8 @@ def prepare(service, spec, feedback=''):
         'previous_story': existing, 'review_feedback': feedback}, ensure_ascii=False)
     story = structured_retry(lambda p: planner.generate(p, task='diagram', max_tokens=8192,
         temperature=0, call_name='Architecture Process Story', retry_on_truncation=False).text,
-        prompt, lambda v: validate(v, spec, eligible), attempts=2)
+        prompt, lambda v: validate(v, spec, eligible), attempts=2,
+        cache_key=stage_key(planner, 'process_story'))
     plan = {**spec.architecture_plan, 'process_story': story}
     plan.pop('story_feedback', None)
     return replace(spec, architecture_plan=plan)

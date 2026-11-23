@@ -6,6 +6,7 @@ import json
 import os
 import re
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -175,6 +176,7 @@ def _native_request(model_id: str, prompt: str, max_tokens: int, temperature: fl
 
 
 from app.preview.cancellation import cancellable_call
+from app.core.generation_efficiency import prompt_blocks, observe_call, record
 
 
 class BedrockLLM:
@@ -281,6 +283,7 @@ class BedrockLLM:
             raise
 
     @cancellable_call
+    @observe_call
     def _generate_once(
         self,
         model_id: str,
@@ -291,6 +294,7 @@ class BedrockLLM:
         call_name: str,
         image_bytes: Optional[bytes] = None,
     ) -> BedrockTextResult:
+        started = time.monotonic()
         # Converse is provider-neutral. A native InvokeModel fallback keeps unit
         from app.preview.cancellation import check_cancelled
         check_cancelled()
@@ -300,14 +304,15 @@ class BedrockLLM:
             inference_config = {"maxTokens": int(max_tokens)}
             if _supports_temperature(model_id):
                 inference_config["temperature"] = float(temperature)
+            blocks, systems = prompt_blocks(model_id, prompt, getattr(self, "system_prompt", "") or "")
             request = {
                 "modelId": model_id,
-                "messages": [{"role": "user", "content": [{"text": prompt}]}],
+                "messages": [{"role": "user", "content": blocks}],
                 "inferenceConfig": inference_config,
             }
             system_prompt = getattr(self, 'system_prompt', None)
-            if system_prompt:
-                request['system'] = [{'text': system_prompt}]
+            if systems:
+                request['system'] = systems
             additional_fields = _additional_model_request_fields(model_id)
             if image_bytes:
                 request["messages"][0]["content"].append({
@@ -365,13 +370,19 @@ class BedrockLLM:
         text = _extract_text(payload)
         raw_path = _save_raw_output(call_name, text)
         input_tokens, output_tokens = _normalised_usage(payload)
+        cache_read = int(payload.get("usage", {}).get("cacheReadInputTokens", 0) or 0)
+        cache_write = int(payload.get("usage", {}).get("cacheWriteInputTokens", 0) or 0)
+        record({"stage": call_name, "model_id": model_id, "input_tokens": input_tokens,
+                "output_tokens": output_tokens, "cache_read_input_tokens": cache_read,
+                "cache_write_input_tokens": cache_write})
         stop_reason = _stop_reason(payload)
         if raw_path.is_file():
             raw_path.with_suffix('.metadata.json').write_text(json.dumps({
                 'call_name': call_name, 'model_id': model_id,
                 'requested_max_tokens': max_tokens, 'input_tokens': input_tokens,
                 'output_tokens': output_tokens, 'stop_reason': stop_reason,
-                'response_characters': len(text),
+                'response_characters': len(text), 'elapsed_seconds': round(time.monotonic() - started, 3),
+                'cache_read_input_tokens': cache_read, 'cache_write_input_tokens': cache_write,
             }, indent=2), encoding='utf-8')
 
         try:
@@ -380,6 +391,8 @@ class BedrockLLM:
                 {"usage": {
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
+                    "cache_read_input_tokens": cache_read,
+                    "cache_write_input_tokens": cache_write,
                 }},
                 call_name,
                 model_id=model_id,

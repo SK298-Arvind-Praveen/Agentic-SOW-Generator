@@ -88,7 +88,7 @@ def test_boundary_classification_uses_writer_model_and_surfaces_phase_evidence()
 
     assert captured["model_id"] == "writer"
     assert "Tata Neu is the default Phase 2" in captured["prompt"]
-    assert "Day 1 versus later scope" in captured["prompt"]
+    assert "A Phase N, Wave N or Release N label alone is sequencing" in captured["prompt"]
 
 
 def test_local_assignment_repair_reuses_one_supporting_module():
@@ -355,10 +355,10 @@ def test_capability_bucket_deliverables_trigger_consolidation():
         "modules": [{"name": name, "capability_ids": [f"CAP-{index:03d}"]}],
     } for index, name in enumerate(names, 1)]}
     issues = ScopeArchitectAgent._deliverable_fragmentation_issues(plan)
-    assert any("promoted to deliverables" in issue for issue in issues)
+    assert any("checklist rows" in issue for issue in issues)
 
 
-def test_two_sequenced_phases_require_distinct_customer_output_evidence():
+def test_two_source_backed_phases_are_not_treated_as_fragmented():
     plan = {"deliverables": [
         {
             "name": "Core Fashion and Luxury Platform",
@@ -373,7 +373,7 @@ def test_two_sequenced_phases_require_distinct_customer_output_evidence():
             "modules": [{"name": "Extensions", "capability_ids": ["CAP-002"]}],
         },
     ]}
-    assert ScopeArchitectAgent._deliverable_fragmentation_issues(plan)
+    assert ScopeArchitectAgent._deliverable_fragmentation_issues(plan) == []
 
 
 def test_lifecycle_rows_cannot_be_extra_deliverables_beside_two_phases():

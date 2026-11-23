@@ -44,6 +44,19 @@ from botocore.exceptions import ClientError
 load_dotenv(Path(__file__).resolve().parents[2] / "config" / ".env")
 
 
+def dynamodb_numbers(value):
+    """Convert nested floats at the write boundary without mutating preview data."""
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, dict):
+        return {key: dynamodb_numbers(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [dynamodb_numbers(item) for item in value]
+    if isinstance(value, set):
+        return {dynamodb_numbers(item) for item in value}
+    return value
+
+
 class DynamoDBHandlerOptimized:
     """Production-optimized DynamoDB handler with VERSION MANAGEMENT"""
 
@@ -563,12 +576,12 @@ class DynamoDBHandlerOptimized:
             print(f"\n💾 Saving to DynamoDB with version: {version}")
             if existing:
                 response = self.table.put_item(
-                    Item=item, ConditionExpression="#state = :draft AND #stamp = :stamp",
+                    Item=dynamodb_numbers(item), ConditionExpression="#state = :draft AND #stamp = :stamp",
                     ExpressionAttributeNames={"#state": "status", "#stamp": "timestamp"},
                     ExpressionAttributeValues={":draft": "draft", ":stamp": timestamp},
                 )
             else:
-                response = self.table.put_item(Item=item)
+                response = self.table.put_item(Item=dynamodb_numbers(item))
 
             print(f"✅ Document saved: {document_id}")
             print(f"   📦 Version: {version}")

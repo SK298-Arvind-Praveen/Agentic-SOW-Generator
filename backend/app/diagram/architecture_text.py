@@ -126,13 +126,17 @@ def _cell(value):
 
 def _zone_name(node):
     zone = str(node.get('availability_zone') or '').strip()
+    if not zone:
+        label_zone = re.search(r'\bAZ[ _-]+([a-z0-9]+)\s*$', str(node.get('label') or ''), re.I)
+        if label_zone:
+            zone = label_zone[1]
     match = re.fullmatch(r'(?:az[_ -]?)?([a-z0-9]+)', zone, re.I)
     return 'AZ ' + match[1].upper() if match else zone
 
 
 def _zone_neutral(value, node):
     """Normalize only this node's explicit zone, leaving purpose and other zones intact."""
-    zone = str(node.get('availability_zone') or '').strip()
+    zone = str(node.get('availability_zone') or _zone_name(node)).strip()
     if not zone:
         return ' '.join(str(value or '').split())
     match = re.fullmatch(r'(?:az[_ -]?)?([a-z0-9]+)', zone, re.I)
@@ -166,7 +170,7 @@ def _replica_partitions(spec, nodes, roles):
     for k, node in nodes.items():
         # Identical service names alone are insufficient: boundaries and both planned
         # and generated purposes must agree, and each member must occupy a different AZ.
-        signature = tuple(str(node.get(field) or '').casefold() for field in (
+        signature = tuple(_zone_neutral(node.get(field), node).casefold() for field in (
             'label', 'kind', 'icon_key', 'account', 'region', 'vpc', 'scope',
             'subnet', 'placement_role', 'deployment_role'))
         signature += tuple(_zone_neutral(value, node).casefold() for value in (
@@ -192,15 +196,11 @@ def _replica_partitions(spec, nodes, roles):
                     str(edge.get('operation_type') or 'unknown').casefold(),
                     str(edge.get('data_direction') or 'unknown').casefold(), edge.get('initiator')))
     # One traced app replica may carry ancillary paths omitted on its siblings.
-    # A shared scaling controller plus the same declared role establishes replica
-    # intent. Permit a strict typed-neighborhood subset only: differing operations
+    # Matching declared roles and deployment fields establish replica intent.
+    # Permit a strict typed-neighborhood subset only: differing operations
     # or different extra endpoints on both replicas still keep separate rows.
     for ids in candidates.values():
         if len(ids)<2 or any(k not in eligible for k in ids): continue
-        controllers = [{e.get('source') for e in spec.get('edges', []) if e.get('target')==k
-            and e.get('operation_type')=='control'
-            and 'auto-scaling' in nodes.get(e.get('source'),{}).get('icon_key','')} for k in ids]
-        if not set.intersection(*controllers): continue
         def normalized(k, item):
             direction,label,other,operation,data_direction,initiator=item
             def identity(peer):
@@ -208,8 +208,7 @@ def _replica_partitions(spec, nodes, roles):
             return direction,label,identity(other),operation,data_direction,identity(initiator)
         paths={k:{normalized(k,item) for item in adjacent[k]} for k in ids}
         shortest=min(paths.values(),key=len)
-        if (not any(item[3] in {'request','read','write'} for item in shortest)
-                or not all(shortest<=items for items in paths.values())): continue
+        if not all(shortest<=items for items in paths.values()): continue
         for k in ids:
             adjacent[k]=[item for item in adjacent[k] if normalized(k,item) in shortest]
     while True:
@@ -252,7 +251,8 @@ def _table_rows(spec, rows):
     for ids in groups.values():
         k = ids[0]
         if len(ids) > 1:
-            name = nodes[k]['label'] + ' — ' + ' & '.join(_zone_name(nodes[n]) for n in ids)
+            name = re.sub(r'\s*[—–-]?\s*\{zone\}\s*$', '', _zone_neutral(nodes[k]['label'], nodes[k])).strip()
+            name += ' — ' + ' & '.join(dict.fromkeys(_zone_name(nodes[n]) for n in ids))
             role = _replica_role(roles[k], nodes[k])
         else:
             name = names[k] + (f" ({k})" if duplicates[names[k]] > 1 else '')

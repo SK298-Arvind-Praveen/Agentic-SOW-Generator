@@ -461,3 +461,36 @@ Restart the backend and generate or regenerate the architecture after changing i
 The panel follows existing diagram connections; it does not add services or change
 the approved architecture. Numbers are placed beside connectors where space allows.
 
+## Generation efficiency
+
+The following switches in `backend/config/.env` default to enabled; worker counts
+and selected models are unchanged:
+
+```dotenv
+BEDROCK_PROMPT_CACHE_ENABLED=true
+BEDROCK_PROMPT_CACHE_TTL=5m
+SOW_STAGE_CACHE_ENABLED=true
+```
+
+Set TTL to `1h` for longer sessions (higher cache-write price), or disable explicit
+caching with `false`. Supported configured Sonnet 5.5, Haiku 4.5 and Opus 5.5
+profiles receive Converse checkpoints. Unknown profiles are left untouched.
+Cache hits depend on provider routing and TTL, and are measured rather than assumed.
+Writer checkpoints precede section-specific evidence; all source text is retained.
+Only an exact duplicate system-instruction prefix is removed from the user prompt.
+
+Validated service-design, process-story, composition and ordinary SOW-section
+results can be reused within the **same preview/run**. Entries expire after one
+hour, are memory-only (maximum 128), and are revalidated on reuse. Full prompt,
+model, system instructions and configuration changes invalidate reuse. No cross-user
+or cross-preview cache is used. Scope authoring, live research and pricing remain
+fresh; document-wide and image review checks still run. Layout-only revision retains
+the architecture and existing SOW content. Structured repairs retain the original
+contract plus only the latest failed candidate, not an expanding response history.
+
+Usage responses now include `stage_metrics` with model, calls, failures, elapsed
+seconds, local result-cache hits and input/output/cache-read/cache-write tokens.
+Existing input totals count ordinary input tokens; cached tokens are separate.
+Per-call debug metadata records cache usage and duration. Stage durations are summed
+call time, not end-to-end latency when existing workers overlap.
+

@@ -58,6 +58,8 @@ def _empty_token_usage():
         'total_output_tokens': 0,
         'total_tokens': 0,
         'api_calls': 0,
+        'cache_read_input_tokens': 0,
+        'cache_write_input_tokens': 0,
         'models': {},
     }
 
@@ -65,6 +67,8 @@ def _empty_token_usage():
 def start_token_usage(run_id: str) -> Token:
     """Start an isolated token bucket and bind it to the current execution context."""
     key = str(run_id or _DEFAULT_TOKEN_RUN)
+    from app.core.generation_efficiency import clear
+    clear(key)
     token = _token_usage_run.set(key)
     with _token_usage_lock:
         _token_usage_by_run[key] = _empty_token_usage()
@@ -88,6 +92,8 @@ def clear_token_usage(run_id: str) -> None:
     """Release a completed or failed generation bucket."""
     with _token_usage_lock:
         _token_usage_by_run.pop(str(run_id or _DEFAULT_TOKEN_RUN), None)
+    from app.core.generation_efficiency import clear
+    clear(str(run_id or _DEFAULT_TOKEN_RUN))
 
 
 def _section_progress_label(section_name: str) -> str:
@@ -120,6 +126,8 @@ def _track_tokens(
         usage_total['total_output_tokens'] += output_tokens
         usage_total['total_tokens'] += (input_tokens + output_tokens)
         usage_total['api_calls'] += 1
+        for key in ('cache_read_input_tokens', 'cache_write_input_tokens'):
+            usage_total[key] = usage_total.get(key, 0) + usage.get(key, 0)
         if model_id:
             usage_total['models'][model_id] = usage_total['models'].get(model_id, 0) + 1
     
@@ -130,11 +138,14 @@ def get_token_usage(run_id: str = None):
     key = str(run_id or _token_usage_run.get())
     with _token_usage_lock:
         usage = _token_usage_by_run.get(key) or _empty_token_usage()
-        return {**usage, 'models': dict(usage.get('models') or {})}
+        from app.core.generation_efficiency import metrics
+        return {**usage, 'models': dict(usage.get('models') or {}), 'stage_metrics': metrics(key)}
 
 def reset_token_usage(run_id: str = None):
     """Reset token usage counters"""
     key = str(run_id or _token_usage_run.get())
+    from app.core.generation_efficiency import clear
+    clear(key)
     with _token_usage_lock:
         _token_usage_by_run[key] = _empty_token_usage()
 
@@ -152,6 +163,8 @@ def print_token_summary(run_id: str = None, usage: dict = None):
         print("Calls by Model:")
         for model_id, calls in sorted(usage['models'].items()):
             print(f"  {calls:>3} × {model_id}")
+    for row in usage.get("stage_metrics", []):
+        print(f"  Stage {row['stage']}: {row['elapsed_seconds']:.1f}s; cache read={row['cache_read_input_tokens']:,}, write={row['cache_write_input_tokens']:,}; reused={row['result_cache_hits']}; failures={row['failures']}")
     print("="*70 + "\n")
 
 def _clean_final_content(text: str) -> str:
