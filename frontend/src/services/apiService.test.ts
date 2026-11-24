@@ -1,34 +1,47 @@
 import apiService from './apiService';
 
+it('trims preview names even when submitted without a blur event', async () => {
+  const request = jest.spyOn(apiService as any, 'authenticatedFetch')
+    .mockResolvedValue(new Response(JSON.stringify({ success: true, preview_id: 'trim-test' })));
+  try {
+    await apiService.generatePreview('  Arvind P  ', '  Example  Company  ', 'poc', 'scope', '  Project Name  ');
+    const body = request.mock.calls[0][1] as RequestInit;
+    const form = body.body as FormData;
+    expect(form.get('author_name')).toBe('Arvind P');
+    expect(form.get('company_name')).toBe('Example  Company');
+    expect(form.get('project_name')).toBe('Project Name');
+  } finally { request.mockRestore(); }
+});
+
 describe('authentication outage and session races', () => {
-  afterEach(() => { jest.restoreAllMocks(); localStorage.clear(); });
+  afterEach(() => { jest.restoreAllMocks(); localStorage.clear(); apiService.clearSession(); });
 
   it('keeps the session during identity-store outages', async () => {
-    localStorage.setItem('authToken', 'current');
+    apiService.setSessionCsrf('current');
     jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 503 }));
     await (apiService as any).authenticatedFetch('/api/preview/status/example');
-    expect(localStorage.getItem('authToken')).toBe('current');
+    expect((apiService as any).csrfToken).toBe('current');
   });
 
   it('ignores late unauthorized responses from a previous session', async () => {
-    localStorage.setItem('authToken', 'old');
+    apiService.setSessionCsrf('old');
     jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
-      localStorage.setItem('authToken', 'new');
+      apiService.setSessionCsrf('new');
       return new Response('{}', { status: 401 });
     });
     await (apiService as any).authenticatedFetch('/api/auth/me');
-    expect(localStorage.getItem('authToken')).toBe('new');
+    expect((apiService as any).csrfToken).toBe('new');
   });
 
   it('still clears an actually invalid current session', async () => {
-    localStorage.setItem('authToken', 'invalid');
+    apiService.setSessionCsrf('invalid');
     jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 401 }));
     await (apiService as any).authenticatedFetch('/api/auth/me');
-    expect(localStorage.getItem('authToken')).toBeNull();
+    expect((apiService as any).csrfToken).toBe('');
   });
 
   it('retries a transient pre-route auth failure and finalizes the same preview once', async () => {
-    localStorage.setItem('authToken', 'current');
+    apiService.setSessionCsrf('current');
     const delay = jest.spyOn(apiService as any, 'delay').mockResolvedValue(undefined);
     const fetchMock = jest.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(JSON.stringify({code:'AUTH_SERVICE_UNAVAILABLE',retryable:true}),
@@ -38,17 +51,17 @@ describe('authentication outage and session races', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(delay).toHaveBeenCalledWith(5000);
     expect(fetchMock.mock.calls[0][1]?.body).toEqual(fetchMock.mock.calls[1][1]?.body);
-    expect(localStorage.getItem('authToken')).toBe('current');
+    expect((apiService as any).csrfToken).toBe('current');
   });
 
   it('stops after one auth retry and retains the session and explanation', async () => {
-    localStorage.setItem('authToken', 'current');
+    apiService.setSessionCsrf('current');
     jest.spyOn(apiService as any, 'delay').mockResolvedValue(undefined);
     const fetchMock = jest.spyOn(globalThis, 'fetch').mockImplementation(async () =>
       new Response(JSON.stringify({code:'AUTH_SERVICE_UNAVAILABLE',error:'Sign-in temporarily unavailable',retryable:true}),{status:503}));
     expect(await apiService.finalizeSOW('p1')).toMatchObject({success:false,code:'AUTH_SERVICE_UNAVAILABLE'});
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(localStorage.getItem('authToken')).toBe('current');
+    expect((apiService as any).csrfToken).toBe('current');
   });
 
   it('does not retry a credential or permissions outage', async () => {
@@ -59,13 +72,13 @@ describe('authentication outage and session races', () => {
   });
 
   it('does not replay a request if the session changes during the retry delay', async () => {
-    localStorage.setItem('authToken','old');
-    jest.spyOn(apiService as any,'delay').mockImplementation(async () => localStorage.setItem('authToken','new'));
+    apiService.setSessionCsrf('old');
+    jest.spyOn(apiService as any,'delay').mockImplementation(async () => apiService.setSessionCsrf('new'));
     const fetchMock=jest.spyOn(globalThis,'fetch').mockResolvedValue(new Response(
       JSON.stringify({code:'AUTH_SERVICE_UNAVAILABLE',retryable:true}),{status:503}));
     await (apiService as any).authenticatedFetch('/api/finalize');
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem('authToken')).toBe('new');
+    expect((apiService as any).csrfToken).toBe('new');
   });
 
   it('retries the download auth check and returns the actual document bytes', async () => {
@@ -242,69 +255,25 @@ describe('preview draft transport', () => {
   });
 });
 
-describe('account registration transport', () => {
-  afterEach(() => jest.restoreAllMocks());
-
-  it('submits signup details to the public signup endpoint', async () => {
+describe('Google cookie session transport', () => {
+  afterEach(() => { jest.restoreAllMocks(); apiService.clearSession(); });
+  it('gets CSRF from the cookie session and sends it only on mutations', async () => {
     const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      success: true, message: 'Check your email',
-    }), { status: 201, headers: { 'Content-Type': 'application/json' } }));
-    await apiService.signup({
-      first_name: 'Asha', last_name: 'Rao', email: 'asha.rao@shellkode.com',
-      employee_id: 101, business_unit: 'Cloud', password: 'secret1', confirm_password: 'secret1',
-    });
-    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/auth/signup');
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
-      first_name: 'Asha', last_name: 'Rao', employee_id: 101, business_unit: 'Cloud',
-    });
+      success: true, user: {email:'user@shellkode.com'}, csrf_token:'csrf', business_units:[],
+    })));
+    await apiService.getCurrentUser();
+    await (apiService as any).authenticatedFetch('/api/example', {method:'POST', body:'data'});
+    expect(fetchMock.mock.calls[0][1]?.credentials).toBe('include');
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Authorization')).toBeNull();
+    expect(new Headers(fetchMock.mock.calls[1][1]?.headers).get('X-CSRF-Token')).toBe('csrf');
   });
-
-  it('posts the signed token to account verification', async () => {
-    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      success: true,
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
-    await apiService.verifyAccount('signed-token');
-    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/auth/verify');
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ token: 'signed-token' });
-  });
-
-  it('requests and completes password reset through public endpoints', async () => {
-    const fetchMock = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
-      success: true, message: 'Accepted',
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
-    await apiService.forgotPassword('asha@shellkode.com');
-    await apiService.resetPassword({
-      token: 'reset-token', password: 'secret1', confirm_password: 'secret1',
-    });
-    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/auth/forgot-password');
-    expect(String(fetchMock.mock.calls[1][0])).toContain('/api/auth/reset-password');
-  });
-
-  it('requests a password-change link through the authenticated endpoint', async () => {
-    localStorage.setItem('authToken', 'signed-session');
-    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      success: true, message: 'Password reset link sent to your email.',
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
-
-    await apiService.requestPasswordChange();
-
-    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/auth/change-password-request');
-    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Authorization')).toBe('Bearer signed-session');
-  });
-
-  it('refreshes the signed-in identity through the authenticated endpoint', async () => {
-    localStorage.setItem('authToken', 'signed-session');
-    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-      success: true,
-      user: { email: 'arvind.p@shellkode.com', role: 'USER', roles: ['USER'] },
-      business_units: ['GenAI'],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
-
-    const response = await apiService.getCurrentUser();
-
-    expect(response.user.role).toBe('USER');
-    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/auth/me');
-    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('Authorization')).toBe('Bearer signed-session');
+  it('logs out on the server before discarding the local session', async () => {
+    apiService.setSessionCsrf('csrf');
+    const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"success":true}'));
+    await apiService.logout();
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/auth/logout');
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).get('X-CSRF-Token')).toBe('csrf');
+    expect((apiService as any).csrfToken).toBe('');
   });
 });
 
@@ -322,7 +291,7 @@ describe('semantic SOW search transport', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it('requests semantic results for the signed-in user', async () => {
-    localStorage.setItem('authToken', 'signed-session');
+    apiService.setSessionCsrf('signed-session');
     const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       success: true,
       threshold: 50,
@@ -342,7 +311,7 @@ describe('semantic SOW search transport', () => {
   });
 
   it('starts the persistent semantic index warm-up', async () => {
-    localStorage.setItem('authToken', 'signed-session');
+    apiService.setSessionCsrf('signed-session');
     const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       success: true, status: 'running', remaining: 12,
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }));

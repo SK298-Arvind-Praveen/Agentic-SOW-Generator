@@ -467,3 +467,58 @@
   .auth-form-grid { grid-template-columns: 1fr; }
   .auth-span { grid-column: auto; }
 }
+
+/* Centered Google welcome screen; retain the ambient gradient above. */
+.login-container.login-centered {
+  min-height: 100vh;
+  min-height: 100dvh;
+  height: auto;
+  overflow: auto;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  box-sizing: border-box;
+}
+.login-welcome {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 566px;
+  text-align: center;
+}
+.login-welcome .login-brand { width: min(264px, 75%); }
+.login-welcome h1 {
+  margin: 32px 0 0;
+  color: var(--text-primary);
+  font-size: clamp(26px, 4vw, 34px);
+  font-weight: 700;
+  line-height: 1.25;
+}
+.login-intro {
+  margin: 36px 0 38px;
+  color: var(--text-muted);
+  font-size: clamp(18px, 2.8vw, 24px);
+  line-height: 1.5;
+}
+.google-login-button {
+  width: 100%;
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 16px 20px;
+  border: 0;
+  border-radius: 12px;
+  background: #00275a;
+  color: white;
+  font: inherit;
+  font-size: clamp(18px, 2.8vw, 24px);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+.google-login-button svg { flex-shrink: 0; }
+.google-login-button:hover:not(:disabled) { background: #003b7a; }
+.google-login-button:focus-visible { outline: 3px solid #00adef; outline-offset: 4px; }
+.google-login-button:disabled { opacity: .65; cursor: wait; }

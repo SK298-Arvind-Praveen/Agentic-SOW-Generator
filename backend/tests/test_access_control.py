@@ -259,35 +259,6 @@ class AccessControlTests(unittest.TestCase):
             ["2"],
         )
 
-    @patch.object(RBACStore, "get_user", return_value=None)
-    def test_sample_user_fallback_supports_admin_and_each_bu(self, _get_user):
-        with patch.dict(os.environ, {"ENABLE_SAMPLE_USERS": "true"}, clear=False):
-            store = RBACStore()
-            self.assertTrue(store.authenticate("admin@shellkode.com", SAMPLE_PASSWORD).is_admin)
-            self.assertEqual(store.authenticate("mlops@shellkode.com", SAMPLE_PASSWORD).business_unit, "MLOps")
-            self.assertTrue(store.authenticate("ananya.user@shellkode.com", SAMPLE_PASSWORD).is_user)
-            self.assertEqual(len(SAMPLE_USERS), 9)
-
-    def test_api_requires_and_accepts_a_signed_session(self):
-        from app.core import server
-
-        previous_testing = server.app.config.get("TESTING", False)
-        server.app.config["TESTING"] = False
-        identity = Identity("cloud@shellkode.com", "Cloud User", "CLOUD", "Cloud")
-        try:
-            client = server.app.test_client()
-            self.assertEqual(client.get("/api/auth/me").status_code, 401)
-            with patch.object(server.rbac_store, "authenticate", return_value=identity):
-                login = client.post("/api/auth/login", json={"email": identity.email, "password": "password"})
-            self.assertEqual(login.status_code, 200)
-            token = login.get_json()["token"]
-            with patch.object(server.rbac_store, "active_identity", return_value=identity):
-                me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
-            self.assertEqual(me.status_code, 200)
-            self.assertEqual(me.get_json()["user"]["business_unit"], "Cloud")
-        finally:
-            server.app.config["TESTING"] = previous_testing
-
     def test_user_management_endpoint_is_admin_only(self):
         from app.core import server
 
@@ -297,7 +268,7 @@ class AccessControlTests(unittest.TestCase):
         individual = Identity("ananya.user@shellkode.com", "Ananya", "USER", "GenAI")
         client = server.app.test_client()
         try:
-            with patch.object(server.rbac_store, "active_identity", return_value=individual):
+            with patch.object(server, "authenticate_session", return_value=individual):
                 response = client.get(
                     "/api/admin/users",
                     headers={"Authorization": f"Bearer {issue_token(individual)}"},
@@ -305,7 +276,7 @@ class AccessControlTests(unittest.TestCase):
             self.assertEqual(response.status_code, 403)
 
             with (
-                patch.object(server.rbac_store, "active_identity", return_value=admin),
+                patch.object(server, "authenticate_session", return_value=admin),
                 patch.object(server.rbac_store, "list_users", return_value=[admin.public_dict()]),
             ):
                 response = client.get(
@@ -317,110 +288,12 @@ class AccessControlTests(unittest.TestCase):
         finally:
             server.app.config["TESTING"] = previous_testing
 
-    def test_signup_combines_name_and_sends_verification_email(self):
-        from app.core import server
 
-        client = server.app.test_client()
-        pending_user = {
-            "email": "new.user@shellkode.com", "name": "New User", "role": "GENAI",
-            "roles": ["GENAI"], "business_unit": "GenAI", "business_units": ["GenAI"],
-            "status": "pending_verification",
-        }
-        with (
-            patch.object(server.rbac_store, "register_user", return_value=(pending_user, "nonce")) as register,
-            patch.object(server, "send_verification_email") as send,
-        ):
-            response = client.post("/api/auth/signup", json={
-                "first_name": "New", "last_name": "User", "email": "new.user@shellkode.com",
-                "employee_id": 100, "business_unit": "GenAI",
-                "password": "secret1", "confirm_password": "secret1",
-            })
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(register.call_args.kwargs["first_name"], "New")
-        send.assert_called_once()
 
-    def test_signup_rejects_password_mismatch_before_storage(self):
-        from app.core import server
 
-        with patch.object(server.rbac_store, "register_user") as register:
-            response = server.app.test_client().post("/api/auth/signup", json={
-                "password": "secret1", "confirm_password": "secret2",
-            })
-        self.assertEqual(response.status_code, 400)
-        register.assert_not_called()
 
-    def test_forgot_password_does_not_disclose_unknown_accounts(self):
-        from app.core import server
 
-        with patch.object(server.rbac_store, "begin_password_reset", return_value=None):
-            response = server.app.test_client().post(
-                "/api/auth/forgot-password", json={"email": "missing@shellkode.com"}
-            )
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("If an active account exists", response.get_json()["message"])
 
-    def test_forgot_password_sends_a_signed_single_use_challenge(self):
-        from app.core import server
-
-        with (
-            patch.object(
-                server.rbac_store, "begin_password_reset",
-                return_value=("asha@shellkode.com", "nonce"),
-            ),
-            patch.object(server, "send_password_reset_email") as send,
-        ):
-            response = server.app.test_client().post(
-                "/api/auth/forgot-password", json={"email": "asha@shellkode.com"}
-            )
-        self.assertEqual(response.status_code, 200)
-        send.assert_called_once()
-        self.assertEqual(send.call_args.args[0], "asha@shellkode.com")
-
-    def test_authenticated_password_change_uses_signed_in_email(self):
-        from app.core import server
-
-        previous_testing = server.app.config.get("TESTING", False)
-        server.app.config["TESTING"] = False
-        identity = Identity("person@shellkode.com", "Person", "USER", "GenAI")
-        try:
-            with (
-                patch.object(server.rbac_store, "active_identity", return_value=identity),
-                patch.object(
-                    server.rbac_store, "begin_password_reset",
-                    return_value=(identity.email, "nonce"),
-                ) as begin,
-                patch.object(server, "send_password_reset_email") as send,
-            ):
-                response = server.app.test_client().post(
-                    "/api/auth/change-password-request",
-                    headers={"Authorization": f"Bearer {issue_token(identity)}"},
-                )
-            self.assertEqual(response.status_code, 200)
-            begin.assert_called_once_with(identity.email)
-            self.assertEqual(send.call_args.args[0], identity.email)
-        finally:
-            server.app.config["TESTING"] = previous_testing
-
-    def test_password_change_request_requires_authentication(self):
-        from app.core import server
-
-        previous_testing = server.app.config.get("TESTING", False)
-        server.app.config["TESTING"] = False
-        try:
-            response = server.app.test_client().post("/api/auth/change-password-request")
-            self.assertEqual(response.status_code, 401)
-        finally:
-            server.app.config["TESTING"] = previous_testing
-
-    def test_reset_password_rejects_mismatched_confirmation_before_storage(self):
-        from app.core import server
-
-        with patch.object(server.rbac_store, "reset_password") as reset:
-            response = server.app.test_client().post("/api/auth/reset-password", json={
-                "token": "signed", "password": "secret1", "confirm_password": "secret2",
-            })
-        self.assertEqual(response.status_code, 400)
-        reset.assert_not_called()
 
     def test_user_role_cannot_open_account_apis(self):
         from app.core import server
@@ -429,7 +302,7 @@ class AccessControlTests(unittest.TestCase):
         server.app.config["TESTING"] = False
         individual = Identity("person@shellkode.com", "Person", "USER", "GenAI")
         try:
-            with patch.object(server.rbac_store, "active_identity", return_value=individual):
+            with patch.object(server, "authenticate_session", return_value=individual):
                 response = server.app.test_client().get(
                     "/api/accounts", headers={"Authorization": f"Bearer {issue_token(individual)}"},
                 )
@@ -443,6 +316,9 @@ class AccessControlTests(unittest.TestCase):
 
         previous_testing = server.app.config.get("TESTING", False)
         server.app.config["TESTING"] = True
+        bypass = patch.dict(server.app.config, {"TEST_AUTH_BYPASS": True})
+        bypass.start()
+        self.addCleanup(bypass.stop)
         handler = MagicMock()
         handler.list_all_documents.return_value = [
             {
@@ -474,6 +350,9 @@ class AccessControlTests(unittest.TestCase):
 
         previous_testing = server.app.config.get("TESTING", False)
         server.app.config["TESTING"] = True
+        bypass = patch.dict(server.app.config, {"TEST_AUTH_BYPASS": True})
+        bypass.start()
+        self.addCleanup(bypass.stop)
         handler = MagicMock()
         handler.get_document_by_id.return_value = {
             "document_id": "doc-1", "timestamp": "2026-09-22T10:00:00", "s3_url": "",
@@ -496,3 +375,36 @@ class AccessControlTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GoogleOnlyApiTests(unittest.TestCase):
+    def test_legacy_routes_are_gone_without_storage_or_email(self):
+        from app.core import server
+        from app.core.google_auth import LEGACY_AUTH_PATHS
+        with patch.object(server.rbac_store, "authenticate") as auth, patch.object(server.rbac_store, "register_user") as register:
+            for path in LEGACY_AUTH_PATHS:
+                with self.subTest(path=path):
+                    result = server.app.test_client().post(path, json={"password": "irrelevant"})
+                    self.assertEqual(result.status_code, 410)
+            auth.assert_not_called()
+            register.assert_not_called()
+
+    def test_testing_alone_and_legacy_bearer_do_not_authenticate(self):
+        from app.core import server
+        with patch.dict(server.app.config, {"TESTING": True, "TEST_AUTH_BYPASS": False}):
+            client = server.app.test_client()
+            self.assertEqual(client.get('/api/auth/me').status_code, 401)
+            token = issue_token(Identity('admin@shellkode.com', 'Admin', 'ADMIN'))
+            self.assertEqual(client.get('/api/auth/me', headers={'Authorization': 'Bearer ' + token}).status_code, 401)
+
+    def test_auth_me_exposes_csrf_but_no_bearer_token(self):
+        from flask import g
+        from app.core import server
+        def session(_store):
+            g.auth_session = {'csrf_token': 'csrf'}
+            return Identity('a@shellkode.com', 'A', 'USER')
+        with patch.object(server, 'authenticate_session', side_effect=session), patch.dict(server.app.config, {'TEST_AUTH_BYPASS': False}):
+            response = server.app.test_client().get('/api/auth/me')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['csrf_token'], 'csrf')
+        self.assertNotIn('token', response.json)

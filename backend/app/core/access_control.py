@@ -229,10 +229,6 @@ class RBACStore:
                 self._migrate_self_signup_role(user)
                 return self._identity_from_item(user)
 
-        if os.getenv("ENABLE_SAMPLE_USERS", "false").casefold() == "true":
-            sample = SAMPLE_USERS.get(email)
-            if sample and password == SAMPLE_PASSWORD:
-                return Identity(email=email, roles=(sample["role"],), **sample)
         return None
 
     def active_identity(self, email: str) -> Optional[Identity]:
@@ -244,11 +240,53 @@ class RBACStore:
                 return None
             self._migrate_self_signup_role(user)
             return self._identity_from_item(user)
-        if os.getenv("ENABLE_SAMPLE_USERS", "false").casefold() == "true":
-            sample = SAMPLE_USERS.get(email)
-            if sample:
-                return Identity(email=email, roles=(sample["role"],), **sample)
         return None
+
+    def google_identity(self, email: str, subject: str, name: str) -> Identity:
+        """Link a verified Workspace identity without overwriting existing privileges.
+
+        Conditional writes prevent concurrent sign-ins from replacing a subject or
+        resetting administrator-managed profile data. A subject reservation also
+        prevents a renamed Google account silently acquiring a second profile.
+        """
+        email = self._normalise_shellkode_email(email)
+        user = self.get_user(email)
+        if user and (user.get('status', 'active') != 'active'
+                     or user.get('google_sub') not in (None, subject)):
+            raise ValueError('GOOGLE_IDENTITY_REJECTED')
+        try:
+            self.table.put_item(
+                Item={'PK': f'GOOGLE#{subject}', 'SK': 'IDENTITY', 'email': email},
+                ConditionExpression='attribute_not_exists(PK) OR email = :email',
+                ExpressionAttributeValues={':email': email},
+            )
+            if not user:
+                self.table.put_item(Item={
+                    'PK': f'USER#{email}', 'SK': 'PROFILE', 'email': email,
+                    'name': name, 'role': 'USER', 'roles': ['USER'],
+                    'business_units': [], 'status': 'active', 'email_verified': True,
+                    'google_sub': subject, 'auth_provider': 'google',
+                    'created_at': datetime.now(timezone.utc).isoformat(),
+                    'updated_by': 'google-signin',
+                }, ConditionExpression='attribute_not_exists(PK)')
+            else:
+                self.table.update_item(
+                    Key={'PK': f'USER#{email}', 'SK': 'PROFILE'},
+                    UpdateExpression='SET google_sub = :sub, auth_provider = :provider, email_verified = :verified',
+                    ConditionExpression='attribute_exists(PK) AND (attribute_not_exists(#status) OR #status = :active) AND (attribute_not_exists(google_sub) OR google_sub = :sub)',
+                    ExpressionAttributeNames={'#status': 'status'},
+                    ExpressionAttributeValues={':sub': subject, ':provider': 'google', ':verified': True, ':active': 'active'},
+                )
+        except ClientError as exc:
+            if exc.response['Error']['Code'] == 'ConditionalCheckFailedException':
+                raise ValueError('GOOGLE_IDENTITY_REJECTED') from exc
+            raise AuthServiceUnavailable() from exc
+        except BotoCoreError as exc:
+            raise AuthServiceUnavailable() from exc
+        user = self.get_user(email)
+        if not user or user.get('status', 'active') != 'active' or user.get('google_sub') != subject:
+            raise ValueError('GOOGLE_IDENTITY_REJECTED')
+        return self._identity_from_item(user)
 
     def _migrate_self_signup_role(self, item: Dict[str, Any]) -> None:
         """Persist the corrected USER role for records created by the old signup flow."""

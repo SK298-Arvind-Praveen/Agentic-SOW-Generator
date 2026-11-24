@@ -27,8 +27,13 @@ at the opposite edge of the canvas. External nodes are aligned with their peers.
 Controls are packed separately below the workload. Do not include them in grids.
 Boundaries are fixed by the architect. Do not invent VPCs, AZs, services or arrows.
 No titles, legends, prose, feature boxes or colored category containers.
-Choose placement by the complete graph, including feedback/request edges. Avoid
-page-wide return arrows, crossings and long loops. Service names remain unchanged.
+Choose placement by the complete graph, including feedback/request edges.
+Use the supplied workflows to identify the main user-to-outcome spine BEFORE
+placing dependencies or routing. Put consecutive stages next to one another,
+then place each store/tool/identity provider beside its actual caller. Workflow
+text cannot create edges or override boundaries. Choose compact rows before
+considering detours; never stretch a connector to compensate for poor placement.
+Avoid page-wide return arrows, crossings and long loops. Service names remain unchanged.
 Start with starting_composition; return it unchanged if it already reads clearly.
 Build the composition container-first: arrange Region/VPC/AZ/subnet siblings,
 then their workloads. Align peer AZ columns and corresponding subnet tiers when
@@ -116,7 +121,8 @@ def validate_composition(value, graph):
 
 def composition_context(spec, config):
     graph = tree_for(spec, config)
-    return {'containers': {k:v for k,v in hierarchy(graph).items()
+    return {'workflows': (spec.architecture_plan.get('service_design') or {}).get('workflows', []),
+            'containers': {k:v for k,v in hierarchy(graph).items()
                           if k != 'root' and not k.startswith('__shared_controls')},
             'external_ids':[c['id'] for c in graph['children'] if 'children' not in c],
             'nodes': [{'id': n.id, 'service': n.label, 'scope': n.scope,

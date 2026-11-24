@@ -33,6 +33,11 @@ class S3LocationTests(unittest.TestCase):
 
 
 class S3ProxyDownloadTests(unittest.TestCase):
+    def setUp(self):
+        from app.core import server
+        config = patch.dict(server.app.config, {"TESTING": True, "TEST_AUTH_BYPASS": True})
+        config.start()
+        self.addCleanup(config.stop)
     @staticmethod
     def _s3_response():
         return {
@@ -60,6 +65,7 @@ class S3ProxyDownloadTests(unittest.TestCase):
             ):
                 response = server.app.test_client().post(
                     "/api/proxy-download",
+                    headers={"Origin": server.frontend_origin()},
                     json={
                         "s3_url": (
                             "https://test-bucket.s3.amazonaws.com/"
@@ -71,6 +77,8 @@ class S3ProxyDownloadTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, b"private document bytes")
+        self.assertEqual(response.headers['Access-Control-Allow-Origin'], server.frontend_origin())
+        self.assertEqual(response.headers['Access-Control-Allow-Credentials'], 'true')
         self.assertEqual(
             response.headers["Content-Disposition"],
             'attachment; filename="example.docx"',
@@ -97,6 +105,7 @@ class S3ProxyDownloadTests(unittest.TestCase):
             ):
                 response = server.app.test_client().post(
                     "/api/proxy-download",
+                    headers={"Origin": server.frontend_origin()},
                     json={"s3_url": s3_url, "document_id": "today-1"},
                 )
             server.app.config["TESTING"] = False
@@ -124,6 +133,7 @@ class S3ProxyDownloadTests(unittest.TestCase):
             ):
                 response = server.app.test_client().post(
                     "/api/proxy-download",
+                    headers={"Origin": server.frontend_origin()},
                     json={"s3_url": s3_url},
                 )
             server.app.config["TESTING"] = False

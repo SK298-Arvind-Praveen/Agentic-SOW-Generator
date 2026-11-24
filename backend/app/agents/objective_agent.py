@@ -117,6 +117,8 @@ class ObjectiveAgent:
 
         if extractions:
             requirements = merge_requirement_extractions(extractions)
+            requirements['_requirement_ledger_complete'] = all(
+                item.get('_requirement_ledger_complete') is True for item in extractions)
             print(f"✅ ObjectiveAgent: merged {len(extractions)}/{len(chunks)} complete-document analyses")
         else:
             raise RuntimeError("Objective analysis returned no valid JSON; generation halted")
@@ -133,6 +135,10 @@ class ObjectiveAgent:
         )
         if objective:
             requirements["_generation_guidance"] = objective
+        from app.core.solution_definition import prepare_requirement_ledger, materialize_requirement_facts
+        requirements['requirement_ledger'] = prepare_requirement_ledger(
+            requirements.get('requirement_ledger'), supporting_context or objective)
+        requirements = materialize_requirement_facts(requirements)
 
         # ✅ NEW: Override UI detection if negative context is present
         negative_indicators = [
@@ -172,14 +178,27 @@ class ObjectiveAgent:
         result = self.llm.generate(
             prompt,
             task="analysis",
-            # This is a factual inventory, not prose. The allowance remains
-            # ample for a verbose BRD without inviting essay-length JSON.
-            max_tokens=min(12000, int(getattr(self.config, "MAX_TOKENS", 12000))),
+            # The source ledger now belongs here. Real BRDs exceeded the old
+            # 12k allowance and paid for a full expanded retry. Headroom is not
+            # a requested output length; concision rules still apply.
+            max_tokens=max(24000, int(getattr(self.config, "MAX_TOKENS", 12000))),
             temperature=getattr(self.config, "TEMPERATURE", 0.2),
             call_name=f"Objective Analysis {index}/{total}",
             fallback_model_id=getattr(self.config, "WRITER_MODEL_ID", None),
         )
-        return self._parse_json(result.text)
+        parsed = self._parse_json(result.text)
+        if not parsed:
+            return {}
+        # Recovered partial JSON remains usable, but cannot activate ID-only
+        # architecture planning against a potentially incomplete inventory.
+        try:
+            raw = re.sub(r'^```(?:json)?\s*|\s*```$', '', result.text.strip(), flags=re.I)
+            whole = json.loads(raw)
+            complete = isinstance(whole, dict) and bool(whole.get('requirement_ledger'))
+        except (ValueError, TypeError):
+            complete = False
+        parsed['_requirement_ledger_complete'] = complete
+        return parsed
 
     @staticmethod
     def _parse_json(content: str) -> Dict[str, Any]:
@@ -367,6 +386,22 @@ Do not convert casual guidance into an unstated customer fact."""
         )
 
         return f"""You are the requirements analyst for a professional AWS Statement of Work.
+
+Also include requirement_ledger: one row per explicit functional/nonfunctional
+requirement and release boundary, including exclusions. Each row has requirement,
+source_quote (one short continuous verbatim source excerpt), disposition
+(included|deferred|excluded), release and decision_reason. Retain exact thresholds,
+fields and roles. Use a short requirement title (not a paraphrase of the quote).
+Include decision_reason only for deferred/excluded rows or source conflicts.
+Include category: functional|nonfunctional|security|performance|integration.
+Do not repeat ledger facts in functional_requirements, non_functional_requirements,
+security_requirements, performance_requirements or integration_details: return
+those arrays empty when the ledger covers them; code fills them from the verified
+citations. Do not repeat quotes elsewhere merely to populate optional fields.
+Only defer/exclude on source or user direction, never on POC
+mode, complexity or missing details. Group duplicates, not distinct acceptance
+conditions. Do not generate IDs, source offsets, service choices or estimates in
+this ledger; code assigns stable IDs after merging all evidence chunks.
 
 {source_intro}
 

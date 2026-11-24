@@ -22,7 +22,26 @@ def semantic_acceptance(asset):
         and not review.get('unresolved_architecture') and not review.get('issues'))
 
 
-def structured_retry(call, prompt, validate, *, attempts=3, deadline=None, cache_key=None):
+def _merge_repair(base, patch, allowed_fields=()):
+    if not isinstance(patch, dict) or not patch or any(k not in base and k not in allowed_fields for k in patch):
+        raise ValueError('Repair must update existing contract fields')
+    result = copy.deepcopy(base)
+    for key, value in patch.items():
+        old = result.get(key)
+        if isinstance(old, list) and old and all(isinstance(r, dict) and r.get('id') for r in old):
+            if not isinstance(value, list) or any(not isinstance(r, dict) or not r.get('id') for r in value):
+                raise ValueError('ID-based repair requires complete rows with IDs')
+            ids = [r['id'] for r in value]
+            if len(set(ids)) != len(ids):
+                raise ValueError('Duplicate IDs in repair')
+            replacements = {r['id']: r for r in value}
+            result[key] = [replacements.pop(r['id'], r) for r in old] + list(replacements.values())
+        else:
+            result[key] = value
+    return result
+
+
+def structured_retry(call, prompt, validate, *, attempts=3, deadline=None, cache_key=None, targeted_repair=False, repair_fields=()):
     """Retry the exact contract, never accept malformed patches or invent a graph."""
     from app.diagram.service import _extract_json
     from app.core.bedrock_llm import BedrockOutputTruncatedError
@@ -44,6 +63,8 @@ def structured_retry(call, prompt, validate, *, attempts=3, deadline=None, cache
             except (ValueError, TypeError, KeyError, IndexError):
                 pass  # The current validator remains authoritative.
     last = None
+    candidate = None
+    patch_requested = False
     for attempt in range(attempts):
         if deadline is not None and deadline - time.monotonic() < 5:
             break
@@ -69,16 +90,29 @@ def structured_retry(call, prompt, validate, *, attempts=3, deadline=None, cache
             continue
         try:
             parsed = _extract_json(raw)
+            if patch_requested and 'patch' in parsed:
+                parsed = _merge_repair(candidate, parsed['patch'], repair_fields)
+            candidate = copy.deepcopy(parsed)
             result = validate(copy.deepcopy(parsed))
             if key: stage_cache.put(run, key, parsed)
             return result
         except (ValueError, TypeError, KeyError, IndexError) as exc:
             last = exc
             print(f'[DIAGRAM][STRUCTURE] attempt={attempt + 1}; rejected={exc}', flush=True)
+            if targeted_repair and candidate is not None and not patch_requested:
+                patch_requested = True
+                prompt = original_prompt + ('\nValidation failed: ' + str(exc)
+                    + '\nReturn only {"patch":{changed_field: corrected_value}}. '
+                    'For arrays of objects with IDs return ONLY complete changed/new rows; unchanged IDs are retained. '
+                    'For other fields return the corrected field value. Do not remove requirements or services. '
+                    'The merged object will pass the same full validation.\nCURRENT JSON:\n'
+                    + json.dumps(candidate, ensure_ascii=False))
+                continue
+            patch_requested = False
             prompt = original_prompt + ('\nYour previous response failed validation: ' + str(exc)
                        + '\nReturn the COMPLETE corrected JSON object using exactly the specified schema. '
                        'Preserve graph membership and all connections. No Markdown.\nREJECTED JSON:\n'
-                       + str(raw))
+                       + (json.dumps(candidate, ensure_ascii=False) if candidate is not None else str(raw)))
     raise ValueError(f'Structured diagram response could not be validated: {last}')
 
 

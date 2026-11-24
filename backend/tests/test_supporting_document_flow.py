@@ -235,6 +235,15 @@ class SupportingDocumentFlowTests(unittest.TestCase):
         self.assertTrue(result["metadata"]["ui_required"])
         self.assertTrue(result["analyzed_requirements"]["ui_required"])
 
+    def test_browser_based_review_does_not_require_ui_keyword(self):
+        with patch('app.core.nodes.ObjectiveAgent') as agent:
+            agent.return_value.analyze_objective.return_value = {
+                'ui_required': True, 'key_deliverables':['Browser review']}
+            agent.return_value.evaluate_input_quality.return_value = {'accepted':True}
+            result = analyze_objective_node({'objective':'', 'metadata':{},
+                'supporting_context':'A reviewer opens a browser, selects checks and corrects PDF findings.'})
+        self.assertTrue(result['analyzed_requirements']['ui_required'])
+
     def test_objective_quality_gate_rejects_unrelated_input_without_evidence(self):
         result = ObjectiveAgent.evaluate_input_quality({
             "input_assessment": {

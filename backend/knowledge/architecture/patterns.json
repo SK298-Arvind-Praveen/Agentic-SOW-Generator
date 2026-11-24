@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "library_version": "2026-11-10.1",
+  "library_version": "2026-11-23.1",
   "patterns": [
     {
       "id": "private-batch-call-analytics",
@@ -406,22 +406,35 @@
     },
     {
       "id": "agent-runtime",
-      "title": "Tool-using agent runtime",
+      "title": "AgentCore runtime and Strands specialist-agent orchestration",
       "source_url": "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/what-is-bedrock-agentcore.html",
       "published": null,
-      "reviewed_on": "2026-10-12",
+      "reviewed_on": "2026-11-23",
       "review_type": "source_text",
       "historical": false,
       "triggers": [
         "agentcore",
         "tool using agent",
         "agent tools",
-        "agentic workflow"
+        "agentic workflow",
+        "specialist agents",
+        "semantic completeness",
+        "cross-reference assessment",
+        "multi-agent review"
       ],
-      "use_when": "An agent invokes permitted tools through a selected runtime.",
-      "avoid": "Do not replace an agreed runtime or add every AgentCore capability.",
-      "flow": "Caller → agent runtime; runtime invokes model and authorized tools; tool results return to the runtime.",
-      "layout": "Model and tools are runtime dependencies, not a fabricated serial chain; memory and gateways are optional.",
+      "use_when": "Work requires specialist reasoning, tool use, delegated review, semantic assessment or iterative reconciliation. A fixed outer sequence can contain reasoning agents; dynamic routing and conversational memory are not prerequisites for evaluating an agent framework. Evaluate from behaviour even when no product is named.",
+      "avoid": "Do not reject agent architecture solely because checks execute in a known order. Do not add agents solely because the project title says agentic. Keep exact parsing, arithmetic and deterministic rules in ordinary tools. Do not replace an agreed runtime or add every AgentCore capability.",
+      "flow": "Caller or durable job workflow → Strands coordinator/specialist agents hosted on AgentCore Runtime → Bedrock inference and permitted document/API tools → aggregated evidence and human review. Deterministic orchestration may surround the agent step.",
+      "layout": "Place coordinator/runtime on the main review path, specialist logical roles within that workload, and models/tools beside it. Place results and review beside the runtime. Strands is a framework label, not a separately billed AWS service. Memory and Gateway are conditional, not mandatory.",
+      "service_choices": [
+        "Compare Strands Agents on Amazon Bedrock AgentCore Runtime with direct Bedrock calls in Lambda or a fixed Step Functions workflow. Explain whether specialist reasoning is needed, not only whether routing is dynamic.",
+        "For document QA, separate deterministic TOC/orientation checks from reasoning about semantic completeness and cross-document consistency; evaluate specialist agents for the latter without forcing an agent onto every check.",
+        "AgentCore is a hosting/runtime choice, Strands a framework, Bedrock an inference provider, and Lambda a possible tool implementation. These can coexist; they are not interchangeable products."
+      ],
+      "relationship_checks": [
+        "Show the actual invoking runtime and permitted tools, evidence aggregation and any human approval. Do not depict a model invocation alone as specialist-agent orchestration.",
+        "If selecting a fixed workflow instead, give a source-grounded explanation of why each reasoning capability can be handled by bounded inference or deterministic code. Unknown requirements remain open decisions."
+      ],
       "anchors": [
         "Runtime",
         "Gateway"

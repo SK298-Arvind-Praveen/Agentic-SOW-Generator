@@ -135,31 +135,54 @@ export interface ManagedUser {
 }
 
 class APIService {
+  private csrfToken = '';
+  private sessionEpoch = 0;
+
+  setSessionCsrf(token: string): void {
+    if (token !== this.csrfToken) this.sessionEpoch += 1;
+    this.csrfToken = token;
+  }
+
+  clearSession(): void {
+    this.sessionEpoch += 1;
+    this.csrfToken = '';
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('authUser');
+  }
+
+  googleSignInUrl(): string {
+    return `${API_CONFIG.BASE_URL}/api/auth/google/start`;
+  }
+
+  async logout(): Promise<void> {
+    await this.makeRequest('/api/auth/logout', 'POST');
+    this.clearSession();
+  }
+
   private async authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-    const token = localStorage.getItem('authToken');
+    const epoch = this.sessionEpoch;
     const headers = new Headers(init.headers || {});
-    if (token) headers.set('Authorization', `Bearer ${token}`);
-    let response = await globalThis.fetch(input, { ...init, headers });
-    // This exact response is emitted before a protected route executes. One
-    // replay is safe even for finalize: it cannot create a duplicate document.
-    // Never replay arbitrary 503s or a consumed Request body.
+    const method = (init.method || 'GET').toUpperCase();
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && this.csrfToken) {
+      headers.set('X-CSRF-Token', this.csrfToken);
+    }
+    const options: RequestInit = { ...init, credentials: 'include', headers };
+    let response = await globalThis.fetch(input, options);
+    // Retry only the known pre-route identity-store outage, never an arbitrary
+    // mutation failure. A session change prevents a stale request from replaying.
     if (response.status === 503 && !(input instanceof Request)) {
       const outage = await response.clone().json().catch(() => null);
       if (outage?.code === 'AUTH_SERVICE_UNAVAILABLE' && outage.retryable !== false
-          && token === localStorage.getItem('authToken') && !init.signal?.aborted) {
+          && epoch === this.sessionEpoch && !init.signal?.aborted) {
         const seconds = Number(response.headers.get('Retry-After') || '5');
         await this.delay(Number.isFinite(seconds) ? Math.min(10000, Math.max(1000, seconds * 1000)) : 5000);
-        if (token === localStorage.getItem('authToken') && !init.signal?.aborted) {
-          response = await globalThis.fetch(input, { ...init, headers });
+        if (epoch === this.sessionEpoch && !init.signal?.aborted) {
+          response = await globalThis.fetch(input, options);
         }
       }
     }
-    // A late response from an older session must not log out a new login.
-    // Network failures and service outages (503) never invalidate credentials.
-    if (response.status === 401 && token && token === localStorage.getItem('authToken')
-        && !String(input).includes('/api/auth/login')) {
-      localStorage.removeItem('authToken');
-      localStorage.removeItem('authUser');
+    if (response.status === 401 && epoch === this.sessionEpoch) {
+      this.clearSession();
       window.dispatchEvent(new Event('sow-auth-expired'));
     }
     return response;
@@ -193,83 +216,13 @@ class APIService {
     return this.makeRequest(`/api/custom-templates/${encodeURIComponent(templateId)}`, 'DELETE');
   }
 
-  async login(email: string, password: string): Promise<any> {
-    const response = await this.authenticatedFetch(`${API_CONFIG.BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Unable to sign in');
-    return data;
-  }
-
-  async signup(data: {
-    first_name: string; last_name: string; email: string; employee_id: number;
-    business_unit: string; password: string; confirm_password: string;
-  }): Promise<any> {
-    const response = await globalThis.fetch(`${API_CONFIG.BASE_URL}/api/auth/signup`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
-    });
-    const payload = await response.json();
-    if (!response.ok) {
-      const error = new Error(payload.error || 'Unable to create account') as Error & {
-        verificationAttempted?: boolean;
-      };
-      error.verificationAttempted = Boolean(payload.verification_attempted);
-      throw error;
-    }
-    return payload;
-  }
-
-  async verifyAccount(token: string): Promise<any> {
-    const response = await globalThis.fetch(`${API_CONFIG.BASE_URL}/api/auth/verify`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Unable to verify account');
-    return payload;
-  }
-
-  async resendVerification(email: string): Promise<any> {
-    const response = await globalThis.fetch(`${API_CONFIG.BASE_URL}/api/auth/resend-verification`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Unable to resend verification');
-    return payload;
-  }
-
-  async forgotPassword(email: string): Promise<any> {
-    const response = await globalThis.fetch(`${API_CONFIG.BASE_URL}/api/auth/forgot-password`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Unable to request a password reset');
-    return payload;
-  }
-
-  async requestPasswordChange(): Promise<{ success: boolean; message: string }> {
-    return this.makeRequest('/api/auth/change-password-request', 'POST') as Promise<{
-      success: boolean; message: string;
-    }>;
-  }
-
-  async getCurrentUser(): Promise<{ success: boolean; user: any; business_units: string[] }> {
-    return this.makeRequest('/api/auth/me', 'GET') as Promise<{
-      success: boolean; user: any; business_units: string[];
-    }>;
-  }
-
-  async resetPassword(data: {
-    token: string; password: string; confirm_password: string;
-  }): Promise<any> {
-    const response = await globalThis.fetch(`${API_CONFIG.BASE_URL}/api/auth/reset-password`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Unable to reset password');
-    return payload;
+  async getCurrentUser(): Promise<{ success: boolean; user: any; business_units: string[]; csrf_token: string }> {
+    const epoch = this.sessionEpoch;
+    const result = await this.makeRequest('/api/auth/me', 'GET') as {
+      success: boolean; user: any; business_units: string[]; csrf_token: string;
+    };
+    if (epoch === this.sessionEpoch && result.user && result.csrf_token) this.setSessionCsrf(result.csrf_token);
+    return result;
   }
 
   async fetchManagedUsers(): Promise<{ success: boolean; users: ManagedUser[]; business_units: string[] }> {
@@ -282,7 +235,6 @@ class APIService {
     role: ManagedUser['role'];
     roles?: ManagedUser['roles'];
     business_unit?: string | null;
-    password: string;
     employee_id?: number;
   }): Promise<{ success: boolean; user: ManagedUser }> {
     return this.makeRequest('/api/admin/users', 'POST', data) as Promise<{ success: boolean; user: ManagedUser }>;
@@ -594,11 +546,11 @@ class APIService {
     const apiMode = this.mapModeToAPI(mode);
 
     const requestData: GenerateSOWRequest = {
-      author_name: authorName,
-      company_name: companyName,
+      author_name: authorName.trim(),
+      company_name: companyName.trim(),
       mode: apiMode,
       objective: objective,
-      project_name: projectName
+      project_name: projectName.trim()
     };
 
 
@@ -799,11 +751,11 @@ class APIService {
       // POC and Production modes — send as FormData fields with optional supporting docs
       const formData = new FormData();
       if (reservedPreviewId) formData.append('reserved_preview_id', reservedPreviewId);
-      formData.append('author_name', authorName);
-      formData.append('company_name', companyName);
+      formData.append('author_name', authorName.trim());
+      formData.append('company_name', companyName.trim());
       formData.append('mode', apiMode);
       formData.append('additional_details', additionalDetails);
-      formData.append('project_name', projectName);
+      formData.append('project_name', projectName.trim());
       formData.append('selected_sow_sections', JSON.stringify(selectedSowSections || []));
       if (customTemplateId) formData.append('custom_template_id', customTemplateId);
       if (businessUnit) formData.append('business_unit', businessUnit);

@@ -21,8 +21,9 @@ interface AuthContextType {
   isAdmin: boolean;
   isIndividualUser: boolean;
   canAccessAccounts: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  logout: () => void;
+  isLoading: boolean;
+  sessionError: string;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -47,78 +48,52 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       : value.business_unit ? [value.business_unit] : [],
     });
   };
-  const [user, setUser] = useState<AuthUser | null>(() => {
-    try {
-      const stored = localStorage.getItem('authUser');
-      return stored ? normaliseUser(JSON.parse(stored)) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [sessionError, setSessionError] = useState('');
   const authenticatedEmail = user?.email;
 
-  const logout = () => {
+  const logout = async () => {
+    await apiService.logout();
     setUser(null);
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('authUser');
   };
 
   useEffect(() => {
-    const expired = () => logout();
+    const expired = () => setUser(null);
     window.addEventListener('sow-auth-expired', expired);
     return () => window.removeEventListener('sow-auth-expired', expired);
   }, []);
 
   useEffect(() => {
-    if (!localStorage.getItem('authToken')) return;
+    // Retire credentials left by the old password login; trust only the server.
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('authUser');
     let active = true;
-    apiService.getCurrentUser()
-      .then((response) => {
-        if (!active || !response.user) return;
-        const refreshedUser = normaliseUser(response.user);
-        localStorage.setItem('authUser', JSON.stringify(refreshedUser));
-        setUser(refreshedUser);
-      })
-      .catch(() => {
-        // authenticatedFetch emits sow-auth-expired for invalid sessions.
-      });
+    apiService.getCurrentUser().then(response => {
+      if (active && response.user) setUser(normaliseUser(response.user));
+    }).catch(error => {
+      if (active && !/Authentication required|Session expired|Invalid session|inactive|no longer exists/i.test(error?.message || '')) {
+        setSessionError('Unable to check your session. You can try signing in again.');
+      }
+    }).finally(() => { if (active) setIsLoading(false); });
     return () => { active = false; };
   }, []);
 
   useEffect(() => {
-    if (!authenticatedEmail || !localStorage.getItem('authToken')) return;
-    // Non-blocking warm-up: the backend immediately returns and performs any
-    // one-time historical vector backfill on its daemon worker. This starts on
-    // every authenticated site load, not only when Records is opened.
-    void apiService.prepareSemanticIndex().catch(() => {
-      // Search itself reports a persistent indexing failure if warm-up could
-      // not start; application loading and navigation must remain unaffected.
-    });
+    if (authenticatedEmail) void apiService.prepareSemanticIndex().catch(() => {});
   }, [authenticatedEmail]);
-
-  const login = async (email: string, password: string) => {
-    try {
-      const response = await apiService.login(email, password);
-      localStorage.setItem('authToken', response.token);
-      const authenticatedUser = normaliseUser(response.user);
-      localStorage.setItem('authUser', JSON.stringify(authenticatedUser));
-      setUser(authenticatedUser);
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Unable to sign in' };
-    }
-  };
 
   const isIndividualUser = Boolean(user && user.role === 'USER');
 
   return (
     <AuthContext.Provider value={{
-      isAuthenticated: Boolean(user && localStorage.getItem('authToken')),
+      isAuthenticated: Boolean(user),
+      isLoading,
+      sessionError,
       user,
       isAdmin: Boolean(user?.roles.includes('ADMIN')),
       isIndividualUser,
       canAccessAccounts: Boolean(user && (user.roles.includes('ADMIN') || user.role !== 'USER')),
-      login,
       logout,
     }}>
       {children}

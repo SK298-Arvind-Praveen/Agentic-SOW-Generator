@@ -31,10 +31,10 @@ def test_missing_user_is_still_missing():
     assert store.table.get_item.call_args.kwargs["ConsistentRead"] is True
 
 
-def test_login_outage_returns_503_not_bad_password():
+def test_session_outage_returns_503_not_invalid_session():
     from app.core import server
-    with patch.object(server.rbac_store, "authenticate", side_effect=AuthServiceUnavailable()):
-        result = server.app.test_client().post('/api/auth/login', json={"email": "someone@example.com", "password": "test"})
+    with patch.object(server, "authenticate_session", side_effect=AuthServiceUnavailable()):
+        result = server.app.test_client().get('/api/auth/me')
     assert result.status_code == 503
     assert result.json["code"] == "AUTH_SERVICE_UNAVAILABLE"
     assert result.headers["Retry-After"] == "5"
@@ -43,7 +43,7 @@ def test_login_outage_returns_503_not_bad_password():
 def test_poll_outage_returns_503_and_never_runs_protected_route():
     from app.core import server
     token = issue_token(Identity("someone@example.com", "Someone", "USER", "GenAI"))
-    with patch.object(server.rbac_store, "active_identity", side_effect=AuthServiceUnavailable()):
+    with patch.object(server, "authenticate_session", side_effect=AuthServiceUnavailable()):
         result = server.app.test_client().get('/api/auth/me', headers={"Authorization": f"Bearer {token}"})
     assert result.status_code == 503
 
@@ -51,7 +51,7 @@ def test_poll_outage_returns_503_and_never_runs_protected_route():
 def test_deleted_account_still_revokes_session():
     from app.core import server
     token = issue_token(Identity("someone@example.com", "Someone", "USER", "GenAI"))
-    with patch.object(server.rbac_store, "active_identity", return_value=None):
+    with patch.object(server, "authenticate_session", return_value=None):
         result = server.app.test_client().get('/api/auth/me', headers={"Authorization": f"Bearer {token}"})
     assert result.status_code == 401
 
@@ -60,7 +60,7 @@ def test_bad_credentials_still_rejected():
     from app.core import server
     with patch.object(server.rbac_store, "authenticate", return_value=None), patch.object(server.rbac_store, "get_user", return_value=None):
         result = server.app.test_client().post('/api/auth/login', json={"email": "missing@example.com", "password": "bad"})
-    assert result.status_code == 401
+    assert result.status_code == 410
 
 
 @pytest.mark.parametrize('path,endpoint', [('/api/finalize','finalize_document'),('/api/proxy-download','proxy_download')])
@@ -69,7 +69,8 @@ def test_auth_outage_happens_before_document_work_and_retry_rechecks_account(pat
     identity = Identity('someone@example.com','Someone','USER','GenAI')
     token = issue_token(identity)
     protected = MagicMock(return_value=({'success':True},200))
-    with patch.object(server.rbac_store,'active_identity',side_effect=[AuthServiceUnavailable(), identity]) as auth, \
+    with patch.object(server,'authenticate_session',side_effect=[AuthServiceUnavailable(), identity]) as auth, \
+            patch.object(server, 'csrf_valid', return_value=True), \
             patch.dict(server.app.view_functions,{endpoint:protected}):
         client = server.app.test_client()
         first = client.post(path,json={'preview_id':'p1'},headers={'Authorization':f'Bearer {token}'})

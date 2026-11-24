@@ -50,7 +50,6 @@ interface UserFormState {
   roles: ManagedRole[];
   business_unit: string;
   employee_id: string;
-  password: string;
   status: ManagedUser['status'];
 }
 
@@ -60,7 +59,6 @@ const emptyForm: UserFormState = {
   roles: ['USER'] as ManagedRole[],
   business_unit: 'GenAI',
   employee_id: '',
-  password: '',
   status: 'active' as 'active' | 'inactive',
 };
 
@@ -107,8 +105,7 @@ const UserManagement: React.FC = () => {
       roles: managedUser.roles?.length ? managedUser.roles : [managedUser.role],
       business_unit: managedUser.business_unit || '',
       employee_id: managedUser.employee_id ? String(managedUser.employee_id) : '',
-      password: '',
-      status: managedUser.status,
+          status: managedUser.status,
     });
     setShowForm(true);
   };
@@ -142,7 +139,6 @@ const UserManagement: React.FC = () => {
           business_unit: form.business_unit || null,
           status: form.status,
         };
-        if (form.password) payload.password = form.password;
         await apiService.updateManagedUser(editingUser.email, payload);
         toast.success('User updated');
       } else {
@@ -152,7 +148,6 @@ const UserManagement: React.FC = () => {
           role: form.roles[0],
           roles: form.roles,
           business_unit: form.business_unit || null,
-          password: form.password,
           employee_id: form.employee_id ? Number(form.employee_id) : undefined,
         });
         toast.success('User created');
@@ -281,7 +276,7 @@ const UserManagement: React.FC = () => {
       {showForm && (
         <div className="user-modal-backdrop" role="presentation">
           <div className="user-modal" role="dialog" aria-modal="true" aria-labelledby="user-form-title">
-            <div className="user-modal-header"><div><h2 id="user-form-title">{editingUser ? 'Edit User' : 'Add User'}</h2><p>{editingUser ? 'Update access, assignment, or credentials.' : 'Create an account with the appropriate access level.'}</p></div><button onClick={() => setShowForm(false)} aria-label="Close"><X size={20} /></button></div>
+            <div className="user-modal-header"><div><h2 id="user-form-title">{editingUser ? 'Edit User' : 'Add User'}</h2><p>{editingUser ? 'Update access and business-unit assignment.' : 'Pre-assign access for a Shellkode Google Workspace user.'}</p></div><button onClick={() => setShowForm(false)} aria-label="Close"><X size={20} /></button></div>
             <form onSubmit={saveUser}>
               <div className="user-form-grid">
                 <label><span>Name</span><input required value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
@@ -290,7 +285,6 @@ const UserManagement: React.FC = () => {
                 <fieldset className="user-role-fieldset" disabled={editingUser?.email === currentUser?.email}><legend>Roles</legend>{ROLE_OPTIONS.map(option => <label key={option.value}><input type="checkbox" checked={form.roles.includes(option.value)} onChange={() => toggleRole(option.value)} /><span>{option.label}</span></label>)}</fieldset>
                 {form.roles.length === 1 && form.roles[0] === 'USER' && <label><span>Business Unit</span><select value={form.business_unit} onChange={event => setForm({ ...form, business_unit: event.target.value })}>{BUSINESS_UNITS.map(unit => <option value={unit} key={unit}>{unit}</option>)}</select></label>}
                 {editingUser && <label><span>Status</span><select value={form.status} onChange={event => setForm({ ...form, status: event.target.value as ManagedUser['status'] })} disabled={editingUser.email === currentUser?.email}>{form.status === 'pending_verification' && <option value="pending_verification">Pending verification</option>}<option value="active">Active</option><option value="inactive">Inactive</option></select></label>}
-                <label className={editingUser ? '' : 'user-form-span'}><span>{editingUser ? 'New Password (optional)' : 'Temporary Password'}</span><input type="password" required={!editingUser} minLength={6} value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} placeholder="At least 6 characters" /></label>
               </div>
               <div className="user-modal-actions"><button type="button" className="secondary-user-action" onClick={() => setShowForm(false)}>Cancel</button><button type="submit" className="primary-user-action" disabled={saving}>{saving ? 'Saving…' : editingUser ? 'Save Changes' : 'Create User'}</button></div>
             </form>

@@ -857,6 +857,12 @@ AUTHORITATIVE SOURCE:
 
 Return {{"capability_units":[{{"id":"CAP-001","name":"concise capability", "problem":"problem solved", "outcome":"observable output", "actors":[], "inputs":[], "requirements":[], "dependencies":[], "source_basis":[], "evidence_status":"Confirmed|Source Assumption|Proposed|Open", "disposition":"in_scope|future|optional|open", "independent_boundary":false, "boundary_basis":""}}]}}.
 
+Use service_design.requirement_ledger as the shared release/disposition baseline.
+Preserve its source references and included later releases. Do not turn a release
+dependency into an exclusion; record source conflicts explicitly for review.
+Retain the selected framework/runtime and delivery_baseline release dependencies.
+Delivery authoring estimates timeline/effort; pricing estimates workload. Preserve
+source constraints. Scope grouping cannot redesign the solution.
 Inventory every distinct source-required capability, workflow, integration, data responsibility,
 control, operational requirement, and explicitly deferred/future item exactly once. A source row
 called a deliverable is still only a capability unit at this stage. Do not group units yet. Preserve

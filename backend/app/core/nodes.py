@@ -892,6 +892,9 @@ def _extract_author_name_regex(text_content: str, company_name: str = "") -> str
 
 
 
+from app.core.timing import timed_stage
+
+@timed_stage('pipeline.research_node')
 def research_node(state: AgentState) -> AgentState:
     """Research company information"""
     _report_progress(state, 15, "Researching company and project context")
@@ -925,6 +928,7 @@ def research_node(state: AgentState) -> AgentState:
     return {"metadata": metadata, "current_step": "research"}
 
 
+@timed_stage('pipeline.analyze_objective_node')
 def analyze_objective_node(state: AgentState) -> AgentState:
     """Analyze project objective"""
     _report_progress(state, 30, "Extracting requirements from supplied evidence")
@@ -975,13 +979,9 @@ def analyze_objective_node(state: AgentState) -> AgentState:
     # Extract ui_required flag and add to metadata
     ui_required = analyzed_requirements.get('ui_required', False)
     
-    # Additional validation: if no explicit UI keywords found in objective, ensure ui_required is False
-    # Explicit interface requirements may live only in the uploaded BRD.
+    # The analyst reads interface requirements semantically. Absence of a
+    # particular UI keyword is not evidence that a browser workflow has no UI.
     objective_lower = f"{objective}\n{supporting_context}".lower()
-    ui_keywords = [
-        "user interface", "ui", "frontend", "web interface", "dashboard", 
-        "web application", "portal", "screen", "screens", "visualization", "workbench", "review console"
-    ]
     negative_indicators = [
         "no user interface", "without user interface", "no frontend", "without frontend",
         "no web interface", "without web interface", "no dashboard", "without dashboard",
@@ -997,25 +997,6 @@ def analyze_objective_node(state: AgentState) -> AgentState:
         ui_required = False
         print(f"   UI Override: Forced to False due to negative context")
     
-    # Check if any UI keywords are actually present
-    import re
-    has_ui_keywords = False
-    
-    # Check for "ui" as standalone word
-    if re.search(r'\bui\b', objective_lower):
-        has_ui_keywords = True
-    
-    # Check for other UI keywords
-    ui_keywords_no_ui = [
-        "user interface", "frontend", "web interface", "dashboard", 
-        "web application", "portal", "screen", "screens", "visualization", "workbench", "review console"
-    ]
-    if any(keyword in objective_lower for keyword in ui_keywords_no_ui):
-        has_ui_keywords = True
-    
-    if not has_ui_keywords and ui_required:
-        ui_required = False
-        print(f"   UI Override: Forced to False - no explicit UI keywords found in objective")
     
     print(f"   UI Implementation: {'Required' if ui_required else 'Not Required'}")
     
@@ -1034,6 +1015,7 @@ def analyze_objective_node(state: AgentState) -> AgentState:
     }
 
 
+@timed_stage('pipeline.rule_validation_node')
 def rule_validation_node(state: AgentState) -> AgentState:
     """Validate requirements against rules"""
     _report_progress(state, 50, "Validating scope and source-grounded requirements")
@@ -1053,6 +1035,7 @@ def rule_validation_node(state: AgentState) -> AgentState:
     return {"validated_requirements": validated_requirements, "current_step": "validate"}
 
 
+@timed_stage('pipeline.solution_design_node')
 def solution_design_node(state: AgentState) -> AgentState:
     """One capability/service baseline shared by scope, pricing and drawings."""
     from app.diagram.service_design import ensure_service_design
@@ -1062,7 +1045,8 @@ def solution_design_node(state: AgentState) -> AgentState:
         state.get('mode', 'POC'))
     analyzed = state.get('analyzed_requirements') or {}
     for field in ('duration_weeks', 'timeline', 'aws_services', 'confirmed_aws_services',
-                  'proposed_aws_services', 'document_volume', 'ui_required'):
+                  'proposed_aws_services', 'document_volume', 'ui_required', 'requirement_ledger',
+                  '_requirement_ledger_complete'):
         if field in analyzed:
             requirements[field] = analyzed[field]
     _report_progress(state, 57, 'Selecting services against project capabilities')
@@ -1073,9 +1057,12 @@ def solution_design_node(state: AgentState) -> AgentState:
             state.get('supporting_context') or state.get('objective') or '')
     finally:
         service.bedrock.close()
+    from app.core.solution_definition import bind_solution
+    requirements = bind_solution(requirements, requirements['service_design'])
     return {'validated_requirements': requirements, 'current_step': 'solution_design'}
 
 
+@timed_stage('pipeline.architecture_node')
 def architecture_node(state: AgentState) -> AgentState:
     """Finish semantic corrections before any architecture-dependent authoring."""
     selected = state.get('selected_sow_sections')
@@ -1103,14 +1090,15 @@ def architecture_node(state: AgentState) -> AgentState:
         frozen = freeze(spec)
         version = frozen['version']
         requirements['approved_architecture'] = frozen
-        design = spec.get('architecture_plan', {}).get('service_design')
-        if design: requirements['service_design'] = design
+        # bind_requirements preserves the shared release/traceability contract
+        # when diagram repair returns a partial service design.
         for asset in assets: asset['architecture_version'] = version
     return {'architecture_assets': assets, 'architecture_version': version,
             'artifact_architecture_versions': {'architecture_diagram': version} if version else {},
             'validated_requirements': requirements, 'current_step': 'architecture'}
 
 
+@timed_stage('pipeline.aws_pricing_node')
 def aws_pricing_node(state: AgentState) -> AgentState:
     """Build a source-grounded AWS Calculator estimate when pricing is selected."""
     selected = state.get("selected_sow_sections")
@@ -1147,6 +1135,7 @@ def aws_pricing_node(state: AgentState) -> AgentState:
             "artifact_architecture_versions": stamp(state, 'aws_pricing')}
 
 
+@timed_stage('pipeline.scope_architecture_node')
 def scope_architecture_node(state: AgentState) -> AgentState:
     """Classify source capabilities into audited deliverable and module boundaries."""
     scope_started_at = time.perf_counter()
@@ -1213,6 +1202,7 @@ def scope_architecture_node(state: AgentState) -> AgentState:
     }
 
 
+@timed_stage('pipeline.content_generation_node')
 def content_generation_node(state: AgentState) -> AgentState:
     """Generate SOW content"""
     _report_progress(state, 72, "Preparing document sections")
@@ -1383,6 +1373,7 @@ def content_generation_node(state: AgentState) -> AgentState:
             "artifact_architecture_versions": versions}
 
 
+@timed_stage('pipeline.pdf_build_node')
 def pdf_build_node(state: AgentState) -> AgentState:
     """Build DOCX document using temporary files (cloud-only mode)"""
     print(f"\n--- Step: Building Document (DOCX Primary) ---")

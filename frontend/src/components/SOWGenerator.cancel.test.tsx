@@ -13,6 +13,18 @@ jest.mock('../services/apiService', () => ({ __esModule: true, default: {
   reservePreview: jest.fn(), generatePreview: jest.fn(), cancelPreview: jest.fn(), checkPreviewStatus: jest.fn()
 } }));
 
+it('trims outer whitespace from names on blur while preserving internal spaces', () => {
+  const view = render(<SOWGenerator />);
+  for (const id of ['companyName', 'authorName', 'authorOrganization']) {
+    const input = document.querySelector(`#${id}`)!;
+    fireEvent.change(input, { target: { value: '  Example  Name  ' } });
+    expect(input).toHaveValue('  Example  Name  ');
+    fireEvent.blur(input);
+    expect(input).toHaveValue('Example  Name');
+  }
+  view.unmount();
+});
+
 it('keeps Cancel disabled as Cancelling until the worker acknowledges, then allows another generation', async () => {
   jest.useFakeTimers();
   (api.reservePreview as jest.Mock).mockResolvedValue({ success: true, preview_id: 'p' });

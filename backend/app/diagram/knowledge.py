@@ -179,19 +179,33 @@ def select_patterns(requirements, limit=3):
     excluded = ' ' + _normal(' '.join(_excluded_text(requirements))) + ' '
     ranked = []
     categories = classify_categories(requirements)
+    # These IDs are selected by the architect from the full semantic directory,
+    # not inferred from the literal spelling of the customer's requirements.
+    design = requirements.get('service_design') or {} if isinstance(requirements, dict) else {}
+    semantic_ids = set(design.get('reference_pattern_ids') or [])
     for card in load_library()['patterns']:
         matches = [t for t in card['triggers'] if ' ' + _normal(t) + ' ' in text]
         veto = any(' ' + _normal(t) + ' ' in excluded for t in card['triggers'])
-        if matches and not veto:
+        if (matches or card['id'] in semantic_ids) and not veto:
             category_match = bool(set(categories) & {card.get('category'), *card.get('secondary_categories', [])})
             role = {'workload': 0, 'decision': 1, 'support': 2}[card.get('pattern_role', 'workload')]
-            ranked.append((role, len(matches), max(len(t.split()) for t in matches),
+            ranked.append((-1 if card['id'] in semantic_ids else role, len(matches), max((len(t.split()) for t in matches), default=0),
                            int(category_match), int(card.get('source_type') == 'user_reference'), card['id'], card))
     # Generic controls must not crowd the defining workload out of its own prompt.
     ranked.sort(key=lambda x: (x[0], -x[1], -x[2], -x[3], -x[4], x[5]))
     selected = [x[6] for x in ranked[:max(0, min(limit, MAX_REFERENCE_PATTERNS))]]
     LOG.info('[ARCHITECTURE][KNOWLEDGE] categories=%s selected=%s', categories, [c['id'] for c in selected])
     return selected
+
+
+def semantic_directory():
+    """Every pattern is visible to the existing design call, independent of wording."""
+    try:
+        return [{'id': c['id'], 'title': c['title'], 'use_when': c['use_when'],
+                 'flow': c['flow']} for c in load_library()['patterns']]
+    except (OSError, ValueError, KeyError, TypeError):
+        LOG.exception('[ARCHITECTURE][KNOWLEDGE] semantic directory unavailable')
+        return []
 
 
 def _excluded_text(value, excluded=False):

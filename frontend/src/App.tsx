@@ -5,10 +5,6 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './components/Login';
-import Signup from './components/Signup';
-import VerifyAccount from './components/VerifyAccount';
-import ForgotPassword from './components/ForgotPassword';
-import ResetPassword from './components/ResetPassword';
 import Dashboard from './components/Dashboard';
 import Production from './components/Production';
 import Accounts from './components/Accounts';
@@ -21,7 +17,8 @@ import Layout from './components/Layout';
 import './App.css';
 
 const ProtectedLayout: React.FC = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) return <div role="status">Checking your session…</div>;
   return isAuthenticated ? <Layout /> : <Navigate to="/login" />;
 };
 
@@ -36,7 +33,8 @@ const AccountsAllowed: React.FC<{ children: React.ReactElement }> = ({ children 
 };
 
 const HomeRedirect: React.FC = () => {
-  const { isAuthenticated, canAccessAccounts } = useAuth();
+  const { isAuthenticated, canAccessAccounts, isLoading } = useAuth();
+  if (isLoading) return <div role="status">Checking your session…</div>;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <Navigate to={canAccessAccounts ? '/accounts' : '/dashboard'} replace />;
 };
@@ -60,10 +58,10 @@ const App: React.FC = () => {
           />
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
-            <Route path="/verify-account" element={<VerifyAccount />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/signup" element={<Navigate to="/login" replace />} />
+            <Route path="/verify-account" element={<Navigate to="/login" replace />} />
+            <Route path="/forgot-password" element={<Navigate to="/login" replace />} />
+            <Route path="/reset-password" element={<Navigate to="/login" replace />} />
 
             {/* All protected routes share the persistent sidebar + top bar */}
             <Route element={<ProtectedLayout />}>

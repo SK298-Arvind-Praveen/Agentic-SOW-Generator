@@ -1525,6 +1525,13 @@ AUTHORITATIVE REQUIREMENTS BASELINE
 
 If service_design is ready, use its selected services, capability implementations,
 workflow mechanics and open decisions as the shared proposed solution baseline.
+Preserve its requirement_ledger dispositions and release boundaries, including
+explicit later deliverables. Use delivery_baseline releases, dependencies and
+technical constraints when estimating timeline and effort here. Reuse pricing's
+workload assumptions. Preserve source-stated deadlines and distinguish estimates.
+Do not infer exclusions from POC mode or omit numeric effort values.
+Use architecture_choice and frameworks to explain the chosen agent implementation;
+frameworks are not separately billed AWS services. Surface unresolved conflicts.
 Do not independently substitute products or promote proposed services to confirmed
 client facts. Explain concrete service roles in Solution Architecture; use concise
 implementation language elsewhere. Preserve recorded gaps and required validation.

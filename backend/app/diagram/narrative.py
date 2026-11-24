@@ -197,6 +197,7 @@ def prepare(service, spec):
                'project_summary': (spec.architecture_plan.get('service_design') or {}).get('summary', '')}
     context['service_purposes'] = [{k:s.get(k) for k in ('name','purpose')} for s in
         (spec.architecture_plan.get('service_design') or {}).get('services', [])]
+    context['workflows'] = (spec.architecture_plan.get('service_design') or {}).get('workflows', [])
     from app.diagram.knowledge import reference_layout_context
     context['advisory_layout_guidance'] = reference_layout_context(
         (spec.architecture_plan.get('service_design') or {}).get('reference_knowledge', {}))
@@ -802,6 +803,9 @@ def improve_rows(spec, registry, budget=8):
     """Search local row arrangements without changing groups or the fixed graph."""
     deadline = time.monotonic()+budget
     plan = copy.deepcopy(spec.architecture_plan['narrative_view'])
+    from app.diagram.workflow_placement import nearby_rows
+    for group in plan['groups']:
+        group['rows'] = nearby_rows(group['rows'], spec.edges)
     from app.diagram.review import local_routes, geometry_report
     # Optimise each subsystem independently before expensive whole-page search.
     # Otherwise a busy first group consumes the budget and later groups (often

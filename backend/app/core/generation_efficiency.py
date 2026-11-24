@@ -81,7 +81,7 @@ def run_id():
 
 def stage_key(planner, stage, task='diagram'):
     from app.core.bedrock_llm import BedrockLLM, model_for_task, _additional_model_request_fields
-    if not isinstance(planner, BedrockLLM) or not run_id() or not enabled('SOW_STAGE_CACHE_ENABLED'):
+    if not isinstance(BedrockLLM, type) or not isinstance(planner, BedrockLLM) or not run_id() or not enabled('SOW_STAGE_CACHE_ENABLED'):
         return None
     model = model_for_task(planner.config, task)
     # Prompt/schema lives in the full key at the validation boundary. Include

@@ -575,6 +575,11 @@ Date                                         Date`
     }));
   }, []);
 
+  const trimNameInput = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+    const { name, value } = e.currentTarget;
+    setFormData(prev => ({ ...prev, [name]: value.trim() }));
+  }, []);
+
   const handleFileUpload = useCallback((files: FileList | null) => {
     if (!files) return;
 
@@ -1571,6 +1576,7 @@ Date                                         Date`
                       value={formData.companyName}
                       onChange={handleInputChange}
                       placeholder="Enter company name"
+                      onBlur={trimNameInput}
                       className="field-input"
                     />
                   )}
@@ -1587,6 +1593,7 @@ Date                                         Date`
                       name="authorName"
                       value={formData.authorName}
                       onChange={handleInputChange}
+                      onBlur={trimNameInput}
                       placeholder="Enter author name"
                       className="field-input with-icon"
                     />
@@ -1609,6 +1616,7 @@ Date                                         Date`
                     name="authorOrganization"
                     value={formData.authorOrganization}
                     onChange={handleInputChange}
+                    onBlur={trimNameInput}
                     placeholder="Enter project name"
                     className={`field-input ${isProjectBased && projectName ? 'auto-populated' : ''}`}
                     title={isProjectBased && projectName ? `Auto-populated from project: ${projectName} (you can edit this)` : ''}

@@ -324,6 +324,7 @@ class AwsPricingService:
                         'AWS architecture sizing traffic users documents capacity volume retention duration',
                         requirements=requirements,max_chars=16000)
                     design = requirements.get('service_design') or {}
+                    service['_sizing_context'] += '\nSHARED DELIVERY SIZING (retain estimated/source basis):\n' + json.dumps(design.get('delivery_baseline', {}), default=str)
                     relevant = [s for s in design.get('services',[]) if s['name'] in {service['service_name'], 'Amazon VPC'}
                                 or service['service_name'] in {'AWS PrivateLink', 'Amazon VPC Gateway Endpoint'}
                                 and re.search(r'\bvpc endpoints?\b', s['name'], re.I)]
@@ -804,6 +805,11 @@ ALLOWED SERVICES (do not add others):
 
 NORMALISED REQUIREMENTS:
 {json.dumps(requirements, default=str)[:18000]}
+
+SHARED DELIVERY BASELINE (preserve release coverage; estimates are NOT source facts):
+{json.dumps((requirements.get('service_design') or {}).get('delivery_baseline', {}), default=str)}
+Retain stated source volumes. Carry baseline estimates as assumptions for sizing,
+never fabricate evidence quotes or convert them to confirmed source values.
 
 AUTHORITATIVE SOURCE TEXT:
 {pricing_evidence or '(none)'}

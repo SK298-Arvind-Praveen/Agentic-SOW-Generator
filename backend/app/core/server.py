@@ -21,6 +21,7 @@ import subprocess
 import tempfile
 import threading
 import uuid
+import secrets
 import time
 import copy
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -102,18 +103,10 @@ from app.core.access_control import (
     AuthServiceUnavailable,
     current_identity,
     filter_visible_items,
-    issue_password_reset_token,
-    issue_token,
-    issue_verification_token,
     item_is_visible,
     normalise_business_unit,
     scoped_business_unit,
     slugify_section_id,
-    send_verification_email,
-    send_password_reset_email,
-    verify_password_reset_token,
-    verify_token,
-    verify_verification_token,
 )
 from itsdangerous import BadSignature, SignatureExpired
 
@@ -148,9 +141,24 @@ logging.basicConfig(level=logging.INFO, handlers=[_handler], force=True)
 app = Flask(__name__)
 
 
+@app.before_request
+def begin_request_timing():
+    import time
+    g.request_timer_started = time.perf_counter()
+
+@app.after_request
+def log_request_timing(response):
+    import time
+    started = getattr(g, 'request_timer_started', None)
+    if started is not None and request.method != 'OPTIONS':
+        print(f'[TIMING] api method={request.method} path={request.path} status={response.status_code} elapsed_seconds={time.perf_counter() - started:.3f}', flush=True)
+    return response
+
 @app.after_request
 def include_preview_section_order(response):
     """Use the DOCX resolver as the authority for preview ordering, including aliases."""
+    if request.path.startswith('/api/auth/'):
+        response.headers['Cache-Control'] = 'no-store'
     if request.path.startswith('/api/') and response.is_json:
         payload = response.get_json(silent=True)
         content = payload.get('content') if isinstance(payload, dict) else None
@@ -168,7 +176,11 @@ def include_preview_section_order(response):
             payload['preview_section_order'] = order
             response.set_data(app.json.dumps(payload))
     return response
-CORS(app)
+from app.core.google_auth import (
+    register_google_auth, authenticate_session, csrf_valid, frontend_origin, LEGACY_AUTH_PATHS,
+)
+CORS(app, origins=[frontend_origin()], supports_credentials=True,
+     allow_headers=['Content-Type', 'X-CSRF-Token'])
 
 # Configure upload folder
 UPLOAD_FOLDER = Path(os.getcwd()) / "uploads"
@@ -177,6 +189,7 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB max
 
 rbac_store = RBACStore()
+register_google_auth(app, lambda: rbac_store)
 custom_template_extractions = {}
 custom_template_extraction_lock = threading.Lock()
 semantic_index_lock = threading.Lock()
@@ -314,30 +327,22 @@ def authentication_service_unavailable(error):
 @app.before_request
 def enforce_api_authentication():
     """Authenticate every API request; authorization is enforced by each resource route."""
-    public_paths = {
-        "/api/auth/login", "/api/auth/signup", "/api/auth/verify",
-        "/api/auth/resend-verification", "/api/auth/forgot-password",
-        "/api/auth/reset-password", "/health",
-    }
+    if request.path in LEGACY_AUTH_PATHS:
+        return jsonify({"success": False, "error": "Use Google Workspace sign-in", "code": "PASSWORD_AUTH_DISABLED"}), 410
+    public_paths = {"/api/auth/google/start", "/api/auth/google/callback", "/health"}
     if request.method == "OPTIONS" or request.path in public_paths:
         return None
     if not request.path.startswith("/api/"):
         return None
-    if app.config.get("TESTING") and not request.headers.get("Authorization"):
+    # Explicit opt-in fixture only; TESTING alone must never grant an administrator.
+    if app.config.get("TESTING") and app.config.get("TEST_AUTH_BYPASS"):
         g.current_identity = Identity("test-admin@shellkode.com", "Test Admin", "ADMIN")
         return None
-    header = request.headers.get("Authorization", "")
-    if not header.startswith("Bearer "):
+    g.current_identity = authenticate_session(rbac_store)
+    if not g.current_identity:
         return jsonify({"success": False, "error": "Authentication required"}), 401
-    try:
-        token_identity = verify_token(header[7:].strip())
-        g.current_identity = rbac_store.active_identity(token_identity.email)
-        if not g.current_identity:
-            return jsonify({"success": False, "error": "Account is inactive or no longer exists"}), 401
-    except SignatureExpired:
-        return jsonify({"success": False, "error": "Session expired"}), 401
-    except (BadSignature, KeyError, ValueError):
-        return jsonify({"success": False, "error": "Invalid session"}), 401
+    if request.method not in {"GET", "HEAD", "OPTIONS"} and not csrf_valid():
+        return jsonify({"success": False, "error": "Invalid request origin or CSRF token"}), 403
     if g.current_identity.is_user and (
         request.path.startswith("/api/accounts") or request.path.startswith("/api/projects")
     ):
@@ -568,150 +573,13 @@ def _start_semantic_index_backfill(force=False):
         return dict(semantic_index_state)
 
 
-@app.route('/api/auth/login', methods=['POST'])
-def login_user():
-    data = request.get_json(silent=True) or {}
-    identity = rbac_store.authenticate(str(data.get("email", "")), str(data.get("password", "")))
-    if not identity:
-        stored = rbac_store.get_user(str(data.get("email", "")))
-        if stored and stored.get("status") == "pending_verification":
-            return jsonify({
-                "success": False,
-                "error": "Verify your email address before signing in",
-                "verification_required": True,
-            }), 403
-        return jsonify({"success": False, "error": "Invalid email or password"}), 401
-    return jsonify({
-        "success": True,
-        "token": issue_token(identity),
-        "user": identity.public_dict(),
-        "business_units": list(BUSINESS_UNITS),
-    })
-
-
-@app.route('/api/auth/signup', methods=['POST'])
-def signup_user():
-    data = request.get_json(silent=True) or {}
-    if str(data.get("password", "")) != str(data.get("confirm_password", "")):
-        return jsonify({"success": False, "error": "Passwords do not match"}), 400
-    try:
-        user, nonce = rbac_store.register_user(
-            first_name=data.get("first_name", ""),
-            last_name=data.get("last_name", ""),
-            email=data.get("email", ""),
-            employee_id=data.get("employee_id", ""),
-            business_unit=data.get("business_unit", ""),
-            password=data.get("password", ""),
-        )
-    except ValueError as exc:
-        return jsonify({"success": False, "error": str(exc)}), 400
-    except Exception:
-        logging.getLogger(__name__).exception("Signup account storage failed")
-        return jsonify({"success": False, "error": "Account registration could not be completed"}), 500
-    try:
-        token = issue_verification_token(user["email"], nonce)
-        send_verification_email(user["email"], token)
-        logging.getLogger(__name__).info("Verification email sent to %s", user["email"])
-        return jsonify({
-            "success": True,
-            "message": "Account created. Check your email to verify your account.",
-            "verification_attempted": True,
-        }), 201
-    except Exception:
-        logging.getLogger(__name__).exception("Signup verification email failed")
-        return jsonify({
-            "success": False,
-            "error": "The account was created, but the verification email could not be sent. Use resend verification.",
-            "verification_required": True,
-            "verification_attempted": True,
-        }), 503
-
-
-@app.route('/api/auth/verify', methods=['POST'])
-def verify_signup():
-    data = request.get_json(silent=True) or {}
-    try:
-        email, nonce = verify_verification_token(str(data.get("token", "")))
-        user = rbac_store.verify_registration(email, nonce)
-        return jsonify({"success": True, "message": "Account verified. You can now sign in.", "user": user})
-    except SignatureExpired:
-        return jsonify({"success": False, "error": "Verification link has expired"}), 400
-    except (BadSignature, KeyError, ValueError) as exc:
-        message = str(exc) if isinstance(exc, ValueError) else "Verification link is invalid"
-        return jsonify({"success": False, "error": message}), 400
-
-
-@app.route('/api/auth/resend-verification', methods=['POST'])
-def resend_signup_verification():
-    data = request.get_json(silent=True) or {}
-    try:
-        email = RBACStore._normalise_shellkode_email(data.get("email", ""))
-        nonce = rbac_store.renew_verification(email)
-        send_verification_email(email, issue_verification_token(email, nonce))
-        return jsonify({"success": True, "message": "Verification email sent."})
-    except ValueError as exc:
-        return jsonify({"success": False, "error": str(exc)}), 400
-    except Exception:
-        logging.getLogger(__name__).exception("Resending verification email failed")
-        return jsonify({"success": False, "error": "Verification email could not be sent"}), 503
-
-
-@app.route('/api/auth/forgot-password', methods=['POST'])
-def forgot_password():
-    """Send a reset link without revealing whether the supplied account exists."""
-    data = request.get_json(silent=True) or {}
-    generic = "If an active account exists for that address, a password reset link has been sent."
-    try:
-        challenge = rbac_store.begin_password_reset(str(data.get("email", "")))
-        if challenge:
-            email, nonce = challenge
-            send_password_reset_email(email, issue_password_reset_token(email, nonce))
-            logging.getLogger(__name__).info("Password reset email sent to %s", email)
-    except Exception:
-        # The public response remains identical to prevent account discovery.
-        logging.getLogger(__name__).exception("Password reset request could not be delivered")
-    return jsonify({"success": True, "message": generic}), 200
-
-
-@app.route('/api/auth/reset-password', methods=['POST'])
-def reset_password():
-    data = request.get_json(silent=True) or {}
-    password = str(data.get("password", ""))
-    if password != str(data.get("confirm_password", "")):
-        return jsonify({"success": False, "error": "Passwords do not match"}), 400
-    try:
-        email, nonce = verify_password_reset_token(str(data.get("token", "")))
-        rbac_store.reset_password(email, nonce, password)
-        return jsonify({"success": True, "message": "Password updated. You can now sign in."})
-    except SignatureExpired:
-        return jsonify({"success": False, "error": "Password reset link has expired"}), 400
-    except (BadSignature, KeyError, ValueError) as exc:
-        message = str(exc) if isinstance(exc, ValueError) else "Password reset link is invalid"
-        return jsonify({"success": False, "error": message}), 400
-
-
-@app.route('/api/auth/change-password-request', methods=['POST'])
-def request_authenticated_password_change():
-    """Email a reset link to the authenticated account only."""
-    identity = current_identity()
-    try:
-        challenge = rbac_store.begin_password_reset(identity.email)
-        if not challenge:
-            return jsonify({"success": False, "error": "Account is not eligible for a password change"}), 400
-        email, nonce = challenge
-        send_password_reset_email(email, issue_password_reset_token(email, nonce))
-        logging.getLogger(__name__).info("Password change email sent to %s", email)
-        return jsonify({"success": True, "message": "Password reset link sent to your email."})
-    except Exception:
-        logging.getLogger(__name__).exception("Authenticated password change email failed")
-        return jsonify({"success": False, "error": "Password reset email could not be sent"}), 503
-
-
+# Legacy password endpoints are deliberately handled by the authentication gate (410).
 @app.route('/api/auth/me', methods=['GET'])
 def get_current_user():
     return jsonify({
         "success": True,
         "user": current_identity().public_dict(),
+        "csrf_token": getattr(g, "auth_session", {}).get("csrf_token", ""),
         "business_units": list(BUSINESS_UNITS),
     })
 
@@ -730,12 +598,12 @@ def manage_users():
             })
         data = request.get_json(silent=True) or {}
         user = rbac_store.create_user(
-            email=data.get("email", ""),
+            email=RBACStore._normalise_shellkode_email(data.get("email", "")),
             name=data.get("name", ""),
             role=data.get("role", "USER"),
             roles=data.get("roles"),
             business_unit=data.get("business_unit"),
-            password=data.get("password", ""),
+            password=secrets.token_urlsafe(48),
             created_by=current_identity().email,
             employee_id=data.get("employee_id", ""),
         )
@@ -2682,7 +2550,6 @@ def proxy_download():
             mimetype=content_type,
             headers={
                 'Content-Disposition': f'attachment; filename="{filename}"',
-                'Access-Control-Allow-Origin': '*',
                 'Content-Length': len(content),
                 'X-Content-Type-Options': 'nosniff',
                 'Content-Security-Policy': "default-src 'none'",
@@ -6974,5 +6841,3 @@ if __name__ == '__main__':
         print(f"\n\n❌ Server error: {e}")
         import traceback
         traceback.print_exc()
-
-        

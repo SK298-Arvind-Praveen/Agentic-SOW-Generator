@@ -24,7 +24,15 @@ def bind_requirements(requirements, spec, registry):
         result['confirmed_aws_services'] = [n for n in result['aws_services'] if n in confirmed]
         result['proposed_aws_services'] = [n for n in result['aws_services'] if n not in confirmed]
     design = value.get('architecture_plan', {}).get('service_design')
-    if design: result['service_design'] = design
+    if design:
+        from app.core.solution_definition import bind_solution
+        # Geometry/semantic repair may return only service mappings. It cannot
+        # erase the source ledger, release decisions or delivery assumptions.
+        previous = result.get('service_design') or {}
+        design = {**{k: deepcopy(previous[k]) for k in (
+            'requirement_ledger', 'delivery_baseline', 'architecture_choice',
+            'frameworks', 'reference_pattern_ids', 'traceability_issues') if k in previous}, **design}
+        result = bind_solution(result, design)
     return result
 
 

@@ -73,6 +73,9 @@ CAPABILITY_MAP = {
 }
 
 SERVICE_SYNONYMS = {
+    "agentcore": "Amazon Bedrock AgentCore",
+    "agentcore runtime": "Amazon Bedrock AgentCore",
+    "amazon bedrock agentcore runtime": "Amazon Bedrock AgentCore",
     "dms": "AWS Database Migration Service",
     "iam identity center": "AWS IAM Identity Center",
     "identity center": "AWS IAM Identity Center",

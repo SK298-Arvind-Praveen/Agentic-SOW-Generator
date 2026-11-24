@@ -1,17 +1,13 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Signup from './Signup';
 
-jest.mock('../services/apiService', () => ({
-  __esModule: true,
-  default: { signup: jest.fn(), resendVerification: jest.fn() },
-}));
-
-test('shows numeric SK-prefixed employee ID and hides resend before first attempt', () => {
-  const { container } = render(<MemoryRouter><Signup /></MemoryRouter>);
-  expect(screen.getByText('SK-')).toBeInTheDocument();
-  expect(screen.getByRole('spinbutton')).toHaveAttribute('min', '1');
-  expect(screen.queryByRole('button', { name: /resend verification/i })).not.toBeInTheDocument();
-  expect(container.querySelectorAll('.required-asterisk')).toHaveLength(7);
+test('old signup links return to Google login', async () => {
+  render(<MemoryRouter initialEntries={['/signup']}><Routes>
+    <Route path="/signup" element={<Signup />} />
+    <Route path="/login" element={<div>Google login</div>} />
+  </Routes></MemoryRouter>);
+  expect(await screen.findByText('Google login')).toBeInTheDocument();
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
 });
